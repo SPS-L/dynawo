@@ -1318,6 +1318,9 @@ Simulation::terminate() {
     data_->exportStateVariables();
   }
 
+  // Write real time tracking file if enabled
+  writeRealTimeTrackingFile();
+
   if (data_ && isLostEquipmentsExported() && !lostEquipmentsOutputFile_.empty()) {
     ofstream fileLostEquipments;
     openFileStream(fileLostEquipments, lostEquipmentsOutputFile_);
@@ -1569,6 +1572,35 @@ Simulation::printCurrentTime(const string& fileName) const {
   out << tCurrent_;
   out.close();
   fs::permissions(fileName, fs::group_read | fs::group_write | fs::owner_write | fs::others_write | fs::owner_read | fs::others_read);
+}
+
+void
+Simulation::writeRealTimeTrackingFile() const {
+  // Early return if timing disabled or no data collected
+  if (!enableRealTimeTracking_ || timingData_.empty()) {
+    return;
+  }
+
+  // Open output file stream using existing pattern
+  ofstream out(realTimeTrackingFile_.c_str());
+  if (!out.is_open()) {
+    throw DYNError(Error::SIMULATION, OpenFileFailed, realTimeTrackingFile_);
+  }
+
+  // Write CSV header
+  out << "simulation_time,computation_time_ms" << std::endl;
+
+  // Write timing data with proper precision formatting
+  out << std::fixed;
+  for (const auto& timingPair : timingData_) {
+    out << std::setprecision(6) << timingPair.first << ","
+        << std::setprecision(3) << timingPair.second << std::endl;
+  }
+
+  out.close();
+
+  // Set file permissions following existing pattern
+  fs::permissions(realTimeTrackingFile_, fs::group_read | fs::group_write | fs::owner_write | fs::others_write | fs::owner_read | fs::others_read);
 }
 
 Simulation::ExportStateDefinition::ExportStateDefinition(const double timestamp,
