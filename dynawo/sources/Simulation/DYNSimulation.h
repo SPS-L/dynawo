@@ -24,6 +24,7 @@
 #include <queue>
 #include <unordered_map>
 #include <memory>
+#include <chrono>
 #include <boost/shared_ptr.hpp>
 #include <boost/optional.hpp>
 #include <boost/filesystem.hpp>
@@ -726,6 +727,9 @@ class Simulation {
   bool dumpInitModelValues_;  ///< whether to export the results from the initialisation model
   bool dumpFinalValues_;  ///< whether to export the values of the models's variables and parameters at the end of the simulation
   std::vector<double> zCurrent_;  ///< current values of the model's discrete variables
+  bool enableRealTimeTracking_;  ///< enable real time tracking for timestep timing
+  std::string realTimeTrackingFile_;  ///< CSV file path for real time tracking output
+  std::vector<std::pair<double, double>> timingData_;  ///< timing data pairs (simulation_time, computation_time_ms)
 
   bool wasLoggingEnabled_;  ///< true if logging was enabled by an upper project
 
@@ -764,6 +768,11 @@ class Simulation {
    * @brief configure the lost equipments outputs
    */
   void configureLostEquipmentsOutputs();
+
+  /**
+   * @brief write real time tracking file with timestep timing data
+   */
+  void writeRealTimeTrackingFile() const;
 };
 
 }  // end of namespace DYN

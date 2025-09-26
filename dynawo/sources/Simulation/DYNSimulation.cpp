@@ -204,6 +204,8 @@ dumpLocalInitValues_(false),
 dumpGlobalInitValues_(false),
 dumpInitModelValues_(false),
 dumpFinalValues_(false),
+enableRealTimeTracking_(false),
+realTimeTrackingFile_(""),
 wasLoggingEnabled_(false) {
   SignalHandler::setSignalHandlers();
 
@@ -222,6 +224,7 @@ wasLoggingEnabled_(false) {
   setActivateCriteria(!jobEntry_->getSimulationEntry()->getCriteriaFiles().empty());
   setCriteriaStep(jobEntry_->getSimulationEntry()->getCriteriaStep());
   setCurrentPrecision(jobEntry_->getSimulationEntry()->getPrecision());
+  enableRealTimeTracking_ = jobEntry_->getSimulationEntry()->getEnableRealTimeTracking();
 
   outputsDirectory_ = context_->getWorkingDirectory();
   if (jobEntry_->getOutputsEntry()) {
@@ -302,6 +305,14 @@ Simulation::configureSimulationOutputs() {
     configureFinalStateValueOutputs();
     configureFinalStateOutputs();
     configureLostEquipmentsOutputs();
+  }
+
+  // Configure real time tracking file path
+  if (enableRealTimeTracking_) {
+    realTimeTrackingFile_ = createAbsolutePath("simRT.csv", outputsDirectory_);
+    // Pre-allocate vector memory based on estimated simulation length
+    double estimatedSteps = (tStop_ - tStart_) / 0.001;  // Assume ~1ms average timestep
+    timingData_.reserve(static_cast<size_t>(estimatedSteps * 1.2));  // 20% buffer
   }
 }
 
