@@ -261,6 +261,9 @@ SimulationHandler::create(attributes_type const& attributes) {
   if (attributes.has("timeout")) {
     simulation_->setTimeout(attributes["timeout"]);
   }
+  if (attributes.has("enableRealTimeTracking")) {
+    simulation_->setEnableRealTimeTracking(attributes["enableRealTimeTracking"]);
+  }
 }
 
 shared_ptr<SimulationEntry>
