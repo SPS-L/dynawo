@@ -25,6 +25,7 @@
 #include <cstdlib>
 #include <sstream>
 #include <fstream>
+#include <chrono>
 #ifdef _MSC_VER
 #include <process.h>
 #endif
@@ -1017,6 +1018,9 @@ Simulation::simulate() {
 
       const bool isCheckCriteriaIter = data_ && activateCriteria_ && currentIterNb % criteriaStep_ == 0;
 
+      // Start timing measurement for this timestep
+      auto stepStartTime = std::chrono::high_resolution_clock::now();
+
       solver_->solve(tStop_, tCurrent_);
       solver_->printSolve();
       if (currentIterNb == 0)
@@ -1067,6 +1071,14 @@ Simulation::simulate() {
       ++currentIterNb;
 
       model_->notifyTimeStep();
+
+      // End timing measurement and store data if enabled
+      if (enableRealTimeTracking_) {
+        auto stepEndTime = std::chrono::high_resolution_clock::now();
+        auto stepDuration = std::chrono::duration_cast<std::chrono::microseconds>(stepEndTime - stepStartTime);
+        double stepTimeMs = stepDuration.count() / 1000.0;  // Convert to milliseconds
+        timingData_.emplace_back(tCurrent_, stepTimeMs);
+      }
 
       if (hasIntermediateStateToDump() && !isCheckCriteriaIter) {
         // In case it was not already done beause of check criteria and intermediate state dump will be done at least one for current
