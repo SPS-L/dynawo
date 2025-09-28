@@ -1007,6 +1007,12 @@ Simulation::simulate() {
     }
     int currentIterNb = 0;
     double nextTimeStep = 0;
+
+    // Initialize simulation start time for accumulated timing (excluding initialization)
+    if (enableRealTimeTracking_) {
+      simulationStartTime_ = std::chrono::high_resolution_clock::now();
+    }
+
     while (!end() && !SignalHandler::gotExitSignal() && criteriaChecked) {
       double elapsed = timer.elapsed();
       double timeout = jobEntry_->getSimulationEntry()->getTimeout();
@@ -1077,7 +1083,12 @@ Simulation::simulate() {
         auto stepEndTime = std::chrono::high_resolution_clock::now();
         auto stepDuration = std::chrono::duration_cast<std::chrono::microseconds>(stepEndTime - stepStartTime);
         double stepTimeMs = stepDuration.count() / 1000.0;  // Convert to milliseconds
-        timingData_.emplace_back(tCurrent_, stepTimeMs);
+
+        // Calculate accumulated time from simulation start (in seconds, 3 decimal precision)
+        auto accumulatedDuration = std::chrono::duration_cast<std::chrono::microseconds>(stepEndTime - simulationStartTime_);
+        double accumulatedTimeS = accumulatedDuration.count() / 1000000.0;  // Convert to seconds
+
+        timingData_.emplace_back(tCurrent_, stepTimeMs, accumulatedTimeS);
       }
 
       if (hasIntermediateStateToDump() && !isCheckCriteriaIter) {
@@ -1588,13 +1599,16 @@ Simulation::writeRealTimeTrackingFile() const {
   }
 
   // Write CSV header
-  out << "simulation_time,computation_time_ms" << std::endl;
+  out << "simulation_time,computation_time_ms,accumulated_computation_time_s" << std::endl;
 
   // Write timing data with proper precision formatting
   out << std::fixed;
-  for (const auto& timingPair : timingData_) {
-    out << std::setprecision(6) << timingPair.first << ","
-        << std::setprecision(3) << timingPair.second << std::endl;
+  for (const auto& timingTriple : timingData_) {
+    double simulationTime, computationTimeMs, accumulatedTimeS;
+    std::tie(simulationTime, computationTimeMs, accumulatedTimeS) = timingTriple;
+    out << std::setprecision(6) << simulationTime << ","
+        << std::setprecision(3) << computationTimeMs << ","
+        << std::setprecision(3) << accumulatedTimeS << std::endl;
   }
 
   out.close();

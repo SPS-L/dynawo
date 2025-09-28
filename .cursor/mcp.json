@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "dynawo Docs": {
+      "url": "https://gitmcp.io/dynawo/dynawo"
+    },
+    "TRAISIM Docs": {
+      "url": "https://gitmcp.io/SPS-L/TRAISIM"
+    }
+  }
+}

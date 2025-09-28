@@ -25,6 +25,7 @@
 #include <unordered_map>
 #include <memory>
 #include <chrono>
+#include <tuple>
 #include <boost/shared_ptr.hpp>
 #include <boost/optional.hpp>
 #include <boost/filesystem.hpp>
@@ -729,7 +730,8 @@ class Simulation {
   std::vector<double> zCurrent_;  ///< current values of the model's discrete variables
   bool enableRealTimeTracking_;  ///< enable real time tracking for timestep timing
   std::string realTimeTrackingFile_;  ///< CSV file path for real time tracking output
-  std::vector<std::pair<double, double>> timingData_;  ///< timing data pairs (simulation_time, computation_time_ms)
+  std::vector<std::tuple<double, double, double>> timingData_;  ///< timing data triples (simulation_time, computation_time_ms, accumulated_computation_time_s)
+  std::chrono::high_resolution_clock::time_point simulationStartTime_;  ///< start time of the main simulation loop
 
   bool wasLoggingEnabled_;  ///< true if logging was enabled by an upper project
 
