@@ -71,9 +71,18 @@ RUN apt-get update && apt-get install -y \
     bash-completion \
     xz-utils \
     sudo \
+    # Missing packages from reference Dockerfile
+    ninja-build \
+    gdb \
+    gdbserver \
+    libsecret-1-0 \
+    lynx \
+    libgoogle-perftools4 \
     # Required for Intel oneAPI installation
     ca-certificates \
     gnupg \
+    && apt -y remove libopenmpi3 \
+    && apt -y install mpich \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Intel oneAPI Advisor for performance analysis
@@ -96,11 +105,6 @@ RUN cd /tmp && \
     make install && \
     ldconfig && \
     cd / && rm -rf /tmp/zmqpp
-
-# Install Python packages
-RUN pip3 install --no-cache-dir \
-    lxml \
-    psutil
 
 # Set up environment variables for DYNAWO
 ENV DYNAWO_LOCALE=en_GB
