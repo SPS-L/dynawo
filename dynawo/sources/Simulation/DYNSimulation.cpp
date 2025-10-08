@@ -120,6 +120,9 @@
 #include "DYNIoDico.h"
 #include "DYNBitMask.h"
 
+
+#include "/opt/intel/oneapi/vtune/latest/sdk/include/ittnotify.h"
+
 using std::ofstream;
 using std::fstream;
 using std::string;
@@ -986,6 +989,7 @@ Simulation::simulate() {
   updateCurves(updateCalculatedVariable);  // initial curves
 
   bool criteriaChecked = true;
+  bool VTActivated = false;
   try {
     // update state variable only if the IIDM final state is exported, or criteria is checked, or lost equipments are exported
     if (data_ && (finalState_.iidmFile_ || activateCriteria_ || isLostEquipmentsExported())) {
@@ -1077,6 +1081,11 @@ Simulation::simulate() {
       ++currentIterNb;
 
       model_->notifyTimeStep();
+      if (tCurrent_ >= 50.0 && !VTActivated) {
+          std::cout << "[VTune] Profiling resumed at t = " << tCurrent_ << std::endl;
+          __itt_resume();
+          VTActivated = true;
+        }
 
       // End timing measurement and store data if enabled
       if (enableRealTimeTracking_) {
