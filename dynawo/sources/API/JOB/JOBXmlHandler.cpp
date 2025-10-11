@@ -264,6 +264,12 @@ SimulationHandler::create(attributes_type const& attributes) {
   if (attributes.has("enableRealTimeTracking")) {
     simulation_->setEnableRealTimeTracking(attributes["enableRealTimeTracking"]);
   }
+  if (attributes.has("vtuneStartTime")) {
+    simulation_->setVtuneStartTime(attributes["vtuneStartTime"]);
+  }
+  if (attributes.has("vtuneStopTime")) {
+    simulation_->setVtuneStopTime(attributes["vtuneStopTime"]);
+  }
 }
 
 shared_ptr<SimulationEntry>

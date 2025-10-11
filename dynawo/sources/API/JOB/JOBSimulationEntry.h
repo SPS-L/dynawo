@@ -128,7 +128,31 @@ class SimulationEntry {
    * @brief enable real time tracking setter
    * @param enable true to enable real time tracking
    */
-  void setEnableRealTimeTracking(bool enable);
+    void setEnableRealTimeTracking(bool enable);
+
+  /**
+  * @brief VTune start time getter
+  * @return VTune profiling start time (or -1 if not set)
+  */
+  double getVtuneStartTime() const;
+
+  /**
+  * @brief VTune start time setter
+  * @param vtuneStartTime VTune profiling start time
+  */
+  void setVtuneStartTime(double vtuneStartTime);
+
+  /**
+  * @brief VTune stop time getter
+  * @return VTune profiling stop time (or -1 if not set)
+  */
+  double getVtuneStopTime() const;
+
+  /**
+  * @brief VTune stop time setter
+  * @param vtuneStopTime VTune profiling stop time
+  */
+  void setVtuneStopTime(double vtuneStopTime);
 
  private:
   double startTime_;                        ///< Start time of the simulation
@@ -138,6 +162,8 @@ class SimulationEntry {
   double precision_;                        ///< precision of the simulation
   double timeout_;                          ///< simulation timeout
   bool enableRealTimeTracking_;             ///< enable real time tracking for timestep timing
+  double vtuneStartTime_;                   ///< VTune profiling start time
+  double vtuneStopTime_;                    ///< VTune profiling stop time
 };
 
 }  // namespace job
