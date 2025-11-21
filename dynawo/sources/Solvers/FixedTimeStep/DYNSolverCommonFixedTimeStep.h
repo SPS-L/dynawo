@@ -147,6 +147,30 @@ class SolverCommonFixedTimeStep : public Solver::Impl {
   int callAlgebraicSolver();
 
   /**
+   * @brief determine if factorization should be forced based on convergence history
+   *
+   * Uses adaptive strategy to reduce unnecessary symbolic factorizations while
+   * maintaining numerical stability. Considers convergence history, step count,
+   * and average convergence rate.
+   *
+   * @return true if factorization should be forced, false otherwise
+   */
+  bool shouldForceFactorization() const;
+
+  /**
+   * @brief update convergence history and factorization tracking after a solve
+   *
+   * @param status the solver status after the algebraic resolution
+   * @param newtonIterations number of Newton iterations required
+   */
+  void updateFactorizationHistory(SolverStatus_t status, int newtonIterations);
+
+  /**
+   * @brief reset factorization counters after a symbolic factorization
+   */
+  void resetFactorizationCounters();
+
+  /**
    * @brief analyze and potentially retrieve the results obtained by the algebraic solver call
    *
    * @param flag the flag obtained after the call to the algebraic solver
@@ -257,6 +281,12 @@ class SolverCommonFixedTimeStep : public Solver::Impl {
   long int nNewt_;  ///< number of Newton iterations since the beginning of the simulation
   int countRestart_;  ///< current number of consecutive Newton resolutions leading to root changes
   bool factorizationForced_;  ///< force the Jacobian calculation due to an algebraic mode or a non convergence of the previous NR
+
+  // Adaptive factorization control for performance optimization
+  int consecutiveGoodConvergence_;  ///< count of consecutive successful convergences
+  int stepsSinceLastFactorization_;  ///< steps since last symbolic factorization
+  double avgConvergenceRate_;  ///< exponential moving average of convergence rate
+  int totalSymbolicFactorizations_;  ///< total count of symbolic factorizations performed
 
   // Parameters for the algebraic resolution at each time step
   double fnormtol_;  ///< stopping tolerance on L2-norm of residual function

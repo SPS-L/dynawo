@@ -15,6 +15,7 @@ set(SOLVER_COMMON_SOURCES
     DYNSolverImpl.cpp
     DYNSolverFactory.cpp
     DYNSolverCommon.cpp
+    DYNSolverProfiler.cpp
     DYNParameterSolver.cpp
     )
 
@@ -22,6 +23,7 @@ set(SOLVER_COMMON_INCLUDE_HEADERS
     DYNSolver.h
     DYNSolverFactory.h
     DYNSolverCommon.h
+    DYNSolverProfiler.h
     DYNParameterSolver.h
     DYNParameterSolver.hpp
     )

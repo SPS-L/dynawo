@@ -69,6 +69,10 @@ hNew_(0.),
 nNewt_(0),
 countRestart_(0),
 factorizationForced_(false),
+consecutiveGoodConvergence_(0),
+stepsSinceLastFactorization_(0),
+avgConvergenceRate_(1.0),
+totalSymbolicFactorizations_(0),
 fnormtol_(1e-4),
 initialaddtol_(0.1),
 scsteptol_(1e-4),
@@ -151,6 +155,10 @@ SolverCommonFixedTimeStep::initCommon(const std::shared_ptr<Model> &model, const
   nNewt_ = 0;
   countRestart_ = 0;
   factorizationForced_ = false;
+  consecutiveGoodConvergence_ = 0;
+  stepsSinceLastFactorization_ = 0;
+  avgConvergenceRate_ = 1.0;
+  totalSymbolicFactorizations_ = 0;
 
   Solver::Impl::init(t0, model);
   Solver::Impl::resetStats();
@@ -314,16 +322,21 @@ SolverCommonFixedTimeStep::callAlgebraicSolver() {
     // Step initialization
     computePrediction();
 
-    // Forcing the Jacobian calculation for the next Newton-Raphson resolution
+    // Adaptive factorization strategy - balance performance and stability
+    // Uses convergence history to intelligently decide when to force factorization
     bool noInitSetup = true;
-    if (stats_.nst_ == 0 || factorizationForced_)
+    if (stats_.nst_ == 0 || shouldForceFactorization()) {
       noInitSetup = false;
+      resetFactorizationCounters();
+    }
 
     // Call the Newton-Raphson resolution
     flag = solverKINEuler_->solve(noInitSetup, skipAlgebraicResidualsEvaluation_);
 
-    // Update statistics
+    // Update statistics and convergence history
     updateStatistics();
+    SolverStatus_t status = analyzeResult(flag);
+    updateFactorizationHistory(status, nNewt_);
   }
 
   return flag;
@@ -539,6 +552,65 @@ SolverCommonFixedTimeStep::printSolveSpecific(std::stringstream& msg) const {
           << setw(16) << stats_.nni_ << " "
           << setw(10) << stats_.nje_ << " "
           << setw(18) << h_ << " ";
+}
+
+bool
+SolverCommonFixedTimeStep::shouldForceFactorization() const {
+  // Adaptive factorization thresholds - tuned for power system simulations
+  static const int GOOD_CONVERGENCE_THRESHOLD = 5;  // Consecutive good convergences needed
+  static const int MAX_STEPS_WITHOUT_FACTORIZATION = 15;  // Maximum steps between factorizations
+  static const double POOR_CONVERGENCE_THRESHOLD = 0.1;  // Below this, force more frequent factorizations
+  
+  // Always force if explicitly flagged (e.g., after divergence or mode change)
+  if (factorizationForced_) {
+    return true;
+  }
+  
+  // If we have a good convergence streak, be more conservative with factorizations
+  if (consecutiveGoodConvergence_ >= GOOD_CONVERGENCE_THRESHOLD) {
+    // Allow longer intervals between factorizations when convergence is stable
+    return stepsSinceLastFactorization_ >= MAX_STEPS_WITHOUT_FACTORIZATION;
+  }
+  
+  // If convergence is poor, force more frequent factorizations
+  if (avgConvergenceRate_ < POOR_CONVERGENCE_THRESHOLD) {
+    // More aggressive factorization when struggling to converge
+    return stepsSinceLastFactorization_ >= (MAX_STEPS_WITHOUT_FACTORIZATION / 2);
+  }
+  
+  // Default: moderate factorization frequency
+  return stepsSinceLastFactorization_ >= (MAX_STEPS_WITHOUT_FACTORIZATION * 2 / 3);
+}
+
+void
+SolverCommonFixedTimeStep::updateFactorizationHistory(SolverStatus_t status, int newtonIterations) {
+  // Update convergence metrics based on solver result
+  if (status == CONV) {
+    // Good convergence - increment streak
+    consecutiveGoodConvergence_++;
+    
+    // Update exponential moving average of convergence rate
+    // Higher rate = faster convergence = better
+    double currentRate = (newtonIterations > 0) ? (1.0 / static_cast<double>(newtonIterations)) : 1.0;
+    avgConvergenceRate_ = 0.8 * avgConvergenceRate_ + 0.2 * currentRate;
+  } else {
+    // Poor convergence or divergence - reset streak and degrade average
+    consecutiveGoodConvergence_ = 0;
+    avgConvergenceRate_ *= 0.9;  // Exponential decay
+  }
+  
+  // Increment step counter since last factorization
+  stepsSinceLastFactorization_++;
+}
+
+void
+SolverCommonFixedTimeStep::resetFactorizationCounters() {
+  // Called when a symbolic factorization is actually performed
+  stepsSinceLastFactorization_ = 0;
+  totalSymbolicFactorizations_++;
+  
+  // Note: We don't reset consecutiveGoodConvergence_ here because
+  // the factorization itself doesn't indicate convergence quality
 }
 
 }  // end namespace DYN

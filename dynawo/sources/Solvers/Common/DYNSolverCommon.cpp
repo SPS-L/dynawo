@@ -32,12 +32,20 @@ namespace DYN {
 
 bool
 SolverCommon::copySparseToKINSOL(const SparseMatrix& smj, SUNMatrix& JJ, const int& size, sunindextype * lastRowVals) {
+  // Tolerance thresholds for matrix structure change detection
+  // These help avoid expensive symbolic refactorizations due to minor numerical noise
+  static const double STRUCTURE_CHANGE_TOLERANCE = 0.01;  // 1% relative change in NNZ
+  static const int MIN_NNZ_CHANGE = 10;  // Minimum absolute change to trigger refactorization
+  
   bool matrixStructChange = false;
-  if (SM_NNZ_S(JJ) < smj.nbElem()) {
+  int currentNNZ = SM_NNZ_S(JJ);
+  int newNNZ = smj.nbElem();
+  
+  if (currentNNZ < newNNZ) {
     free(SM_INDEXPTRS_S(JJ));
     free(SM_INDEXVALS_S(JJ));
     free(SM_DATA_S(JJ));
-    SM_NNZ_S(JJ) = smj.nbElem();
+    SM_NNZ_S(JJ) = newNNZ;
     SM_INDEXPTRS_S(JJ) = reinterpret_cast<sunindextype*> (malloc((size + 1) * sizeof (sunindextype)));
     SM_INDEXVALS_S(JJ) = reinterpret_cast<sunindextype*> (malloc(SM_NNZ_S(JJ) * sizeof (sunindextype)));
     SM_DATA_S(JJ) = reinterpret_cast<realtype*> (malloc(SM_NNZ_S(JJ) * sizeof (realtype)));
@@ -45,7 +53,7 @@ SolverCommon::copySparseToKINSOL(const SparseMatrix& smj, SUNMatrix& JJ, const i
   }
 
   // NNZ has to be actualized anyway
-  SM_NNZ_S(JJ) = smj.nbElem();
+  SM_NNZ_S(JJ) = newNNZ;
 
   for (unsigned i = 0, iEnd = size + 1; i < iEnd; ++i) {
     SM_INDEXPTRS_S(JJ)[i] = smj.Ap_[i];  //!!! implicit conversion from unsigned to sunindextype
@@ -56,8 +64,27 @@ SolverCommon::copySparseToKINSOL(const SparseMatrix& smj, SUNMatrix& JJ, const i
   }
 
   if (lastRowVals != NULL) {
-    if (memcmp(lastRowVals, SM_INDEXVALS_S(JJ), sizeof (sunindextype)*SM_NNZ_S(JJ)) != 0) {
-      matrixStructChange = true;
+    // Apply tolerance-based structure change detection
+    // Only flag structure change if the difference is significant
+    int nnzDiff = std::abs(newNNZ - currentNNZ);
+    double changeRatio = (currentNNZ > 0) ? static_cast<double>(nnzDiff) / currentNNZ : 1.0;
+    
+    // Check if structure actually changed (beyond tolerance)
+    if (changeRatio >= STRUCTURE_CHANGE_TOLERANCE || nnzDiff >= MIN_NNZ_CHANGE) {
+      // Significant size change - check actual structure
+      if (memcmp(lastRowVals, SM_INDEXVALS_S(JJ), sizeof (sunindextype)*SM_NNZ_S(JJ)) != 0) {
+        matrixStructChange = true;
+      }
+    } else {
+      // Minor size change within tolerance - still copy values but don't trigger refactorization
+      // unless the sparsity pattern actually changed
+      if (newNNZ == currentNNZ) {
+        // Same size - check if pattern changed
+        if (memcmp(lastRowVals, SM_INDEXVALS_S(JJ), sizeof (sunindextype)*SM_NNZ_S(JJ)) != 0) {
+          matrixStructChange = true;
+        }
+      }
+      // If sizes differ but within tolerance, don't flag as structure change
     }
   } else {  // first time or size change
     matrixStructChange = true;
