@@ -55,12 +55,11 @@ This document summarizes the complete implementation of performance optimization
 **File**: `dynawo/sources/Solvers/AlgebraicSolvers/DYNSolverKINCommon.cpp`
 
 **Changes**:
-- COLAMD ordering for power system matrices
-- BTF tolerance increased to 0.1 (from 0.01)
-- Optimized pivot tolerance and memory growth factors
-- Sum scaling for better conditioning
+- COLAMD ordering for power system matrices (via `SUNLinSol_KLUSetOrdering`)
+- Replaces default AMD ordering with COLAMD which is better suited for power systems
+- Note: Advanced KLU parameters (btol, grow factors) not exposed by SUNDIALS API in this version
 
-**Impact**: 3-6% speedup through BTF and ordering optimization
+**Impact**: 2-4% speedup through improved matrix ordering (conservative estimate due to API limitations)
 
 ### Phase 2: Adaptive Control (Medium Risk, High Impact)
 
@@ -143,7 +142,7 @@ int totalSymbolicFactorizations_;
 | Phase | Optimization | Speedup | Risk | Status |
 |-------|--------------|---------|------|--------|
 | 1 | Structure change tolerance | 11-16% | Low | ✅ Implemented |
-| 1 | KLU/BTF parameters | 3-6% | Low | ✅ Implemented |
+| 1 | KLU ordering optimization | 2-4% | Low | ✅ Implemented |
 | 2 | Adaptive factorization | 5-10% | Medium | ✅ Implemented |
 | 3 | OpenMP parallelization | 3-5% | Medium | 📋 Design complete |
 | 3 | Partial Jacobian updates | 10-20% | High | 📋 Design complete |
@@ -151,16 +150,16 @@ int totalSymbolicFactorizations_;
 ### Cumulative Impact
 
 **Conservative Estimate** (Phase 1-2 only):
-- Speedup: **20-25%**
-- Simulation time: 6.47s → **5.18s** (baseline → optimized)
+- Speedup: **18-23%**
+- Simulation time: 6.47s → **5.28s** (baseline → optimized)
 
 **Target Estimate** (Phase 1-2 + OpenMP):
-- Speedup: **30-35%**
-- Simulation time: 6.47s → **4.51s** (baseline → optimized)
+- Speedup: **25-30%**
+- Simulation time: 6.47s → **4.85s** (baseline → optimized)
 
 **Optimistic Estimate** (All phases):
-- Speedup: **40-45%**
-- Simulation time: 6.47s → **3.88s** (baseline → optimized)
+- Speedup: **35-42%**
+- Simulation time: 6.47s → **4.10s** (baseline → optimized)
 
 ## Key Performance Metrics
 
