@@ -117,3 +117,5 @@ nrt/data/TrapezoidalTest/reference/**
 myEnvDynawo.sh
 b/
 b-3-p/
+
+rte-snapshots/
