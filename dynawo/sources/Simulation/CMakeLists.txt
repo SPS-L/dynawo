@@ -37,7 +37,6 @@ target_include_directories(dynawo_Simulation
   PUBLIC
     dynawo_SolverCommon
     libZIP::libZIP
-    /opt/intel/oneapi/vtune/latest/sdk/lib64/libittnotify.a
   PRIVATE
     dynawo_Common
     dynawo_SimulationCommon

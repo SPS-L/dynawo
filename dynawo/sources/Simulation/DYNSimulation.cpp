@@ -227,6 +227,7 @@ wasLoggingEnabled_(false) {
   setCriteriaStep(jobEntry_->getSimulationEntry()->getCriteriaStep());
   setCurrentPrecision(jobEntry_->getSimulationEntry()->getPrecision());
   enableRealTimeTracking_ = jobEntry_->getSimulationEntry()->getEnableRealTimeTracking();
+
   outputsDirectory_ = context_->getWorkingDirectory();
   if (jobEntry_->getOutputsEntry()) {
     outputsDirectory_ = createAbsolutePath(jobEntry_->getOutputsEntry()->getOutputsDirectory(), context_->getWorkingDirectory());

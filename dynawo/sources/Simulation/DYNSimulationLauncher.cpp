@@ -32,7 +32,6 @@
 #include "JOBJobsCollection.h"
 #include "JOBJobEntry.h"
 #include "JOBOutputsEntry.h"
-#include "/opt/intel/oneapi/vtune/latest/sdk/include/ittnotify.h"
 
 #include <string>
 #include <memory>
@@ -119,8 +118,6 @@ void launchSimu(const std::string& jobsFileName, bool isInteractive) {
 
     try {
       simulation->simulate();
-      std::cout << "[VTune] Profiling paused " << std::endl;
-      __itt_pause();
       simulation->terminate();
     } catch (const DYN::Error& err) {
       // Needed as otherwise terminate might crash due to missing staticRef variables
