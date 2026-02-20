@@ -20,7 +20,7 @@
       <dyn:precompiledModels useStandardModels="true"/>
       <dyn:modelicaModels useStandardModels="true"/>
     </dyn:modeler>
-    <dyn:simulation startTime="0" stopTime="500" enableRealTimeTracking="true" vtuneStartTime="50.0" vtuneStopTime="51.0"/>
+    <dyn:simulation startTime="0" stopTime="500" enableRealTimeTracking="true"/>
     <dyn:outputs directory="outputs">
       <dyn:timeline exportMode="TXT"/>
       <dyn:curves inputFile="IEEE14.crv" exportMode="CSV"/>

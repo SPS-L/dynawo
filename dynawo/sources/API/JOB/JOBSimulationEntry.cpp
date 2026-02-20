@@ -23,15 +23,7 @@
 
 namespace job {
 
-SimulationEntry::SimulationEntry() :
-  startTime_(0),
-  stopTime_(0),
-  criteriaStep_(10),
-  precision_(1e-6),
-  timeout_(std::numeric_limits<double>::max()),
-  enableRealTimeTracking_(false),
-  vtuneStartTime_(-1.0),
-  vtuneStopTime_(-1.0) {}
+SimulationEntry::SimulationEntry() : startTime_(0), stopTime_(0), criteriaStep_(10), precision_(1e-6), timeout_(std::numeric_limits<double>::max()), enableRealTimeTracking_(false) {}
 
 void
 SimulationEntry::setStartTime(double startTime) {
@@ -97,26 +89,6 @@ SimulationEntry::getEnableRealTimeTracking() const {
 void
 SimulationEntry::setEnableRealTimeTracking(bool enable) {
   enableRealTimeTracking_ = enable;
-}
-
-double
-SimulationEntry::getVtuneStartTime() const {
-  return vtuneStartTime_;
-}
-
-void
-SimulationEntry::setVtuneStartTime(double vtuneStartTime) {
-  vtuneStartTime_ = vtuneStartTime;
-}
-
-double
-SimulationEntry::getVtuneStopTime() const {
-  return vtuneStopTime_;
-}
-
-void
-SimulationEntry::setVtuneStopTime(double vtuneStopTime) {
-  vtuneStopTime_ = vtuneStopTime;
 }
 
 }  // namespace job

@@ -744,9 +744,7 @@ class Simulation {
   std::string realTimeTrackingFile_;  ///< CSV file path for real time tracking output
   std::vector<std::tuple<double, double, double>> timingData_;  ///< timing data triples (simulation_time, computation_time_ms, accumulated_computation_time_s)
   std::chrono::high_resolution_clock::time_point simulationStartTime_;  ///< start time of the main simulation loop
-  double vtuneStartTime_;   ///< VTune profiling start time
-  double vtuneStopTime_;    ///< VTune profiling stop time
-  bool vtuneActivated_;     ///< Flag to track if VTune has been activated
+
   bool wasLoggingEnabled_;  ///< true if logging was enabled by an upper project
 
  protected:
