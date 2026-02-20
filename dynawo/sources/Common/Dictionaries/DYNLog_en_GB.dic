@@ -24,7 +24,7 @@ SolveParameters               =             starting local initialization of mod
 SolveParametersOK             =             local initialization of model %1% ended successfully
 SolveParametersFError         =             error > %1% : F[%2%] = %3% equation %4%
 UnstableRoot                  =             instability for root  : %1%
-RootGeq                       =             root: %1% ( model: %2%, equation: %3% )
+RootGeq                       =             root: %1% ( model: %2%, equation: %3%, localIndex: %4% ) at time %5%
 UnstableRootFound             =             at least one root is not stable
 SolveParametersError          =             local initialization of model %1% failed
 IncorrectConnectionDiffSize   =             impossible to connect model :%1% element :%2% to model :%3% element :%4% (different size structure %5% Vs %6%)
@@ -232,7 +232,8 @@ SolverIDAUnknownError         =             unknown error during IDA Solve
 SolverIDARestorAlgebraicEqu   =             restoration of the algebraic equations
 SolverIDADebugResidual        =             DEBUG RESIDUAL
 SolverIDALargestErrors        =             largest errors (= total variation during Newton iterations * weight) for variables - truncated to the first %1%
-SolverIDAErrorValue           =             error > %1% : variable %2%, error %3%
+SolverIDAErrorValue           =             error > %1% : variable %2% %3%, error %4%
+SolverIDANumRootsFound        =             solverIDA: number of roots found %1%
 // --> DYNSolverFixedTimeStep
 SolverFixedTimeStepInitOK     =             initialization of %1% : ok
 SolverFixedTimeStepInitGuessOK =            initial guess of the algebraic solver is accurate, following %1% iterations will be skipped until the next mode change
@@ -262,6 +263,7 @@ KinFirstSysFuncErr            =             the system function failed recoverab
 KinReptdSysfuncErr            =             the system function had repeated recoverable errors
 KinLargestErrors              =             largest errors (truncated to the first %1%) at the current iteration
 KinErrorValue                 =             F[%1%]=%2% (model=%3% index=%4% equation:%5%)
+KinRestart                    =             restart algebraic restoration with KIN_LINESEARCH strategy
 SolverEquationsType           =             equation %1% has type %2% (equation:%3%)
 SolverVariablesType           =             variable %1% with index %2% has type %3%
 // --> others...
@@ -274,3 +276,18 @@ SwitchOnBus                   =             switch ON bus : %1%
 XmlParsingError               =             error while parsing file %1% : %2%
 ExecutingCommand              =             executing command : %1%
 UnexpectedError               =             unexpected error
+DelayMode                     =             %1% mode for delay %2% with delayTime %3%
+// --> RT
+ActionListExtendedNetwork     =             action list extended for NETWORK SubModel
+ActionListOverriden           =             actions overriden for SubModel: %1%
+ActionParameterNotFound       =             action registry failed: unknown parameter: %1%
+ActionRegistered              =             action registered for SubModel: %1%
+ActionUnknownSubModel         =             impossible to register action. Unknown SubModel: %1%
+ActionUnparsable              =             could not parse action, incomplete data (%1%)
+ZmqDataSent                   =             data sent to ZMQ%1%
+ZmqChannelCreated             =             channel ZMQ (%1%) created
+UnsopportedOutputChannel      =             unsupported output Channel type: %1%
+OutputStreamMissing           =             output channel '%1%' not used by a stream, not instanciated
+UnknownChannelType            =             unknown channel type: %1%
+StreamDataNotManaged          =             stream data unknown or not managed: %1%
+RTModeCurvesDisabled          =             real time mode: disabling all curves recording (jobs-with-curves won't work!)

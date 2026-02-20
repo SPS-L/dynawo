@@ -33,7 +33,7 @@ set(MODELICA_PREASSEMBLED_MODELS
   EventSetPointBoolean.xml
   EventSetPointReal.xml
   EventSetPointDoubleReal.xml
-  GeneratorFictitious.xml
+  GeneratorAlphaBeta.xml
   GeneratorPQ.xml
   GeneratorPQPropSignalN.xml
   GeneratorPQPropSignalNSFR.xml
@@ -102,6 +102,7 @@ set(MODELICA_PREASSEMBLED_MODELS
   GeneratorSynchronousFourWindingsVRKundurPssKundur.xml
   GeneratorSynchronousProportionalRegulationsInternalParameters.xml
   GeneratorSynchronousThreeWindings.xml
+  GeneratorSynchronousThreeWindingsDTRI8.xml
   GeneratorSynchronousThreeWindingsGoverNordicVRNordic.xml
   GeneratorSynchronousThreeWindingsGoverNordicVRNordicTfo.xml
   GeneratorSynchronousThreeWindingsGoverPropVRPropInt.xml
@@ -164,6 +165,7 @@ set(MODELICA_PREASSEMBLED_MODELS
   HvdcVscDanglingP.xml
   HvdcVscDanglingUDc.xml
   HvdcVscEmulation.xml
+  HVRT.xml
   IECWPP4ACurrentSource2015.xml
   IECWPP4ACurrentSource2020.xml
   IECWPP4BCurrentSource2015.xml
@@ -199,6 +201,7 @@ set(MODELICA_PREASSEMBLED_MODELS
   LoadTwoTransformersTapChangers.xml
   LoadZIP.xml
   LossOfSynchronismProtection.xml
+  LVRT.xml
   LVRT4Points.xml
   LVRT10Points.xml
   Measurements.xml

@@ -26,7 +26,6 @@
 #include <boost/shared_ptr.hpp>
 #include "DYNEnumUtils.h"
 #include "PARParametersSet.h"
-#include "DYNSubModel.h"
 
 namespace timeline {
 class Timeline;
@@ -96,6 +95,20 @@ class Model {
    * @param yp current values of the derivative of the continuous variables
    */
   virtual void copyContinuousVariables(const double* y, const double* yp) = 0;
+
+  /**
+   * @brief restore the residual from a previous state
+   *
+   * @param f current values of the residual
+   */
+  virtual void restoreResidual(const std::vector<double>& f) = 0;
+
+  /**
+  * @brief save the residual
+  *
+  * @param f current values of the residual
+  */
+  virtual void saveResidual(std::vector<double>& f) = 0;
 
   /**
    * @brief get the current value of the discrete variables
@@ -520,6 +533,12 @@ class Model {
    * @param localInitParameters local initialization solver parameters set
    */
   virtual void setLocalInitParameters(const std::shared_ptr<parameters::ParametersSet>& localInitParameters) = 0;
+
+  /**
+   * @brief register an action
+   * @param actionString string containing the action properties
+   */
+  virtual void registerAction(const std::string& actionString) = 0;
 };  ///< Generic class for Model
 
 #ifdef __clang__

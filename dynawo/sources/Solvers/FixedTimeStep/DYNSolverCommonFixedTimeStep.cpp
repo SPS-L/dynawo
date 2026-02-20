@@ -159,13 +159,13 @@ SolverCommonFixedTimeStep::initCommon(const std::shared_ptr<Model> &model, const
 
   if (model->sizeY() != 0) {
     solverKINEuler_.reset(new SolverKINEuler());
-    solverKINEuler_->init(model, this, fnormtol_, initialaddtol_, scsteptol_, mxnewtstep_, msbset_, mxiter_, printfl_, sundialsVectorY_);
+    solverKINEuler_->init(model, this, fnormtol_, initialaddtol_, scsteptol_, mxnewtstep_, msbset_, mxiter_, printfl_, sundialsVectorY_, printResiduals_);
   }
 
-  solverKINAlgRestoration_.reset(new SolverKINAlgRestoration());
+  solverKINAlgRestoration_.reset(new SolverKINAlgRestoration(printReinitResiduals_));
   solverKINAlgRestoration_->init(model_, SolverKINAlgRestoration::KIN_ALGEBRAIC);
   if (hasPrediction()) {
-    solverKINYPrim_.reset(new SolverKINAlgRestoration());
+    solverKINYPrim_.reset(new SolverKINAlgRestoration(printReinitResiduals_));
     getSolverKINYPrim().init(model_, SolverKINAlgRestoration::KIN_DERIVATIVES);
   }
 
@@ -262,7 +262,6 @@ bool
 SolverCommonFixedTimeStep::calculateICCommonModeChange(int& counter, bool& change) {
   // Updating discrete variable values and mode
   model_->evalG(tSolve_, g1_);
-  const modeChangeType_t modeChangeType = model_->getModeChangeType();
   if (std::equal(g0_.begin(), g0_.end(), g1_.begin())) {
     return true;
   } else {
@@ -273,6 +272,7 @@ SolverCommonFixedTimeStep::calculateICCommonModeChange(int& counter, bool& chang
     change = evalZMode(g0_, g1_, tSolve_);
   }
 
+  const modeChangeType_t modeChangeType = model_->getModeChangeType();
   model_->rotateBuffers();
   state_.reset();
   model_->reinitMode();

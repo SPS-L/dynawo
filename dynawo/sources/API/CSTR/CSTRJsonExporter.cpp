@@ -88,6 +88,15 @@ JsonExporter::exportToStream(const std::shared_ptr<ConstraintsCollection>& const
       }
       item.put("limit", data->limit);
       item.put("value", data->value);
+
+      boost::optional<double> valueMin = data->valueMin;
+      if (valueMin)
+        item.put("valueMin", valueMin.value());
+
+      boost::optional<double> valueMax = data->valueMax;
+      if (valueMax)
+        item.put("valueMax", valueMax.value());
+
       boost::optional<int> side = data->side;
       if (side) {
         item.put("side", side.value());
@@ -95,6 +104,11 @@ JsonExporter::exportToStream(const std::shared_ptr<ConstraintsCollection>& const
       boost::optional<double> acceptableDuration = data->acceptableDuration;
       if (acceptableDuration) {
         item.put("acceptableDuration", acceptableDuration.value());
+      }
+
+      const std::string& limitName = data->limitName;
+      if (!limitName.empty()) {
+        item.put("limitName", limitName);
       }
     }
     array.push_back(std::make_pair("", item));

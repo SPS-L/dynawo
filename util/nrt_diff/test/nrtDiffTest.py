@@ -107,12 +107,29 @@ class TestnrtDiffCompareTwoFiles(unittest.TestCase):
         self.assertEqual(return_value, nrtDiff.DIFFERENT)
         message = message.replace("<font color=\"red\">", "")
         message = message.replace("</font>", "")
-        self.assertEqual(message, "nrt_diff/test/outputIIDM.xml: 2 different output values\n[ERROR] attribute bus of object BVIL7T 1 (type generator) value: FSLACK11 is not in the equivalent object on right side\n[ERROR] attribute v of object FF11 (type bus) has different values (delta = 1.0) \n")
+        self.assertEqual(message, "nrt_diff/test/outputIIDM.xml: 2 different output values\n[ERROR] attribute bus of object BVIL7T 1 (type generator) value: FSLACK11 is not in the equivalent object on right side\n[ERROR] attribute v of object FF11 (type bus) has different values (delta = 1) \n")
 
     def test_output_iidm_powsybl(self):
         dir_path = os.path.dirname(os.path.realpath(__file__))
         (return_value, message) = nrtDiff.CompareTwoFiles(os.path.join(dir_path, "outputIIDMPowSybl.xml"), '|', os.path.join(dir_path, "outputIIDMPowSybl2.xml"), '|')
         self.assertEqual(return_value, nrtDiff.IDENTICAL)
+
+    def test_output_iidm_powsybl_nbk(self):
+        dir_path = os.path.dirname(os.path.realpath(__file__))
+        (return_value, message) = nrtDiff.CompareTwoFiles(os.path.join(dir_path, "outputIIDMPowSyblNbk.xml"), '|', os.path.join(dir_path, "outputIIDMPowSyblNbk2.xml"), '|')
+        self.assertEqual(return_value, nrtDiff.DIFFERENT)
+        message = message.replace("<font color=\"red\">", "")
+        message = message.replace("</font>", "")
+        self.maxDiff = None
+        self.assertEqual(message, "nrt_diff/test/outputIIDMPowSyblNbk.xml: 7 different output values\n\
+[ERROR] attribute nodes of object S1VL2_0 (type bus) value: 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23 \
+has another value on right side (value: 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,18,19,20,21,22,23)\n\
+[ERROR] attribute node2 of object S1VL2_BBS1_TWT_DISCONNECTOR (type switch) value: 2 has another value on right side (value: 3)\n\
+[ERROR] attribute tapPosition of object TWT_phaseTapChanger (type phaseTapChanger) has different values (delta = 2) \n\
+[ERROR] attribute v of object S1VL1_0 (type bus) has different values (delta = 1) \n\
+[ERROR] attribute p of object LD1 (type load) has different values (delta = 0.2) \n\
+[ERROR] attribute p2 of object TWT (type twoWindingsTransformer) has different values (delta = 0.0091) \n\
+[ERROR] attribute q1 of object LINE_S2S3 (type line) has different values (delta = 0.0071) \n")
 
     def test_constraints_xml(self):
         dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -122,7 +139,7 @@ class TestnrtDiffCompareTwoFiles(unittest.TestCase):
         self.assertEqual(return_value, nrtDiff.DIFFERENT)
         message = message.replace("<font color=\"red\">", "")
         message = message.replace("</font>", "")
-        self.assertEqual(message, "nrt_diff/test/constraints.xml: 13 different output values\n\
+        self.assertEqual(message, "nrt_diff/test/constraints.xml: 14 different output values\n\
 [ERROR] object BUS_DESC_DIFF_787_U < Umin is in left path but not in right one\n\
 [ERROR] object BUS_NAME_DIFF_781_U < Umin is in left path but not in right one\n\
 [ERROR] object BUS_TIME_DIFF_787_U < Umin is in left path but not in right one\n\
@@ -130,6 +147,7 @@ class TestnrtDiffCompareTwoFiles(unittest.TestCase):
 [ERROR] object BUS_NAME_DIFF2_781_U < Umin is in right path but not in left one\n\
 [ERROR] object BUS_ONLY_ON_RIGHT_SIDE_778_U < Umin is in right path but not in left one\n\
 [ERROR] object BUS_TIME_DIFF_789_U < Umin is in right path but not in left one\n\
+[ERROR] object BUS_DIFFLIMIT_NAME_787_U < Umin has different limitName in the two files\n\
 [ERROR] object BUS_DURATION_DIFF_787_U < Umin has different acceptable durations in the two files\n\
 [ERROR] object BUS_KIND_DIFF_787_U < Umin has different kinds in the two files\n\
 [ERROR] object BUS_LIMIT_DIFF_787_U < Umin has different limits in the two files\n\
@@ -145,7 +163,7 @@ class TestnrtDiffCompareTwoFiles(unittest.TestCase):
         self.assertEqual(return_value, nrtDiff.DIFFERENT)
         message = message.replace("<font color=\"red\">", "")
         message = message.replace("</font>", "")
-        self.assertEqual(message, "nrt_diff/test/constraints.txt: 17 different output values\n\
+        self.assertEqual(message, "nrt_diff/test/constraints.txt: 18 different output values\n\
 [ERROR] object BUS_DESC_DIFF_787_U &lt; Umin is in left path but not in right one\n\
 [ERROR] object BUS_NAME_DIFF_781_U &lt; Umin is in left path but not in right one\n\
 [ERROR] object BUS_TIME_DIFF_787_U &lt; Umin is in left path but not in right one\n\
@@ -153,6 +171,7 @@ class TestnrtDiffCompareTwoFiles(unittest.TestCase):
 [ERROR] object BUS_NAME_DIFF2_781_U &lt; Umin is in right path but not in left one\n\
 [ERROR] object BUS_ONLY_ON_RIGHT_SIDE_778_U &lt; Umin is in right path but not in left one\n\
 [ERROR] object BUS_TIME_DIFF_789_U &lt; Umin is in right path but not in left one\n\
+[ERROR] object BUS_DIFFLIMIT_NAME_787_U &lt; Umin has different limitName in the two files\n\
 [ERROR] object BUS_DURATION_DIFF_787_U &lt; Umin has different acceptable durations in the two files\n\
 [ERROR] object BUS_DURATION_DIFF_NO_TYPE_787_U &lt; Umin has different acceptable durations in the two files\n\
 [ERROR] object BUS_KIND_DIFF_787_U &lt; Umin has different kinds in the two files\n\

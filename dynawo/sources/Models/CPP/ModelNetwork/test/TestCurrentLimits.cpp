@@ -34,16 +34,16 @@ TEST(ModelsModelNetwork, ModelNetworkCurrentLimits) {
   const double desactivate = 0.;
   const std::string modelType = "Whatever";
 
-  mcl.addLimit(8., 5., false);
+  mcl.addLimit("", 8., 5., false);
   ASSERT_EQ(mcl.sizeZ(), 0);
   ASSERT_EQ(mcl.sizeG(), 2);
-  mcl.addLimit(std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<int>::max(), false);
+  mcl.addLimit("", std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<int>::max(), false);
   ASSERT_EQ(mcl.sizeZ(), 0);
   ASSERT_EQ(mcl.sizeG(), 2);
-  mcl.addLimit(10., std::numeric_limits<int>::max(), false);
+  mcl.addLimit("", 10., std::numeric_limits<int>::max(), false);
   ASSERT_EQ(mcl.sizeZ(), 0);
   ASSERT_EQ(mcl.sizeG(), 4);
-  mcl.addLimit(8., std::numeric_limits<int>::max(), true);
+  mcl.addLimit("", 8., std::numeric_limits<int>::max(), true);
   ASSERT_EQ(mcl.sizeZ(), 0);
   ASSERT_EQ(mcl.sizeG(), 6);
   states.resize(mcl.sizeG(), NO_ROOT);
@@ -86,7 +86,7 @@ TEST(ModelsModelNetwork, ModelNetworkCurrentLimits) {
   }
   mcl.evalZ("MY COMP", t, &states[0], desactivate, modelType, &network);
 
-  constraints->filter(DYN::CONSTRAINTS_KEEP_LAST);  // filter constraint collection by removing cleared constraints
+  constraints->filter(DYN::CONSTRAINTS_KEEP_FIRST);  // filter constraint collection by removing cleared constraints
   unsigned n = 0;
   for (const auto& constraintPair : constraints->getConstraintsById()) {
     const auto& constraint = constraintPair.second;
@@ -128,7 +128,7 @@ TEST(ModelsModelNetwork, ModelNetworkCurrentLimits) {
   network.setCurrentTime(5.1);
   mcl.evalZ("MY COMP", t, &states[0], desactivate, modelType, &network);
 
-  constraints->filter(DYN::CONSTRAINTS_KEEP_LAST);  // filter constraint collection by removing cleared constraints
+  constraints->filter(DYN::CONSTRAINTS_KEEP_FIRST);  // filter constraint collection by removing cleared constraints
   n = 0;
   for (const auto& constraintPair : constraints->getConstraintsById()) {
     std::shared_ptr<constraints::Constraint> constraint = constraintPair.second;

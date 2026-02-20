@@ -110,7 +110,6 @@
 #include "DYNSolver.h"
 #include "DYNTimer.h"
 #include "DYNModelMulti.h"
-#include "DYNModeler.h"
 #include "DYNFileSystemUtils.h"
 #include "DYNTerminate.h"
 #include "DYNDataInterface.h"
@@ -120,8 +119,7 @@
 #include "DYNIoDico.h"
 #include "DYNBitMask.h"
 
-
-#include "/opt/intel/oneapi/vtune/latest/sdk/include/ittnotify.h"
+#include "make_unique.hpp"
 
 using std::ofstream;
 using std::fstream;
@@ -229,9 +227,6 @@ wasLoggingEnabled_(false) {
   setCriteriaStep(jobEntry_->getSimulationEntry()->getCriteriaStep());
   setCurrentPrecision(jobEntry_->getSimulationEntry()->getPrecision());
   enableRealTimeTracking_ = jobEntry_->getSimulationEntry()->getEnableRealTimeTracking();
-  vtuneStartTime_ = jobEntry_->getSimulationEntry()->getVtuneStartTime();
-  vtuneStopTime_ = jobEntry_->getSimulationEntry()->getVtuneStopTime();
-  vtuneActivated_ = false;
   outputsDirectory_ = context_->getWorkingDirectory();
   if (jobEntry_->getOutputsEntry()) {
     outputsDirectory_ = createAbsolutePath(jobEntry_->getOutputsEntry()->getOutputsDirectory(), context_->getWorkingDirectory());
@@ -780,20 +775,29 @@ Simulation::importFinalStateValuesRequest() const {
   }
 }
 
+std::unique_ptr<Modeler>
+Simulation::createModeler() const {
+  std::unique_ptr<Modeler> modeler = DYN::make_unique<Modeler>();
+  return modeler;
+}
+
 void
 Simulation::initFromData(const shared_ptr<DataInterface>& data, const shared_ptr<DynamicData>& dyd) {
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer timer("Simulation::initFromData()");
 #endif
-  Modeler modeler;
-  modeler.setDataInterface(data);
-  modeler.setDynamicData(dyd);
-  modeler.initSystem();
+  std::unique_ptr<Modeler> modeler = createModeler();
+  modeler->setDataInterface(data);
+  modeler->setDynamicData(dyd);
+  modeler->initSystem();
 
-  model_ = modeler.getModel();
+  model_ = modeler->getModel();
   model_->setWorkingDirectory(context_->getWorkingDirectory());
   model_->setTimeline(timeline_);
-  model_->setConstraints(constraintsCollection_);
+
+  if (jobEntry_->getOutputsEntry() && jobEntry_->getOutputsEntry()->getConstraintsEntry() &&
+          jobEntry_->getOutputsEntry()->getConstraintsEntry()->getFilterType() != CONSTRAINTS_DYNAFLOW)
+      model_->setConstraints(constraintsCollection_);
 
   if (jobEntry_->getLocalInitEntry() != nullptr) {
     const std::string initParFile = createAbsolutePath(jobEntry_->getLocalInitEntry()->getParFile(), context_->getInputDirectory());
@@ -914,6 +918,10 @@ Simulation::init() {
   Trace::info() << "-----------------------------------------------------------------------" << Trace::endline<< Trace::endline;
 
   solver_->setTimeline(timeline_);
+  // no constraint registered during initialization
+  if (jobEntry_->getOutputsEntry() && jobEntry_->getOutputsEntry()->getConstraintsEntry() &&
+        jobEntry_->getOutputsEntry()->getConstraintsEntry()->getFilterType() == CONSTRAINTS_DYNAFLOW)
+      model_->setConstraints(constraintsCollection_);
 }
 
 void
@@ -1083,21 +1091,6 @@ Simulation::simulate() {
 
       model_->notifyTimeStep();
 
-      // Check if VTune profiling should be activated
-      if (vtuneStartTime_ >= 0.0 && tCurrent_ >= vtuneStartTime_ && !vtuneActivated_) {
-        std::cout << "[VTune] Profiling resumed at t = " << tCurrent_ << std::endl;
-        __itt_resume();
-        vtuneActivated_ = true;
-      }
-
-      // Check if VTune profiling should be paused
-      if (vtuneStopTime_ >= 0.0 && tCurrent_ >= vtuneStopTime_ && vtuneActivated_) {
-        std::cout << "[VTune] Profiling paused at t = " << tCurrent_ << std::endl;
-        __itt_pause();
-        vtuneActivated_ = false;  // Reset flag in case you want to resume again later
-        vtuneStartTime_ = -1.0;
-      }
-
       // End timing measurement and store data if enabled
       if (enableRealTimeTracking_) {
         auto stepEndTime = std::chrono::high_resolution_clock::now();
@@ -1241,14 +1234,14 @@ Simulation::updateParametersValues() const {
 }
 
 void
-Simulation::updateCurves(const bool updateCalculateVariable) const {
+Simulation::updateCurves(const bool updateCalculatedVariable) const {
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer timer("Simulation::updateCurves()");
 #endif
   if (exportCurvesMode_ == EXPORT_CURVES_NONE && exportFinalStateValuesMode_ == EXPORT_FINAL_STATE_VALUES_NONE)
     return;
 
-  if (updateCalculateVariable)
+  if (updateCalculatedVariable)
     model_->updateCalculatedVarForCurves();
 
   curvesCollection_->updateCurves(tCurrent_);
