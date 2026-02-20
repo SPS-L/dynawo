@@ -1,307 +1,421 @@
-# Dynawo Solver Performance Optimization - Implementation Summary
+# Dynawo Solver Performance Optimization Strategy
 
 **Author:** Sustainable Power Systems Lab (SPS-L)  
 **Website:** https://sps-lab.org  
 **Contact:** info@sps-lab.org  
-**Date:** November 21, 2025
-
-## Overview
-
-This document summarizes the complete implementation of performance optimizations for the Dynawo power system simulator, targeting a **30-40% overall speedup** by reducing symbolic factorization overhead and optimizing Jacobian calculations.
-
-## Problem Analysis
-
-**Initial Profiling Results (Intel VTune)**:
-- Total simulation time: 6.47 seconds
-- `order_and_analyze` (symbolic factorization): 1.56s (24.1%)
-- `kinLsSetup` (total setup): 4.30s (66.5%)
-- `evalJ_KIN` (Jacobian evaluation): 1.73s (26.7%)
-- Symbolic factorization rate: 100% (7 factorizations in 7 time steps)
-
-**Root Causes**:
-1. Overly sensitive matrix structure change detection
-2. Aggressive factorization triggering on every mode change
-3. No convergence history-based factorization control
-4. Non-optimized KLU/BTF parameters for power systems
-
-## Implemented Optimizations
-
-### Phase 1: Core Optimizations (Low Risk, High Impact)
-
-#### 1. Matrix Structure Change Tolerance
-**File**: `dynawo/sources/Solvers/Common/DYNSolverCommon.cpp`
-
-**Changes**:
-- Added tolerance thresholds (1% relative, 10 absolute NNZ change)
-- Avoid refactorization for minor numerical noise
-- Smart structure change detection
-
-**Impact**: 11-16% speedup by reducing factorizations from 7 to 3-4 per simulation
-
-#### 2. Performance Profiler Infrastructure
-**Files**: 
-- `dynawo/sources/Solvers/Common/DYNSolverProfiler.h`
-- `dynawo/sources/Solvers/Common/DYNSolverProfiler.cpp`
-
-**Features**:
-- Comprehensive factorization tracking
-- Matrix structure change statistics
-- Timing measurements
-- Performance reporting
-
-**Impact**: Monitoring and validation infrastructure (no direct speedup)
-
-#### 3. KLU/BTF Parameter Optimization
-**File**: `dynawo/sources/Solvers/AlgebraicSolvers/DYNSolverKINCommon.cpp`
-
-**Changes**:
-- COLAMD ordering for power system matrices (via `SUNLinSol_KLUSetOrdering`)
-- Replaces default AMD ordering with COLAMD which is better suited for power systems
-- Note: Advanced KLU parameters (btol, grow factors) not exposed by SUNDIALS API in this version
-
-**Impact**: 2-4% speedup through improved matrix ordering (conservative estimate due to API limitations)
-
-### Phase 2: Adaptive Control (Medium Risk, High Impact)
-
-#### 4. Adaptive Factorization Control
-**Files**:
-- `dynawo/sources/Solvers/FixedTimeStep/DYNSolverCommonFixedTimeStep.h`
-- `dynawo/sources/Solvers/FixedTimeStep/DYNSolverCommonFixedTimeStep.cpp`
-
-**Changes**:
-- Convergence history tracking
-- Adaptive factorization decision based on convergence rate
-- Consecutive good convergence counting
-- Intelligent factorization threshold adjustment
-
-**New Members**:
-```cpp
-int consecutiveGoodConvergence_;
-int stepsSinceLastFactorization_;
-double avgConvergenceRate_;
-int totalSymbolicFactorizations_;
-```
-
-**New Methods**:
-- `shouldForceFactorization()` - intelligent decision logic
-- `updateFactorizationHistory()` - track convergence metrics
-- `resetFactorizationCounters()` - manage factorization accounting
-
-**Impact**: 5-10% additional speedup by avoiding 1-2 unnecessary factorizations
-
-### Phase 3: Advanced Optimizations (Design Complete)
-
-#### 5. OpenMP Jacobian Parallelization (Implementation Guide)
-**Document**: `reports/OpenMP_Parallelization_Implementation.md`
-
-**Strategy**:
-- Parallelize voltage level derivative evaluation
-- Thread-safe BusDerivatives operations
-- Dynamic scheduling for load balancing
-- Column-level locks for sparse matrix assembly
-
-**Expected Impact**: 3-5% speedup on multi-core systems
-
-#### 6. Partial Jacobian Updates (Detailed Design)
-**Document**: `reports/Partial_Jacobian_Update_Design.md`
-
-**Architecture**:
-- Change tracking system for components
-- Block-structured Jacobian representation
-- Selective update strategy for mode changes
-- Dependency graph for change propagation
-
-**Expected Impact**: 10-20% speedup for mode-change-heavy scenarios
-
-## Files Modified
-
-### Core Solver Files
-1. `dynawo/sources/Solvers/Common/DYNSolverCommon.cpp` - Structure tolerance
-2. `dynawo/sources/Solvers/Common/DYNSolverCommon.h` - Interface updates
-3. `dynawo/sources/Solvers/AlgebraicSolvers/DYNSolverKINCommon.cpp` - KLU optimization
-4. `dynawo/sources/Solvers/FixedTimeStep/DYNSolverCommonFixedTimeStep.h` - Adaptive control
-5. `dynawo/sources/Solvers/FixedTimeStep/DYNSolverCommonFixedTimeStep.cpp` - Implementation
-
-### New Files Created
-6. `dynawo/sources/Solvers/Common/DYNSolverProfiler.h` - Profiler interface
-7. `dynawo/sources/Solvers/Common/DYNSolverProfiler.cpp` - Profiler implementation
-
-### Build System
-8. `dynawo/sources/Solvers/Common/CMakeLists.txt` - Add profiler to build
-
-### Documentation
-9. `reports/Jacobian_Parallelization_Analysis.md` - Parallelization analysis
-10. `reports/OpenMP_Parallelization_Implementation.md` - OpenMP guide
-11. `reports/Partial_Jacobian_Update_Design.md` - Partial update design
-12. `reports/Performance_Optimization_Validation_Plan.md` - Validation plan
-
-## Expected Performance Improvements
-
-### By Optimization Phase
-
-| Phase | Optimization | Speedup | Risk | Status |
-|-------|--------------|---------|------|--------|
-| 1 | Structure change tolerance | 11-16% | Low | ✅ Implemented |
-| 1 | KLU ordering optimization | 2-4% | Low | ✅ Implemented |
-| 2 | Adaptive factorization | 5-10% | Medium | ✅ Implemented |
-| 3 | OpenMP parallelization | 3-5% | Medium | 📋 Design complete |
-| 3 | Partial Jacobian updates | 10-20% | High | 📋 Design complete |
-
-### Cumulative Impact
-
-**Conservative Estimate** (Phase 1-2 only):
-- Speedup: **18-23%**
-- Simulation time: 6.47s → **5.28s** (baseline → optimized)
-
-**Target Estimate** (Phase 1-2 + OpenMP):
-- Speedup: **25-30%**
-- Simulation time: 6.47s → **4.85s** (baseline → optimized)
-
-**Optimistic Estimate** (All phases):
-- Speedup: **35-42%**
-- Simulation time: 6.47s → **4.10s** (baseline → optimized)
-
-## Key Performance Metrics
-
-### Symbolic Factorization Reduction
-
-| Metric | Baseline | Target | Method |
-|--------|----------|--------|--------|
-| Factorizations per time step | 1.0 (100%) | 0.4-0.5 (40-50%) | Structure tolerance + adaptive control |
-| `order_and_analyze` time | 1.56s (24.1%) | <1.0s (<15%) | Reduced frequency + KLU tuning |
-| BTF preprocessing time | 0.79s (12.2%) | <0.6s (<9%) | Parameter optimization |
-
-### Jacobian Evaluation Optimization
-
-| Metric | Baseline | Target | Method |
-|--------|----------|--------|--------|
-| `evalJ_KIN` time | 1.73s (26.7%) | <1.4s (<22%) | OpenMP parallelization |
-| Parallel efficiency | N/A | >60% | 4-thread execution |
-| Partial update savings | 0% | 50-70% | Selective recalculation |
-
-## Testing and Validation
-
-### Validation Requirements
-
-✅ **Correctness**:
-- Numerical accuracy within 1e-8 of baseline
-- No new convergence failures
-- Identical discrete event sequence
-
-✅ **Performance**:
-- Minimum 20% overall speedup (target: 30-40%)
-- Statistically significant (p < 0.05)
-- Consistent across multiple networks
-
-✅ **Stability**:
-- No race conditions (ThreadSanitizer clean)
-- No memory leaks (Valgrind clean)
-- Graceful handling of edge cases
-
-### Test Networks
-
-1. **IEEE14** - Small, well-conditioned (validation)
-2. **IEEE57** - Medium complexity (performance baseline)
-3. **Nordic** - Large, realistic (production-like)
-4. **IEEE118** - Large, stressed (stress testing)
-5. **RTE France** - Very large (scalability testing)
-
-## Configuration Parameters
-
-### New Solver Parameters
-
-```xml
-<!-- Optimization control parameters -->
-<par type="DOUBLE" name="structureChangeTolerance" value="0.01"/>
-<par type="INT" name="minNNZChange" value="10"/>
-<par type="INT" name="goodConvergenceThreshold" value="5"/>
-<par type="INT" name="maxStepsWithoutFactorization" value="15"/>
-<par type="BOOL" name="enableAdaptiveFactorization" value="true"/>
-<par type="BOOL" name="enablePerformanceProfiling" value="false"/>
-```
-
-### OpenMP Environment Variables
-
-```bash
-export OMP_NUM_THREADS=4            # Use 4 threads
-export OMP_SCHEDULE="dynamic,1"     # Dynamic scheduling
-export OMP_PROC_BIND=close          # Thread affinity
-export OMP_PLACES=cores             # One thread per core
-```
-
-## Implementation Status
-
-### ✅ Completed (Ready for Testing)
-- Matrix structure change tolerance
-- Performance profiler infrastructure
-- KLU/BTF parameter optimization
-- Adaptive factorization control
-
-### 📋 Design Complete (Ready for Implementation)
-- OpenMP parallelization (detailed implementation guide)
-- Partial Jacobian updates (comprehensive design)
-
-### 🔄 Pending (Next Steps)
-- Compile and test Phase 1-2 implementations
-- Profile optimized version with Intel VTune
-- Implement OpenMP parallelization (Phase 3.1)
-- Prototype partial Jacobian updates (Phase 3.2)
-- Comprehensive validation testing
-
-## Known Limitations
-
-1. **OpenMP Scalability**: Limited to ~4-8 threads due to Amdahl's Law
-2. **Partial Updates Complexity**: Requires careful dependency tracking
-3. **Network-Specific Tuning**: Thresholds may need adjustment per network
-4. **KLU API Constraints**: Some advanced features not exposed by SUNDIALS
-
-## Future Work
-
-### Short-Term Enhancements
-- Automatic threshold tuning based on network characteristics
-- GPU acceleration for Jacobian evaluation (CUDA/OpenCL)
-- Improved load balancing for OpenMP parallelization
-
-### Long-Term Research
-- Machine learning-based factorization prediction
-- Adaptive mesh refinement for transients
-- Hierarchical matrix compression for very large systems
-
-## References
-
-### Internal Documents
-1. `reports/BTF_Analysis_DYNAWO.md` - BTF library usage analysis
-2. `reports/order_and_analyse_optimization_report.md` - Profiling analysis
-3. `Profiling_Results/` - Intel VTune profiling data
-
-### External Resources
-1. SUNDIALS Documentation - KINSOL solver guide
-2. KLU User Guide - Sparse LU factorization
-3. SuiteSparse Documentation - BTF and matrix ordering
-4. OpenMP Specification 4.5 - Parallel programming
-
-## Conclusion
-
-The implemented optimizations provide a robust foundation for **30-40% performance improvements** in Dynawo simulations through:
-
-1. **Intelligent factorization control** - Avoid unnecessary symbolic refactorizations
-2. **Optimized linear algebra** - Tuned KLU parameters for power systems
-3. **Comprehensive monitoring** - Performance profiling infrastructure
-4. **Future-ready architecture** - Designs for parallelization and partial updates
-
-All Phase 1-2 optimizations are **implemented, tested, and ready for deployment**. Phase 3 optimizations have **detailed designs and implementation guides** ready for future development.
+**Date:** December 2025
 
 ---
 
-**Project Status**: Phase 1-2 complete. Phase 3 design complete.
+## Executive Summary
 
-**Next Actions**:
-1. Compile and test current implementations
-2. Run comprehensive validation suite
-3. Profile with Intel VTune to measure actual improvements
-4. Deploy to production after validation
-5. Implement Phase 3 enhancements based on measured results
+This document presents a performance optimization strategy for the Dynawo power system simulator, targeting a **30-45% overall speedup** in time-domain simulations. The strategy is based on Intel VTune profiling of representative large-scale French transmission network simulations (~300k+ variables).
 
-**Contact**: info@sps-lab.org  
-**Website**: https://sps-lab.org
+**Key Finding:** Beyond known bottlenecks, profiling revealed a **hidden data structure hotspot** consuming 10-12% of execution time that was not identified in previous analyses.
 
+---
+
+## Performance Bottleneck Analysis
+
+### Test Case Characteristics
+- **Network**: French transmission network (PFR_20240605)
+- **System Size**: ~300,000+ variables
+- **Simulation Duration**: 100 seconds with frequent mode changes
+- **Events**: Generator trips, tap changes, SVC operations, VCS arming/disarming
+
+### Where Time Is Spent
+
+| Component | % of Total Time | Notes |
+|-----------|-----------------|-------|
+| **KLU Symbolic Factorization** | 30-32% | Primary bottleneck |
+| ├─ BTF preprocessing | 15-17% | Graph algorithms |
+| └─ Matrix ordering (COLAMD) | 12-14% | Fill-reducing ordering |
+| **Jacobian Evaluation** | 27-30% | Parallelizable |
+| ├─ ModelNetwork::evalJt | 18-21% | Network model |
+| └─ Adept AD | 7-9% | Automatic differentiation |
+| **KLU Numerical Factorization** | 17-18% | Already efficient |
+| **Derivatives Data Structure** | **10-12%** | **Hidden hotspot** |
+| ├─ Map insertions | 3-5% | Memory allocation |
+| ├─ Tree iteration | 4-5% | Cache-unfriendly |
+| └─ Map clearing | 2-3% | O(n) destruction |
+| **Residual Evaluation** | 6-8% | Minor target |
+
+---
+
+## Optimization Summary Table
+
+| # | Optimization | Expected Speedup | Effort | Risk | Status |
+|---|-------------|------------------|--------|------|--------|
+| **1** | Replace `std::map` in Derivatives class | 8-10% | Low | Low | 🔄 Pending |
+| **2** | Adaptive Factorization Control | 5-8% | Low | Low | ✅ Implemented |
+| **3** | KLU Numerical-only Refactorization | 5-7% | Medium | Low | 🔄 Pending |
+| **4** | Matrix Structure Change Tolerance | 3-5% | Low | Low | ✅ Implemented |
+| **5** | KLU COLAMD Ordering | 2-4% | Low | Low | ✅ Implemented |
+| **6** | Tune Factorization Thresholds | 2-3% | Low | Low | 🔄 Tuning needed |
+| **7** | OpenMP Component Parallelization | 8-12% | Medium | Medium | 📋 Designed |
+| **8** | OpenMP SubModel Parallelization | 3-5% | Medium | Medium | 📋 Designed |
+| **9** | Partial Jacobian Updates | 10-20% | High | High | 📋 Designed |
+
+**Legend:** ✅ Implemented | 🔄 Pending | 📋 Design only
+
+---
+
+## Detailed Optimization Descriptions
+
+### 1. Replace `std::map` with Flat Vector in Derivatives Class ⭐⭐⭐
+
+**Priority:** CRITICAL  
+**Expected Speedup:** 8-10%  
+**Implementation Effort:** Low (2-3 days)  
+**Risk:** Low
+
+**Problem:**  
+The `Derivatives` class uses `std::map<int, double>` for storing Jacobian derivatives. This causes:
+- O(log n) insertion time per value
+- O(n) clearing time (tree destruction)
+- Poor cache locality (scattered memory allocations)
+- Frequent `operator new` calls visible in profiling
+
+**Solution:**  
+Replace with a flat vector structure:
+- Pre-allocated `std::vector<double>` for direct O(1) indexing
+- Separate `std::vector<int>` tracking non-zero indices
+- O(nnz) reset instead of O(n) clearing
+
+**Files to Modify:**
+- `DYNDerivative.h`
+- `DYNDerivative.cpp`
+- `DYNModelBus.cpp`
+
+---
+
+### 2. Adaptive Factorization Control ⭐⭐⭐
+
+**Priority:** High  
+**Expected Speedup:** 5-8%  
+**Implementation Effort:** Low  
+**Risk:** Low  
+**Status:** ✅ Implemented, ⏳ Testing pending
+
+**Problem:**  
+Symbolic factorization (30% of time) is triggered too frequently, even when the Jacobian structure hasn't changed significantly.
+
+**Solution:**  
+Intelligent factorization scheduling based on convergence history:
+- Track consecutive successful convergences
+- Track steps since last factorization
+- Monitor average convergence rate
+- Only force factorization when numerically necessary
+
+**Current Thresholds:**
+```
+Good convergence threshold: 5 consecutive successes
+Max steps without factorization: 15
+Poor convergence threshold: 0.1 (convergence rate)
+```
+
+---
+
+### 3. KLU Numerical-only Refactorization ⭐⭐
+
+**Priority:** High  
+**Expected Speedup:** 5-7%  
+**Implementation Effort:** Medium (3-5 days)  
+**Risk:** Low
+
+**Problem:**  
+When matrix values change but structure remains the same, full symbolic+numerical factorization is performed.
+
+**Solution:**  
+Use SUNDIALS API to perform numerical-only refactorization:
+```cpp
+if (structureChanged) {
+    SUNLinSol_KLUReInit(LS, JJ, nnz, 2);  // Full refactorization
+} else {
+    SUNLinSol_KLUReInit(LS, JJ, nnz, 1);  // Numerical only
+}
+```
+
+This skips expensive BTF preprocessing and matrix ordering when only numerical values change.
+
+---
+
+### 4. Matrix Structure Change Tolerance ⭐⭐
+
+**Priority:** Medium  
+**Expected Speedup:** 3-5%  
+**Implementation Effort:** Low  
+**Risk:** Low  
+**Status:** ✅ Implemented, ⏳ Testing pending
+
+**Problem:**  
+Minor numerical noise in matrix structure detection triggers unnecessary symbolic refactorizations.
+
+**Solution:**  
+Apply tolerance thresholds before flagging structure change:
+- Only trigger if NNZ change ≥ 1% (relative) OR ≥ 10 (absolute)
+- Then verify actual structure via memory comparison
+
+---
+
+### 5. KLU COLAMD Ordering ⭐
+
+**Priority:** Medium  
+**Expected Speedup:** 2-4%  
+**Implementation Effort:** Low  
+**Risk:** Low  
+**Status:** ✅ Implemented, ⏳ Testing pending
+
+**Problem:**  
+Default AMD ordering may not be optimal for power system matrices.
+
+**Solution:**  
+Explicitly set COLAMD ordering which typically performs better for power system Jacobians:
+```cpp
+SUNLinSol_KLUSetOrdering(linearSolver_, 1);  // 1 = COLAMD
+```
+
+**Note:** Advanced KLU parameters (btol, grow factors, pivot tolerance) are not accessible through the SUNDIALS API.
+
+---
+
+### 6. Tune Factorization Thresholds ⭐
+
+**Priority:** Medium  
+**Expected Speedup:** 2-3% (additional)  
+**Implementation Effort:** Low (1 day)  
+**Risk:** Low
+
+**Current vs Proposed Thresholds:**
+
+| Parameter | Current | Proposed |
+|-----------|---------|----------|
+| Good convergence threshold | 5 | 3 |
+| Max steps without factorization | 15 | 25 |
+| Poor convergence threshold | 0.1 | 0.05 |
+
+**Additional Logic:**
+- Skip factorization if Newton converged in ≤2 iterations AND good convergence streak
+
+---
+
+### 7. OpenMP Component Parallelization ⭐⭐
+
+**Priority:** Medium-High  
+**Expected Speedup:** 8-12% (on 4+ cores)  
+**Implementation Effort:** Medium (1-2 weeks)  
+**Risk:** Medium
+
+**Concept:**  
+Parallelize component derivative evaluation in `ModelNetwork::evalJt()`:
+
+```cpp
+const auto& components = getComponents();
+#pragma omp parallel for schedule(dynamic) if(components.size() > 100)
+for (size_t i = 0; i < components.size(); ++i) {
+    components[i]->evalDerivatives(t);
+}
+```
+
+**Requirements:**
+- Thread-safe derivative accumulation (requires Optimization #1 first)
+- Thread-local storage or atomic operations
+- Careful handling of shared bus derivatives
+
+---
+
+### 8. OpenMP SubModel Parallelization ⭐
+
+**Priority:** Medium  
+**Expected Speedup:** 3-5%  
+**Implementation Effort:** Medium (1 week)  
+**Risk:** Medium
+
+**Concept:**  
+Parallelize submodel Jacobian evaluation in `ModelMulti::evalJt()`:
+
+```cpp
+#pragma omp parallel for schedule(dynamic) if(subModels_.size() > 10)
+for (size_t i = 0; i < subModels_.size(); ++i) {
+    subModels_[i]->evalJtSub(t, cj, localOffset, jt);
+}
+```
+
+**Requirements:**
+- Pre-computed submodel offsets
+- Non-overlapping Jacobian regions per submodel
+
+---
+
+### 9. Partial Jacobian Updates ⭐
+
+**Priority:** Low (future work)  
+**Expected Speedup:** 10-20% (mode-change scenarios)  
+**Implementation Effort:** High (2-4 weeks)  
+**Risk:** High
+
+**Concept:**  
+Only recompute Jacobian entries for components affected by mode changes, not the entire matrix.
+
+**Deferred due to:**
+- Complex dependency tracking
+- Risk of numerical errors
+- High implementation effort
+
+---
+
+## Implementation Roadmap
+
+### Phase 0: Foundation (Current State)
+
+| Optimization | Status | Expected Impact |
+|-------------|--------|-----------------|
+| Matrix structure change tolerance | ✅ Code complete | 3-5% |
+| KLU COLAMD ordering | ✅ Code complete | 2-4% |
+| Adaptive factorization control | ✅ Code complete | 5-8% |
+| **Phase 0 Total** | **Needs validation** | **10-17%** |
+
+### Phase 1: Quick Wins (Recommended Next)
+
+| Optimization | Effort | Expected Impact |
+|-------------|--------|-----------------|
+| #1 Derivatives `std::map` replacement | 3 days | 8-10% |
+| #6 Threshold tuning | 1 day | 2-3% |
+| #3 KLU numerical-only refactorization | 4 days | 5-7% |
+| **Phase 1 Total** | **~8 days** | **15-20%** |
+
+### Phase 2: Parallelization (If Needed)
+
+| Optimization | Effort | Expected Impact |
+|-------------|--------|-----------------|
+| #7 OpenMP component parallelization | 1-2 weeks | 8-12% |
+| #8 OpenMP submodel parallelization | 1 week | 3-5% |
+| **Phase 2 Total** | **~3 weeks** | **11-17%** |
+
+### Cumulative Expected Speedup
+
+| Scenario | Expected Speedup |
+|----------|------------------|
+| Phase 0 only | 10-17% |
+| Phase 0 + Phase 1 | **25-37%** |
+| Phase 0 + Phase 1 + Phase 2 | **36-54%** |
+
+---
+
+## Risk Assessment
+
+| Optimization | Risk Level | Mitigation Strategy |
+|-------------|------------|---------------------|
+| Derivatives vector replacement | **Low** | Extensive unit testing; same numerical results |
+| Adaptive factorization | **Low** | Fallback to forced factorization on convergence issues |
+| KLU numerical refactorization | **Low** | Only applied when structure unchanged |
+| Matrix structure tolerance | **Low** | Conservative thresholds (1%) |
+| KLU COLAMD ordering | **Low** | Standard SUNDIALS API |
+| Threshold tuning | **Low** | Can easily revert to original values |
+| OpenMP parallelization | **Medium** | ThreadSanitizer validation; careful synchronization |
+| Partial Jacobian updates | **High** | Deferred to Phase 3 |
+
+---
+
+## Validation Strategy
+
+### Validation Approach
+
+1. **Numerical Accuracy:** Compare state variables with ≤1e-4 tolerance
+2. **Event Sequence:** Verify identical timeline.xml
+3. **Performance:** Measure with Intel VTune profiling
+
+### Test Networks
+
+| Network | Purpose | Variables |
+|---------|---------|-----------|
+| IEEE14 | Correctness validation | ~100 |
+| IEEE57 | Performance baseline | ~500 |
+| Nordic | Realistic testing | ~5,000 |
+| IEEE118 | Stress testing | ~2,000 |
+| PFR France | Production validation | ~300,000 |
+
+### Validation Commands
+
+```bash
+# Run baseline simulation
+./dynawo simulate reference_case.jobs --output baseline/
+
+# Run optimized simulation
+./dynawo simulate reference_case.jobs --output optimized/
+
+# Compare numerical results
+python compare_results.py baseline/ optimized/ --tolerance 1e-4
+
+# Compare event sequences
+diff baseline/outputs/timeline.xml optimized/outputs/timeline.xml
+```
+
+---
+
+## Configuration Parameters
+
+### Solver Parameters (solver.par)
+
+```xml
+<!-- Structure Change Detection -->
+<par type="DOUBLE" name="structureChangeTolerance" value="0.01"/>
+<par type="INT" name="minNNZChange" value="10"/>
+
+<!-- Adaptive Factorization -->
+<par type="INT" name="goodConvergenceThreshold" value="5"/>
+<par type="INT" name="maxStepsWithoutFactorization" value="15"/>
+<par type="BOOL" name="enableAdaptiveFactorization" value="true"/>
+```
+
+### OpenMP Environment (Phase 2)
+
+```bash
+export OMP_NUM_THREADS=4
+export OMP_SCHEDULE="dynamic,1"
+export OMP_PROC_BIND=close
+export OMP_PLACES=cores
+```
+
+---
+
+## Recommendations
+
+### Immediate Actions
+
+1. **Validate Phase 0:** Build and test current implementations against reference simulations
+2. **Measure baseline:** Profile current performance with Intel VTune
+3. **Implement #1:** Derivatives data structure replacement (highest impact-to-effort ratio)
+
+### Decision Points
+
+| If Phase 0 achieves... | Then... |
+|------------------------|---------|
+| < 5% speedup | Review implementation, check if optimizations are active |
+| 5-15% speedup | Proceed with Phase 1 |
+| > 15% speedup | Phase 1 may reach 30% target alone |
+
+| If Phase 0+1 achieves... | Then... |
+|--------------------------|---------|
+| < 25% speedup | Phase 2 parallelization recommended |
+| 25-35% speedup | Phase 2 optional based on requirements |
+| > 35% speedup | Target achieved, Phase 2 for stretch goals |
+
+---
+
+## Summary
+
+| Metric | Value |
+|--------|-------|
+| **Target Speedup** | 30-45% |
+| **Phase 0 (implemented)** | 10-17% expected |
+| **Phase 1 (next)** | +15-20% expected |
+| **Total Implementation Time** | 2-3 weeks |
+| **Risk Level** | Low to Medium |
+
+**Key Insight:** The combination of the Derivatives data structure optimization (#1) and the already-implemented adaptive factorization (#2) should deliver the majority of the target speedup with minimal risk.
+
+---
+
+**Contact:** info@sps-lab.org  
+**Website:** https://sps-lab.org
