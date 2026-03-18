@@ -225,7 +225,7 @@ Then do a clean rebuild:
 ```
 
 > **Note:** `DYNAWO_RELEASE_WITH_DEBUG=true` gives you `RelWithDebInfo`
-> builds that are compatible with profilers like `perf` and VTune while
+> builds that are compatible with profilers like `perf` and Valgrind while
 > keeping compiler optimisations.  For the compile-time profiling macros
 > specifically, you still need `-DDYNAWO_PROFILING=ON` via the CMake cache
 > (Option A) because the upstream build script does not expose this flag
