@@ -118,11 +118,20 @@ Located in `performance-analysis/benchmarks/`:
 ```
 performance-analysis/
 |-- README.md                    # This file
+|-- INSTALL_UBUNTU24.md          # Build guide for Ubuntu 24.04
 |-- OPTIMIZATION_ROADMAP.md      # Optimization suggestions and roadmap
 |-- requirements.txt             # Python dependencies
+|-- analyze_profile.py           # CSV/JSON parser, charts, statistics
+|-- compare_runs.py              # Side-by-side run comparison, HTML report
+|-- benchmark_solvers.py         # Automated multi-config benchmarking
+|-- bottleneck_detector.py       # Automatic bottleneck identification
+|-- memory_analyzer.py           # Memory growth analysis, leak detection
 |-- benchmarks/
+|   |-- run_benchmarks.sh        # Master benchmark orchestration script
+|   |-- Nordic_IDA.jobs          # Nordic test with IDA solver
 |   |-- solver_configs/          # Predefined solver configurations
-|   |   |-- (IDA configs, SIM configs, tolerance presets)
+|   |   |-- sim_nordic_baseline.par, sim_nordic_fast.par, ...
+|   |   |-- ida_nordic.par, ida_default.par, ...
 
 dynawo/sources/Solvers/Common/
 |-- DYNSolverProfiler.h          # Profiler header (enums, classes, macros)
@@ -135,16 +144,22 @@ dynawo/sources/Solvers/Common/
 
 ### Method 1: Build-Time Activation (Recommended)
 
-Add the CMake flag when configuring the build:
+After an initial `./myEnvDynawo.sh build-user`, inject the profiling flag
+into the CMake cache and rebuild Dynawo (the third-party libraries do not
+need to be rebuilt):
 
 ```bash
-cmake ../dynawo \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DDYNAWO_PROFILING=ON \
-    # ... other flags ...
+# Re-configure, then add the profiling flag
+./myEnvDynawo.sh config-dynawo
+cmake -DDYNAWO_PROFILING=ON $(find build/ -name 'CMakeCache.txt' -path '*/shared/dynawo/*' -printf '%h' | head -1)
+
+# Rebuild only Dynawo
+./myEnvDynawo.sh build-dynawo
 ```
 
 This defines the `DYNAWO_PROFILING` preprocessor macro, which activates all `DYN_PROFILE_PHASE` and related macros throughout the solver code. Without this flag, these macros expand to `((void)0)` and are optimized away completely.
+
+See [INSTALL_UBUNTU24.md](INSTALL_UBUNTU24.md) for detailed build instructions on Ubuntu 24.04.
 
 ### Method 2: Runtime Activation
 
@@ -406,11 +421,11 @@ void MyClass::memoryIntensiveOperation() {
 
 ### Step 4: Rebuild
 
-Rebuild with profiling enabled:
+Rebuild Dynawo with profiling enabled:
 
 ```bash
-cmake ../dynawo -DDYNAWO_PROFILING=ON
-make -j$(nproc)
+cmake -DDYNAWO_PROFILING=ON $(find build/ -name 'CMakeCache.txt' -path '*/shared/dynawo/*' -printf '%h' | head -1)
+./myEnvDynawo.sh build-dynawo
 ```
 
 The new phase will automatically appear in the profiler output.
@@ -438,19 +453,19 @@ This section walks through a complete workflow from building with profiling to a
 
 ### 1. Build with Profiling
 
+Follow the full setup in [INSTALL_UBUNTU24.md](INSTALL_UBUNTU24.md), then
+enable profiling and rebuild:
+
 ```bash
 cd /path/to/dynawo
-mkdir -p build && cd build
 
-cmake ../dynawo \
-    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-    -DDYNAWO_PROFILING=ON \
-    -DDYNAWO_HOME=$(pwd)/.. \
-    -DCMAKE_INSTALL_PREFIX=$HOME/dynawo-install \
-    -DINSTALL_OPENMODELICA=$HOME/OpenModelica
+# Initial full build (skip if already done)
+./myEnvDynawo.sh build-user
 
-make -j$(nproc)
-make install
+# Enable profiling and rebuild solvers
+./myEnvDynawo.sh config-dynawo
+cmake -DDYNAWO_PROFILING=ON $(find build/ -name 'CMakeCache.txt' -path '*/shared/dynawo/*' -printf '%h' | head -1)
+./myEnvDynawo.sh build-dynawo
 ```
 
 ### 2. Set Up Python Environment
