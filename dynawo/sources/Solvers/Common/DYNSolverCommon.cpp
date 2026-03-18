@@ -25,6 +25,7 @@
 #include "DYNMacrosMessage.h"
 #include "DYNModel.h"
 #include "DYNSolverCommon.h"
+#include "DYNSolverProfiler.h"
 #include "DYNSparseMatrix.h"
 #include "DYNTrace.h"
 
@@ -32,6 +33,7 @@ namespace DYN {
 
 bool
 SolverCommon::copySparseToKINSOL(const SparseMatrix& smj, SUNMatrix& JJ, const int& size, sunindextype * lastRowVals) {
+  DYN_PROFILE_PHASE(PHASE_MATRIX_COPY);
   bool matrixStructChange = false;
   if (SM_NNZ_S(JJ) < smj.nbElem()) {
     free(SM_INDEXPTRS_S(JJ));

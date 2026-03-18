@@ -108,6 +108,7 @@
 #include "DYNTrace.h"
 #include "DYNMacrosMessage.h"
 #include "DYNSolver.h"
+#include "DYNSolverProfiler.h"
 #include "DYNTimer.h"
 #include "DYNModelMulti.h"
 #include "DYNFileSystemUtils.h"
@@ -988,6 +989,7 @@ Simulation::calculateIC() {
 void
 Simulation::simulate() {
   Timer timer("Simulation::simulate()");
+  DYN_PROFILE_PHASE_MEM(PHASE_SIMULATION_LOOP);
   printSolverHeader();
 
   // Printing out the initial solution
@@ -1103,6 +1105,9 @@ Simulation::simulate() {
         double accumulatedTimeS = accumulatedDuration.count() / 1000000.0;  // Convert to seconds
 
         timingData_.emplace_back(tCurrent_, stepTimeMs, accumulatedTimeS);
+#ifdef DYNAWO_PROFILING
+        DYN_PROFILE_RECORD_TIMESTEP(tCurrent_, stepTimeMs, DYN::SolverProfiler::getCurrentMemoryKB());
+#endif
       }
 
       if (hasIntermediateStateToDump() && !isCheckCriteriaIter) {
@@ -1148,6 +1153,11 @@ Simulation::simulate() {
     }
     if (!timetableOutputFile_.empty())
         remove(timetableOutputFile_);
+#ifdef DYNAWO_PROFILING
+    DYN_PROFILE_PRINT_REPORT();
+    DYN_PROFILE_EXPORT_CSV("dynawo_profile.csv");
+    DYN_PROFILE_EXPORT_JSON("dynawo_profile.json");
+#endif
   } catch (const Terminate& t) {
     Trace::warn() << t.what() << Trace::endline;
     model_->printMessages();

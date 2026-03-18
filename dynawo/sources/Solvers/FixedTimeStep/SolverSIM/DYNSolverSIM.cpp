@@ -33,6 +33,7 @@
 #include "DYNMacrosMessage.h"
 #include "DYNSolverKINEuler.h"
 #include "DYNSolverKINAlgRestoration.h"
+#include "DYNSolverProfiler.h"
 #include "DYNTrace.h"
 #include "DYNModel.h"
 
@@ -105,6 +106,7 @@ SolverSIM::setSolverSpecificParameters() {
 
 void
 SolverSIM::calculateIC(double /*tEnd*/) {
+  DYN_PROFILE_PHASE_MEM(PHASE_CALCULATE_IC);
   calculateICCommon();
   setDifferentialVariablesIndices();
 
@@ -155,6 +157,7 @@ bool SolverSIM::hasPrediction() const {
 
 void
 SolverSIM::solveStep(double tAim, double &tNxt) {
+  DYN_PROFILE_PHASE(PHASE_SOLVER_STEP);
   solveStepCommon(tAim, tNxt);
 
   // Velocity recalculated after each time step.

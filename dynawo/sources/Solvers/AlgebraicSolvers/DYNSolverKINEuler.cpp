@@ -31,6 +31,7 @@
 #include "DYNSparseMatrix.h"
 #include "DYNSolverKINEuler.h"
 #include "DYNModel.h"
+#include "DYNSolverProfiler.h"
 #include "DYNTrace.h"
 #include "DYNMacrosMessage.h"
 #include "DYNTimer.h"
@@ -130,6 +131,7 @@ SolverKINEuler::evalJ_KIN(N_Vector /*yy*/, N_Vector /*rr*/,
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer timer("SolverKINEuler::evalJ_KIN");
 #endif
+  DYN_PROFILE_PHASE(PHASE_JACOBIAN_EVAL);
 
   SolverKINEuler* solver = reinterpret_cast<SolverKINEuler*> (data);
   Model& model = solver->getModel();

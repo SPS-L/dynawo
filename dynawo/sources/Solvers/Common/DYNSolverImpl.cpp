@@ -24,6 +24,7 @@
 #include "DYNSolverImpl.h"
 
 #include "DYNMacrosMessage.h"
+#include "DYNSolverProfiler.h"
 #include "DYNMessage.h"
 #include "DYNModel.h"
 #include "DYNTimer.h"
@@ -235,6 +236,7 @@ Solver::Impl::resetStats() {
 
 void
 Solver::Impl::solve(const double tAim, double& tNxt) {
+  DYN_PROFILE_PHASE(PHASE_SOLVER_SOLVE);
   // Solving
   state_.reset();
   model_->reinitMode();
@@ -250,6 +252,7 @@ Solver::Impl::evalZMode(vector<state_g>& G0, vector<state_g>& G1, const double t
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer timer("SolverIMPL::evalZMode");
 #endif
+  DYN_PROFILE_PHASE(PHASE_DISCRETE_EVAL);
   bool change = false;
 
   // evalZ part

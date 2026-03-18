@@ -37,6 +37,7 @@
 #include "DYNSparseMatrix.h"
 #include "DYNSolverIDA.h"
 #include "DYNSolverKINAlgRestoration.h"
+#include "DYNSolverProfiler.h"
 #include "DYNTrace.h"
 #include "DYNTimer.h"
 #include "DYNSolverCommon.h"
@@ -331,6 +332,7 @@ SolverIDA::init(const std::shared_ptr<Model>& model, const double t0, const doub
 
 void
 SolverIDA::calculateIC(const double /*tEnd*/) {
+  DYN_PROFILE_PHASE_MEM(PHASE_CALCULATE_IC);
 #ifdef _DEBUG_
   vector<double> y0;
   y0.assign(vectorY_.begin(), vectorY_.end());
@@ -511,6 +513,7 @@ SolverIDA::evalF(realtype tres, N_Vector yy, N_Vector yp,
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer timer("SolverIDA::evalF");
 #endif
+  DYN_PROFILE_PHASE(PHASE_RESIDUAL_EVAL);
   SolverIDA* solver = reinterpret_cast<SolverIDA*> (data);
   Model& model = solver->getModel();
 
@@ -615,6 +618,7 @@ SolverIDA::evalG(realtype tres, N_Vector yy, N_Vector yp, realtype* gout,
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer timer("SolverIDA::evalG");
 #endif
+  DYN_PROFILE_PHASE(PHASE_ROOT_EVAL);
   SolverIDA* solver = reinterpret_cast<SolverIDA*> (data);
   Model& model = solver->getModel();
   realtype* iyy = NV_DATA_S(yy);
@@ -640,6 +644,7 @@ SolverIDA::evalJ(realtype tt, realtype cj,
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer timer("SolverIDA::evalJ");
 #endif
+  DYN_PROFILE_PHASE(PHASE_JACOBIAN_EVAL);
   SolverIDA* solver = reinterpret_cast<SolverIDA*> (data);
   Model& model = solver->getModel();
 
@@ -658,6 +663,7 @@ SolverIDA::evalJ(realtype tt, realtype cj,
 
 void
 SolverIDA::solveStep(double tAim, double& tNxt) {
+  DYN_PROFILE_PHASE(PHASE_SOLVER_STEP);
   int flag = IDASolve(IDAMem_, tAim, &tNxt, sundialsVectorY_, sundialsVectorYp_, IDA_ONE_STEP);
 
   string msg;

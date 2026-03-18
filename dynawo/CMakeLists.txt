@@ -17,6 +17,7 @@ endif()
 
 option(BUILD_TESTS "Choose to build the unit tests")
 option(BUILD_TESTS_COVERAGE "Choose to build tests coverage")
+option(DYNAWO_PROFILING "Enable solver performance profiling instrumentation" OFF)
 
 # Add custom cmake modules to the path
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -235,6 +236,12 @@ endif()
 
 # For compatibility with old makefiles
 add_definitions(-D_DYNAWO_)
+
+# Solver performance profiling
+if(DYNAWO_PROFILING)
+  add_definitions(-DDYNAWO_PROFILING)
+  message(STATUS "Solver profiling instrumentation enabled")
+endif()
 
 # For ADEPT
 set(USE_ADEPT ON CACHE BOOL "")
