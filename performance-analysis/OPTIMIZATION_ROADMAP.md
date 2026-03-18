@@ -6,6 +6,27 @@ All speedup estimates are relative to typical large-scale power system simulatio
 
 ---
 
+## Reference Benchmark System
+
+The primary benchmark for validating optimizations is the **Nordic test system** (`examples/DynaWaltz/Nordic/Nordic.jobs`):
+
+- **Network:** 74 buses, 52 lines, 20 generators, 22 loads
+- **Dynamic models:** 41 models (governors, AVRs, OELs, dynamic loads, etc.)
+- **Simulation:** 0-175s DynaWaltz long-term stability, with NodeFault at bus 4032_401 and line disconnection
+- **Solver:** SolverSIM (fixed-step) with algebraic restoration via KINSOL
+
+For the SIM solver, the key hot path is:
+
+```
+solveStep → solveStepCommon → callAlgebraicSolver → SolverKINEuler::solve → KINSOL iterations
+```
+
+Each KINSOL iteration involves: `evalF_KIN` (residual), `evalJ_KIN` (Jacobian), and `solveCommon → KINSol` (linear solve). The `callAlgebraicSolver` and `setupNewAlgebraicRestoration` methods are instrumented with `PHASE_LINEAR_SOLVE` and `PHASE_REINIT` respectively.
+
+An IDA solver comparison is also available via `performance-analysis/benchmarks/Nordic_IDA.jobs`, which runs the same Nordic system with `dynawo_SolverIDA` (variable-step). This allows direct comparison of IDA vs SIM solver performance characteristics.
+
+---
+
 ## Table of Contents
 
 1. [Programming Optimizations](#programming-optimizations)
@@ -509,8 +530,8 @@ make -j$(nproc)
 
 # Step 2: Run representative workloads to collect profile data
 export DYNAWO_HOME=$(pwd)/install
-$DYNAWO_HOME/bin/dynawo jobs --input examples/IEEE14/IEEE14.jobs
-$DYNAWO_HOME/bin/dynawo jobs --input examples/IEEE39/IEEE39.jobs
+$DYNAWO_HOME/myEnvDynawo.sh jobs examples/DynaWaltz/Nordic/Nordic.jobs
+$DYNAWO_HOME/myEnvDynawo.sh jobs examples/DynaWaltz/IEEE14/IEEE14_GeneratorDisconnections/IEEE14.jobs
 # Run additional representative cases for better coverage
 
 # Step 3: Rebuild using collected profile data

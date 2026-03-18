@@ -285,23 +285,24 @@ make install
 
 # Run with profiling and auto-export
 export DYNAWO_PROFILING=1
-export DYNAWO_PROFILE_OUTPUT=$HOME/results/ieee14_profile.csv
-$DYNAWO_HOME/bin/dynawo jobs --input examples/IEEE14/IEEE14.jobs
+export DYNAWO_PROFILE_OUTPUT=$HOME/results/nordic_profile.csv
+cd $DYNAWO_HOME
+./myEnvDynawo.sh jobs examples/DynaWaltz/Nordic/Nordic.jobs
 ```
 
 ---
 
 ## Running Examples
 
-After building and installing, test your installation with one of the bundled examples:
+After building and installing, test your installation with one of the bundled examples.
+
+### Verify Installation with the Nordic DynaWaltz Test
+
+Run the Nordic DynaWaltz test to verify your installation is working correctly. This is a 74-bus, 20-generator, 175s long-term stability simulation:
 
 ```bash
-# Run the IEEE 14-bus example
 cd $DYNAWO_HOME
-dynawo jobs --input examples/IEEE14/IEEE14.jobs
-
-# Run with verbose output
-dynawo jobs --input examples/IEEE14/IEEE14.jobs --log-level DEBUG
+./myEnvDynawo.sh jobs-with-curves examples/DynaWaltz/Nordic/Nordic.jobs
 ```
 
 Output files (curves, timelines, final state) are written to the output directory specified in the `.jobs` file.
@@ -310,9 +311,10 @@ Output files (curves, timelines, final state) are written to the output director
 
 ```bash
 export DYNAWO_PROFILING=1
-export DYNAWO_PROFILE_OUTPUT=$HOME/results/ieee14_profile.json
+export DYNAWO_PROFILE_OUTPUT=$HOME/results/nordic_profile.json
 
-dynawo jobs --input examples/IEEE14/IEEE14.jobs
+cd $DYNAWO_HOME
+./myEnvDynawo.sh jobs examples/DynaWaltz/Nordic/Nordic.jobs
 
 # The profiler will print a summary table to stdout and write detailed
 # data to the JSON file specified above.

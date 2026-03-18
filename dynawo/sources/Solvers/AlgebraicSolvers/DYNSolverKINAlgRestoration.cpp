@@ -31,6 +31,7 @@
 #include "DYNSolverCommon.h"
 #include "DYNSparseMatrix.h"
 
+#include "DYNSolverProfiler.h"
 #include "DYNTrace.h"
 #include "DYNMacrosMessage.h"
 
@@ -161,6 +162,7 @@ SolverKINAlgRestoration::initVarAndEqTypes() {
 void
 SolverKINAlgRestoration::setupNewAlgebraicRestoration(const double fnormtol, const double initialaddtol, const double scsteptol,
   const double mxnewtstep, const int msbset, const int mxiter, int const printfl) {
+  DYN_PROFILE_PHASE(PHASE_REINIT);
   const unsigned int numFPrevious = numF_;
   numF_ = initVarAndEqTypes();
   if (numF_ == 0)

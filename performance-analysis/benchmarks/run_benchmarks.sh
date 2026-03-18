@@ -29,10 +29,11 @@ SKIP_BUILD=false
 CMAKE_BUILD_TYPE="Release"
 NUM_JOBS="$(nproc 2>/dev/null || echo 4)"
 
-# Simulation cases to benchmark (adapt to your environment)
+# Simulation cases to benchmark
+# Each entry is a path to a .jobs file relative to DYNAWO_HOME
 SIMULATION_CASES=(
-    "IEEE14"
-    "Nordic"
+    "examples/DynaWaltz/Nordic/Nordic.jobs"
+    "examples/DynaWaltz/NordicTCB/NordicTCB.jobs"
 )
 
 # =============================================================================
@@ -89,7 +90,7 @@ Options:
 
 Examples:
   $(basename "$0") --dynawo-home /opt/dynawo --output-dir /tmp/benchmarks
-  $(basename "$0") --skip-build --cases IEEE14
+  $(basename "$0") --skip-build --cases examples/DynaWaltz/Nordic/Nordic.jobs
   $(basename "$0") --jobs 8
 
 Environment Variables:
@@ -172,82 +173,59 @@ mkdir -p "${RUN_DIR}/reports"
 # ---- Step 1: Build Dynawo with Profiling Enabled ----
 if [ "${SKIP_BUILD}" = false ]; then
     log_info "Step 1: Building Dynawo with profiling enabled..."
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
+    cd "${DYNAWO_HOME}"
 
-    cmake "${DYNAWO_HOME}" \
-        -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
-        -DDYNAWO_PROFILING=ON \
-        -DCMAKE_INSTALL_PREFIX="${BUILD_DIR}/install" \
-        2>&1 | tee "${RUN_DIR}/cmake_output.log"
-
-    make -j"${NUM_JOBS}" 2>&1 | tee "${RUN_DIR}/build_output.log"
+    if [ -x "${DYNAWO_HOME}/myEnvDynawo.sh" ]; then
+        ./myEnvDynawo.sh build-user 2>&1 | tee "${RUN_DIR}/build_output.log"
+    else
+        mkdir -p "${BUILD_DIR}"
+        cd "${BUILD_DIR}"
+        cmake "${DYNAWO_HOME}" \
+            -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
+            -DDYNAWO_PROFILING=ON \
+            -DCMAKE_INSTALL_PREFIX="${BUILD_DIR}/install" \
+            2>&1 | tee "${RUN_DIR}/cmake_output.log"
+        make -j"${NUM_JOBS}" 2>&1 | tee "${RUN_DIR}/build_output.log"
+    fi
 
     log_info "Step 1: Build complete."
 else
     log_info "Step 1: Skipping build (--skip-build specified)."
-    if [ ! -d "${BUILD_DIR}" ]; then
-        log_error "Build directory does not exist: ${BUILD_DIR}"
-        log_error "Cannot skip build without an existing build directory."
-        exit 1
-    fi
 fi
 
-# ---- Step 2: Run Example Simulations ----
+# ---- Step 2: Run Benchmark Simulations ----
 log_info "Step 2: Running benchmark simulations..."
 
-for case_name in "${SIMULATION_CASES[@]}"; do
-    log_info "  Running simulation case: ${case_name}"
+cd "${DYNAWO_HOME}"
+
+for jobs_file in "${SIMULATION_CASES[@]}"; do
+    # Derive a short case name from the jobs file path
+    case_name="$(basename "${jobs_file}" .jobs)"
+    log_info "  Running simulation case: ${case_name} (${jobs_file})"
     case_dir="${RUN_DIR}/profiling_data/${case_name}"
     mkdir -p "${case_dir}"
 
-    # Look for the simulation case in common locations
-    # Adapt these paths to your Dynawo installation
-    case_input=""
-    for search_path in \
-        "${DYNAWO_HOME}/examples/${case_name}" \
-        "${DYNAWO_HOME}/nrt/data/${case_name}" \
-        "${DYNAWO_HOME}/testcases/${case_name}"; do
-        if [ -d "${search_path}" ]; then
-            case_input="${search_path}"
-            break
-        fi
-    done
-
-    if [ -z "${case_input}" ]; then
-        log_error "  Simulation case not found: ${case_name} (skipping)"
-        log_error "  Searched in: examples/, nrt/data/, testcases/"
+    if [ ! -f "${DYNAWO_HOME}/${jobs_file}" ]; then
+        log_error "  Jobs file not found: ${DYNAWO_HOME}/${jobs_file} (skipping)"
         continue
     fi
 
-    # Run the simulation with each solver configuration
-    for solver_par in "${SOLVER_CONFIGS_DIR}"/*.par; do
-        if [ ! -f "${solver_par}" ]; then
-            continue
-        fi
-        solver_name="$(basename "${solver_par}" .par)"
-        log_info "    Solver config: ${solver_name}"
+    # Set up profiling output
+    export DYNAWO_PROFILING=1
+    export DYNAWO_PROFILE_OUTPUT="${case_dir}/profile.csv"
 
-        run_output_dir="${case_dir}/${solver_name}"
-        mkdir -p "${run_output_dir}"
-
-        # Adapt this command to your Dynawo binary and job file structure
-        # This is a template invocation; actual flags depend on Dynawo version
-        if [ -x "${BUILD_DIR}/install/bin/dynawo" ]; then
-            "${BUILD_DIR}/install/bin/dynawo" \
-                --jobs-file "${case_input}/$(ls "${case_input}"/*.jobs 2>/dev/null | head -1)" \
-                --solver-par "${solver_par}" \
-                --output "${run_output_dir}" \
-                2>&1 | tee "${run_output_dir}/simulation.log" || {
-                    log_error "    Simulation failed for ${case_name}/${solver_name}"
-                    continue
-                }
-        else
-            log_error "    Dynawo binary not found at ${BUILD_DIR}/install/bin/dynawo"
-            log_error "    Please build Dynawo first or adjust BUILD_DIR."
-            break
-        fi
-    done
+    # Run using myEnvDynawo.sh (the standard Dynawo CLI)
+    if [ -x "${DYNAWO_HOME}/myEnvDynawo.sh" ]; then
+        ./myEnvDynawo.sh jobs "${jobs_file}" \
+            2>&1 | tee "${case_dir}/simulation.log" || {
+                log_error "    Simulation failed for ${case_name}"
+                continue
+            }
+    else
+        log_error "    myEnvDynawo.sh not found at ${DYNAWO_HOME}"
+        log_error "    Please ensure Dynawo is properly set up."
+        continue
+    fi
 done
 
 log_info "Step 2: Simulations complete."
@@ -256,37 +234,22 @@ log_info "Step 2: Simulations complete."
 log_info "Step 3: Collecting profiling data..."
 
 profiling_summary="${RUN_DIR}/profiling_data/profiling_summary.csv"
-echo "case,solver,metric,value" > "${profiling_summary}"
+echo "case,metric,value" > "${profiling_summary}"
 
 for case_dir in "${RUN_DIR}"/profiling_data/*/; do
     case_name="$(basename "${case_dir}")"
-    if [ "${case_name}" = "profiling_summary.csv" ]; then
-        continue
+
+    # Collect timing data from simulation logs
+    if [ -f "${case_dir}/simulation.log" ]; then
+        wall_time=$(grep -oP 'wall.?clock.*?(\d+\.?\d*)' "${case_dir}/simulation.log" | grep -oP '\d+\.?\d*' | tail -1 || echo "N/A")
+        echo "${case_name},wall_clock_seconds,${wall_time}" >> "${profiling_summary}"
     fi
 
-    for solver_dir in "${case_dir}"*/; do
-        solver_name="$(basename "${solver_dir}")"
-
-        # Collect timing data from simulation logs
-        if [ -f "${solver_dir}/simulation.log" ]; then
-            # Extract wall-clock time if reported
-            wall_time=$(grep -oP 'wall.?clock.*?(\d+\.?\d*)' "${solver_dir}/simulation.log" | grep -oP '\d+\.?\d*' | tail -1 || echo "N/A")
-            echo "${case_name},${solver_name},wall_clock_seconds,${wall_time}" >> "${profiling_summary}"
+    # Collect any CSV/JSON profiling output from Dynawo
+    for data_file in "${case_dir}"/*.csv "${case_dir}"/*.json; do
+        if [ -f "${data_file}" ]; then
+            cp "${data_file}" "${RUN_DIR}/profiling_data/${case_name}_$(basename "${data_file}")"
         fi
-
-        # Collect any CSV profiling output from Dynawo
-        for csv_file in "${solver_dir}"/*.csv; do
-            if [ -f "${csv_file}" ]; then
-                cp "${csv_file}" "${RUN_DIR}/profiling_data/${case_name}_${solver_name}_$(basename "${csv_file}")"
-            fi
-        done
-
-        # Collect any JSON profiling output from Dynawo
-        for json_file in "${solver_dir}"/*.json; do
-            if [ -f "${json_file}" ]; then
-                cp "${json_file}" "${RUN_DIR}/profiling_data/${case_name}_${solver_name}_$(basename "${json_file}")"
-            fi
-        done
     done
 done
 

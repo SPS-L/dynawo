@@ -59,7 +59,7 @@ The performance analysis framework operates at three levels:
 
 **Python Analysis Layer:** Python scripts load the exported CSV or JSON files, compute statistics, generate visualizations (phase pie charts, time-series plots, memory growth curves), and produce HTML reports. Dependencies are listed in `requirements.txt`.
 
-**Benchmark Layer:** Shell scripts and solver configuration files automate running standardized test cases (IEEE 14-bus, IEEE 39-bus, large-scale networks) with consistent solver settings, collecting profiling data across runs for comparison.
+**Benchmark Layer:** Shell scripts and solver configuration files automate running standardized test cases with consistent solver settings, collecting profiling data across runs for comparison. The primary benchmark is the Nordic test system (74 buses, 52 lines, 20 generators, 22 loads, 41 dynamic models, 175s DynaWaltz simulation with fault event), with NordicTCB as a secondary case.
 
 ---
 
@@ -179,28 +179,52 @@ The file extension determines the format. The profiler writes data in its destru
 ```bash
 # 1. Set up the environment
 export DYNAWO_PROFILING=1
-export DYNAWO_HOME=$HOME/dynawo-install
+cd $DYNAWO_HOME
 
 # 2. Create results directory
-mkdir -p results/ieee14
+mkdir -p results/nordic
 
 # 3. Run with profiling export
-export DYNAWO_PROFILE_OUTPUT=results/ieee14/profile.csv
-$DYNAWO_HOME/bin/dynawo jobs --input examples/IEEE14/IEEE14.jobs
+export DYNAWO_PROFILE_OUTPUT=results/nordic/profile.csv
+./myEnvDynawo.sh jobs examples/DynaWaltz/Nordic/Nordic.jobs
 
 # 4. View the summary (printed to stdout during execution)
 ```
 
-### Using Solver Configurations
+### Nordic Test System
 
-The `benchmarks/solver_configs/` directory contains predefined solver parameter files that can be used for consistent benchmarking:
+The primary benchmark is the Nordic test system, a DynaWaltz long-term stability simulation:
+
+- **Network:** 74 buses, 52 lines, 20 generators, 22 loads
+- **Dynamic models:** 41 models (governors, AVRs, OELs, loads, etc.)
+- **Simulation:** 0-175s with a NodeFault at bus 4032_401 and line disconnection
+- **Solver:** SolverSIM (fixed-step) with algebraic restoration via KINSOL
+- **Location:** `examples/DynaWaltz/Nordic/Nordic.jobs`
+
+The NordicTCB variant (`examples/DynaWaltz/NordicTCB/NordicTCB.jobs`) adds Transformer Current Blocking with a 300s duration.
+
+### Comparing IDA vs SIM Solvers
+
+A Nordic_IDA.jobs variant is provided in `benchmarks/` to run the same Nordic system with the IDA (variable-step) solver instead of SIM (fixed-step). This enables direct comparison of solver strategies:
 
 ```bash
-# Run with a specific solver configuration
-$DYNAWO_HOME/bin/dynawo jobs \
-    --input examples/IEEE14/IEEE14.jobs \
-    --solver-config benchmarks/solver_configs/ida_default.par
+# Run with SIM solver (default)
+export DYNAWO_PROFILE_OUTPUT=results/nordic/profile_sim.csv
+./myEnvDynawo.sh jobs examples/DynaWaltz/Nordic/Nordic.jobs
+
+# Run with IDA solver
+export DYNAWO_PROFILE_OUTPUT=results/nordic/profile_ida.csv
+./myEnvDynawo.sh jobs performance-analysis/benchmarks/Nordic_IDA.jobs
 ```
+
+### Using Solver Configurations
+
+The `benchmarks/solver_configs/` directory contains predefined solver parameter files for consistent benchmarking:
+
+- `sim_nordic_baseline.par` -- baseline SIM config (matches Nordic/Solver.par)
+- `sim_nordic_fast.par` -- looser tolerances (fnormtol=1e-2, mxiter=10)
+- `sim_nordic_accurate.par` -- tighter tolerances (fnormtol=1e-4, mxiter=30)
+- `ida_nordic.par` -- IDA solver config for Nordic
 
 ### Multiple-Run Benchmarking
 
@@ -208,8 +232,8 @@ For statistical significance, run each benchmark multiple times:
 
 ```bash
 for i in $(seq 1 5); do
-    export DYNAWO_PROFILE_OUTPUT=results/ieee14/run_${i}.csv
-    $DYNAWO_HOME/bin/dynawo jobs --input examples/IEEE14/IEEE14.jobs
+    export DYNAWO_PROFILE_OUTPUT=results/nordic/run_${i}.csv
+    ./myEnvDynawo.sh jobs examples/DynaWaltz/Nordic/Nordic.jobs
 done
 ```
 
@@ -443,12 +467,12 @@ pip install -r requirements.txt
 
 ```bash
 export DYNAWO_PROFILING=1
-export DYNAWO_HOME=$HOME/dynawo-install
+cd $DYNAWO_HOME
 
-mkdir -p results/ieee14
+mkdir -p results/nordic
 
-export DYNAWO_PROFILE_OUTPUT=results/ieee14/profile.json
-$DYNAWO_HOME/bin/dynawo jobs --input examples/IEEE14/IEEE14.jobs
+export DYNAWO_PROFILE_OUTPUT=results/nordic/profile.json
+./myEnvDynawo.sh jobs examples/DynaWaltz/Nordic/Nordic.jobs
 ```
 
 ### 4. Examine Results
@@ -484,8 +508,8 @@ Make optimizations, rebuild, re-run the same test case, and compare the profilin
 
 ```bash
 # After optimization
-export DYNAWO_PROFILE_OUTPUT=results/ieee14/profile_optimized.json
-$DYNAWO_HOME/bin/dynawo jobs --input examples/IEEE14/IEEE14.jobs
+export DYNAWO_PROFILE_OUTPUT=results/nordic/profile_optimized.json
+./myEnvDynawo.sh jobs examples/DynaWaltz/Nordic/Nordic.jobs
 
 # Compare the two JSON files to see improvements
 ```

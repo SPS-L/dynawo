@@ -36,6 +36,7 @@
 #include "DYNMacrosMessage.h"
 #include "DYNSolverKINEuler.h"
 #include "DYNSolverKINAlgRestoration.h"
+#include "DYNSolverProfiler.h"
 #include "DYNTrace.h"
 #include "DYNModel.h"
 
@@ -307,6 +308,7 @@ SolverCommonFixedTimeStep::SolverStatus_t SolverCommonFixedTimeStep::analyzeResu
 
 int
 SolverCommonFixedTimeStep::callAlgebraicSolver() {
+  DYN_PROFILE_PHASE(PHASE_LINEAR_SOLVE);
   int flag = 0;
   if (skipNextNR_) {
     return KIN_INITIAL_GUESS_OK;
