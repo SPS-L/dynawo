@@ -13,7 +13,6 @@ within Dynawo.Electrical.Controls.IEC.IEC61400.BaseClasses;
 */
 
 partial model BaseQControl "Reactive power control base module for wind turbines (IEC N°61400-27-1)"
-
   //Nominal parameters
   parameter Types.ApparentPowerModule SNom "Nominal converter apparent power in MVA";
   parameter Types.Time tS "Integration time step in s";
@@ -67,7 +66,7 @@ partial model BaseQControl "Reactive power control base module for wind turbines
     Placement(visible = true, transformation(origin = {-320, 80}, extent = {{-20, -20}, {20, 20}}, rotation = 0), iconTransformation(origin = {-110, -14.5}, extent = {{-10, -10}, {10, 10}}, rotation = 0)));
 
   //Output variables
-  Modelica.Blocks.Interfaces.RealOutput iqCmdPu(start = Q0Pu * SystemBase.SnRef / (SNom * U0Pu)) "Reactive current command at converter terminal in pu (base UNom, SNom) (generator convention)" annotation(
+  Modelica.Blocks.Interfaces.RealOutput iqCmdPu(start = Iq0Pu) "Reactive current command at converter terminal in pu (base UNom, SNom) (generator convention)" annotation(
     Placement(visible = true, transformation(origin = {310, -200}, extent = {{-10, -10}, {10, 10}}, rotation = 0), iconTransformation(origin = {110, -20}, extent = {{-10, -10}, {10, 10}}, rotation = 0)));
 
   Dynawo.NonElectrical.Blocks.NonLinear.MultiSwitchFixed switch2(f = MqG, nu = 5) annotation(
@@ -120,7 +119,7 @@ partial model BaseQControl "Reactive power control base module for wind turbines
     Placement(visible = true, transformation(origin = {-280, 50}, extent = {{-10, 10}, {10, -10}}, rotation = 90)));
   Dynawo.NonElectrical.Blocks.Continuous.AntiWindupIntegrator antiWindupIntegrator(DyMax = 999, Y0 = U0Pu, YMax = UMaxPu, YMin = UMinPu, tI = if Kiq > 1e-5 then 1 / Kiq else 1 / Modelica.Constants.eps) annotation(
     Placement(visible = true, transformation(origin = {-130, 260}, extent = {{-10, -10}, {10, 10}}, rotation = 0)));
-  Dynawo.NonElectrical.Blocks.Continuous.AntiWindupIntegrator antiWindupIntegrator1(DyMax = 999, Y0 = -Q0Pu * SystemBase.SnRef / (SNom * U0Pu), YMax = IqMaxPu, YMin = IqMinPu, tI = if Kiu > 1e-5 then 1 / Kiu else 1 / Modelica.Constants.eps) annotation(
+  Dynawo.NonElectrical.Blocks.Continuous.AntiWindupIntegrator antiWindupIntegrator1(DyMax = 999, Y0 = -Iq0Pu, YMax = IqMaxPu, YMin = IqMinPu, tI = if Kiu > 1e-5 then 1 / Kiu else 1 / Modelica.Constants.eps) annotation(
     Placement(visible = true, transformation(origin = {150, 260}, extent = {{-10, -10}, {10, 10}}, rotation = 0)));
   Modelica.Blocks.Sources.Constant const5(k = 0.01) annotation(
     Placement(visible = true, transformation(origin = {-70, -60}, extent = {{-10, -10}, {10, 10}}, rotation = 0)));
@@ -134,7 +133,7 @@ partial model BaseQControl "Reactive power control base module for wind turbines
     Placement(visible = true, transformation(origin = {-70, 180}, extent = {{-10, -10}, {10, 10}}, rotation = 0)));
   Modelica.Blocks.Sources.Constant const1(k = URef0Pu) annotation(
     Placement(visible = true, transformation(origin = {-130, 160}, extent = {{-10, -10}, {10, 10}}, rotation = 0)));
-  Dynawo.NonElectrical.Blocks.Continuous.AbsLimRateLimFeedthroughFreeze absLimRateLimFeedthroughFreeze(DyMax = 999, U0 = -Q0Pu * SystemBase.SnRef / (SNom * U0Pu), Y0 = -Q0Pu * SystemBase.SnRef / (SNom * U0Pu), YMax = IqMaxPu, YMin = IqMinPu, tS = tS) annotation(
+  Dynawo.NonElectrical.Blocks.Continuous.AbsLimRateLimFeedthroughFreeze absLimRateLimFeedthroughFreeze(DyMax = 999, U0 = -Iq0Pu, Y0 = -Iq0Pu, YMax = IqMaxPu, YMin = IqMinPu, tS = tS) annotation(
     Placement(visible = true, transformation(origin = {170, 100}, extent = {{-10, -10}, {10, 10}}, rotation = 0)));
   Modelica.Blocks.Math.Gain gain3(k = -1) annotation(
     Placement(visible = true, transformation(origin = {250, 150}, extent = {{-10, -10}, {10, 10}}, rotation = -90)));
@@ -152,6 +151,8 @@ partial model BaseQControl "Reactive power control base module for wind turbines
     Placement(visible = true, transformation(origin = {-24, 240}, extent = {{-10, -10}, {10, 10}}, rotation = 0)));
 
   //Initial parameters
+  parameter Types.CurrentModulePu Iq0Pu "Initial reactive current component at converter terminal in pu (base UNom, SNom) (generator convention)" annotation(
+    Dialog(group = "Initialization"));
   parameter Types.ActivePowerPu P0Pu "Initial active power at grid terminal in pu (base SnRef) (receptor convention)" annotation(
     Dialog(tab = "Operating point"));
   parameter Types.ReactivePowerPu Q0Pu "Initial reactive power at grid terminal in pu (base SnRef) (receptor convention)" annotation(
@@ -162,7 +163,7 @@ partial model BaseQControl "Reactive power control base module for wind turbines
     Dialog(group = "Initialization"));
   parameter Types.VoltageModulePu U0Pu "Initial voltage amplitude at grid terminal in pu (base UNom)" annotation(
     Dialog(tab = "Operating point"));
-  parameter Types.PerUnit XWT0Pu "Initial reactive power or voltage reference at grid terminal in pu (base SNom or UNom) (generator convention)" annotation(
+  parameter Types.PerUnit XWT0Pu "Initial reactive power or voltage reference communicated to WT in pu (base SNom or UNom) (generator convention)" annotation(
     Dialog(tab = "Operating point"));
 
 equation

@@ -11,6 +11,7 @@
 # Preassembled models
 
 set(MODELICA_PREASSEMBLED_MODELS
+  AggregatedIBG.xml
   BESSWeccCurrentSource.xml
   BESSWeccCurrentSourceNoPlantControl.xml
   BooleanTable.xml
@@ -20,6 +21,9 @@ set(MODELICA_PREASSEMBLED_MODELS
   ConditionalForward.xml
   CurrentLimitAutomaton.xml
   CurrentLimitAutomatonTwoLevels.xml
+  DERa.xml
+  DERaAggregatedLVRT.xml
+  DERaGenericLVRT.xml
   DiscreteIntegrator.xml
   DistanceProtectionLineFourZones.xml
   DistanceProtectionLineFourZonesWithBlinder.xml
@@ -39,6 +43,7 @@ set(MODELICA_PREASSEMBLED_MODELS
   GeneratorPQPropSignalNSFR.xml
   GeneratorPQPropDiagramPQSignalN.xml
   GeneratorPQPropDiagramPQSignalNSFR.xml
+  GeneratorPTanPhi.xml
   GeneratorPV.xml
   GeneratorPVFixed.xml
   GeneratorPVDiagramPQ.xml
@@ -67,6 +72,7 @@ set(MODELICA_PREASSEMBLED_MODELS
   GeneratorSynchronousFourWindingsGovSteam1St4b.xml
   GeneratorSynchronousFourWindingsGovSteam1St4bPss2b.xml
   GeneratorSynchronousFourWindingsGovSteamEuSt4b.xml
+  GeneratorSynchronousFourWindingsGovSteamEuSt7b.xml
   GeneratorSynchronousFourWindingsGoverPropVRPropInt.xml
   GeneratorSynchronousFourWindingsIEEEG1Ac1a.xml
   GeneratorSynchronousFourWindingsIEEEG1Dc1a.xml
@@ -123,6 +129,7 @@ set(MODELICA_PREASSEMBLED_MODELS
   GeneratorSynchronousThreeWindingsPmConstVRNordicTfo.xml
   GeneratorSynchronousThreeWindingsProportionalRegulations.xml
   GenericAutomaton.xml
+  GenericIBG.xml
   GridFormingConverterDroopControl.xml
   GridFormingConverterMatchingControl.xml
   GridFormingConverterDispatchableVirtualOscillatorControl.xml
