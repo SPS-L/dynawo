@@ -196,17 +196,16 @@ Four phases, from quick wins to research-level improvements
 
 # Phase 1 — Medium Effort (2–4 weeks)
 
-**Target:** Additional 10–20% speedup through build and algorithmic improvements
+**Target:** Additional 10–20% speedup through data structure and algorithmic improvements
 
 | Item | Description | Expected Gain |
 |------|-------------|---------------|
-| P8 | Profile-Guided Optimization (PGO) | 5–10% |
-| P9 | Link-Time Optimization (LTO) | 3–5% |
 | — | Remaining `std::map` audit | Variable |
 | A5 | Partial Jacobian updates | 10–20% |
 
-- **P8/P9:** Build-system-only changes — zero code risk, improves all code paths
+- **std::map audit:** Extends upstream P1 work to Modelica-generated C++ and SubModel coupling code.
 - **A5:** Highest potential payoff but complex; developer feedback flags cross-model coupling difficulties. Use a conservative Newton-failure fallback approach.
+- P8 (PGO) and P9 (LTO) deferred to Phase 2 — algorithmic gains prioritized first.
 
 **Go/No-Go:** Cumulative speedup ≥ 20% before advancing.
 
@@ -214,17 +213,20 @@ Four phases, from quick wins to research-level improvements
 
 # Phase 2 — Advanced (1–3 months)
 
-**Target:** Additional 15–30% speedup via parallelization and solver adaptivity
+**Target:** Additional 15–30% speedup via parallelization, solver adaptivity, and build optimizations
 
 | Item | Description | Expected Gain |
 |------|-------------|---------------|
+| P8 | Profile-Guided Optimization (PGO) | 5–10% |
+| P9 | Link-Time Optimization (LTO) | 3–5% |
 | P2 | OpenMP Jacobian evaluation | 8–12% |
 | P3 | OpenMP SubModel evaluation | 3–5% |
 | A6 | Adaptive time step control | 3–10% |
 | A7 | Improved Newton convergence | 2–5% |
 | A8 | Krylov preconditioner strategies | 20–40% (large systems) |
 
-**Known risk:** RTE encountered KLU lock contention during prior OpenMP attempts. Mitigation: run a feasibility study on P2 first, measure actual contention before committing.
+- **P8/P9:** Build-system-only, zero code risk — deferred from Phase 1 to prioritize algorithmic work.
+- **Known risk (P2/P3):** RTE encountered KLU lock contention during prior OpenMP attempts.
 
 **Go/No-Go:** OpenMP ≥ 1.5x on 4 cores; Krylov crossover point determined.
 
@@ -252,7 +254,7 @@ Each item is prototyped and evaluated before production commitment.
 
 ```
 Phase 0 (1–2 weeks)    ████████████████░░░░░░░░  15–25% speedup
-Phase 1 (2–4 weeks)    ████████████████████████  25–45% cumulative
+Phase 1 (2–4 weeks)    ████████████████████░░░░  25–40% cumulative
 Phase 2 (1–3 months)   ████████████████████████  40–75% cumulative
 Phase 3 (3–6 months)   ████████████████████████  60–125%+ cumulative
 ```

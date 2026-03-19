@@ -1695,29 +1695,23 @@ For the simplified solver, the implementation path is analogous but requires ada
 
 ### Phase 1: Medium Effort (2-4 weeks)
 
-**Objective:** Achieve an additional 10-20% speedup through build optimizations, remaining data structure improvements, and careful exploration of partial Jacobian updates.
+**Objective:** Achieve an additional 10-20% speedup through remaining data structure improvements and careful exploration of partial Jacobian updates.
 
 **Items:**
-- **P8. Profile-Guided Optimization (PGO)** (5-10% speedup)
-- **P9. Link-Time Optimization (LTO)** (3-5% speedup)
 - **Remaining `std::map` audit** — P1 (Flat Vector Derivatives) was implemented upstream by Gautier Bureau (commit `#3749`), but only for the Network model's `Derivatives` class. Audit and convert remaining `std::map<int, double>` usage in Modelica-generated C++ and SubModel coupling code.
 - **A5. Partial Jacobian Updates** (10-20% speedup) — **High complexity.** Developer feedback (Gautier Bureau, TRAISIM discussion) flags this as "difficult to implement" due to cross-model coupling and the need for a reliable dirty-flag mechanism across the SubModel interface. Consider a conservative Newton-failure fallback approach (as used in RAMSES) rather than full change detection.
 
-**Rationale:** P8 and P9 are build-system-only changes that improve all code paths simultaneously with zero code risk. The remaining `std::map` audit extends the upstream P1 work to other parts of the codebase. A5 remains the algorithmic optimization with the highest potential payoff but carries significant implementation complexity; the RAMSES approach (always update on short circuits, rely on Newton failure for other events) is a pragmatic fallback if full change detection proves too fragile.
+**Rationale:** The remaining `std::map` audit extends the upstream P1 work to other parts of the codebase. A5 remains the algorithmic optimization with the highest potential payoff but carries significant implementation complexity; the RAMSES approach (always update on short circuits, rely on Newton failure for other events) is a pragmatic fallback if full change detection proves too fragile.
 
 **Tasks:**
 1. Audit remaining `std::map<int, double>` usage outside the Network model's `Derivatives` class (Modelica-generated C++, SubModel interface coupling) and convert where beneficial (2-3 days).
-2. Set up PGO build infrastructure (P8) with representative workload scripts (2 days).
-3. Enable LTO (P9) in the build system with an option flag (1 day).
-4. Benchmark PGO + LTO combined (1 day).
-5. Prototype A5: start with a conservative approach — only skip Jacobian re-evaluation when no state variable changes exceed a threshold, with automatic full re-evaluation on Newton failure (4-5 days).
-6. If the conservative A5 prototype shows promise, implement finer-grained change detection per SubModel (3-4 days).
-7. Comprehensive benchmarking of all Phase 1 items combined (2 days).
-8. Regression testing on the full test suite (2 days).
+2. Prototype A5: start with a conservative approach — only skip Jacobian re-evaluation when no state variable changes exceed a threshold, with automatic full re-evaluation on Newton failure (4-5 days).
+3. If the conservative A5 prototype shows promise, implement finer-grained change detection per SubModel (3-4 days).
+4. Comprehensive benchmarking of all Phase 1 items combined (2 days).
+5. Regression testing on the full test suite (2 days).
 
 **Go/No-Go Criteria for Phase 2:**
 - Cumulative speedup (Phase 0 + Phase 1) of at least 20% on the large-scale test case.
-- PGO and LTO builds produce identical numerical results (bitwise or within tolerance).
 - If A5 is implemented: partial Jacobian updates do not increase the total number of Newton iterations by more than 5%.
 - No new test failures.
 
@@ -1725,32 +1719,38 @@ For the simplified solver, the implementation path is analogous but requires ada
 
 ### Phase 2: Advanced (1-3 months)
 
-**Objective:** Enable parallel execution and improve solver adaptivity for an additional 15-30% speedup, with architecture changes that enable further scaling.
+**Objective:** Enable parallel execution, improve solver adaptivity, and apply build-level optimizations for an additional 15-30% speedup, with architecture changes that enable further scaling.
 
 **Items:**
+- **P8. Profile-Guided Optimization (PGO)** (5-10% speedup) — **Lower priority.** Build-system-only change with zero code risk, but deferred from Phase 1 as algorithmic optimizations (A5, std::map audit) offer higher impact with more direct performance insight.
+- **P9. Link-Time Optimization (LTO)** (3-5% speedup) — **Lower priority.** Same rationale as P8; straightforward to enable but deferred to this phase.
 - **P2. OpenMP Jacobian Evaluation** (8-12% speedup) — **Known risks from RTE experience.** KLU's internal data structures use global locks that serialize parallel threads during factorization. RTE attempted OpenMP parallelization for N-1 contingency analysis and encountered significant lock contention. Effective parallelization requires either KLU-level changes or a different parallel strategy.
 - **P3. OpenMP SubModel Evaluation** (3-5% speedup) — **Nested parallelism risk.** The Network model is itself a submodel containing internal components; naively parallelizing at the SubModel level can trigger nested OpenMP regions with poor scaling. Parallelization must target the right granularity level.
 - **A6. Adaptive Time Step Control** (3-10% speedup)
 - **A7. Improved Newton Convergence Criteria** (2-5% speedup)
 - **A8. Krylov Preconditioner Strategies** (20-40% for large systems)
 
-**Rationale:** OpenMP parallelization (P2, P3) has the highest potential payoff in this phase but also the highest risk. Developer feedback from RTE (Gautier Bureau, TRAISIM discussion) confirms that KLU lock contention is a real problem encountered during prior parallelization attempts. Two mitigation paths exist: (1) use a thread-local KLU workspace per contingency (works for N-1 but not within a single simulation), or (2) replace KLU with a thread-safe sparse solver. The recommendation is to prototype P2 early and measure actual lock contention before committing to the full phase. Adaptive time stepping (A6) and Newton criteria (A7) improve the solver's efficiency without changing the underlying algorithms. The Krylov preconditioner (A8) targets very large systems that may emerge as use cases grow.
+**Rationale:** P8 and P9 are low-risk build-system changes that can be applied at any point; they are deferred here to keep Phase 1 focused on algorithmic gains. OpenMP parallelization (P2, P3) has the highest potential payoff in this phase but also the highest risk. Developer feedback from RTE (Gautier Bureau, TRAISIM discussion) confirms that KLU lock contention is a real problem encountered during prior parallelization attempts. Two mitigation paths exist: (1) use a thread-local KLU workspace per contingency (works for N-1 but not within a single simulation), or (2) replace KLU with a thread-safe sparse solver. The recommendation is to prototype P2 early and measure actual lock contention before committing to the full phase. Adaptive time stepping (A6) and Newton criteria (A7) improve the solver's efficiency without changing the underlying algorithms. The Krylov preconditioner (A8) targets very large systems that may emerge as use cases grow.
 
 **Tasks:**
-1. **P2 feasibility study first:** Prototype OpenMP Jacobian evaluation on the Nordic system with 2 and 4 threads and measure KLU lock contention using `perf lock` (3-4 days). This determines whether the rest of the OpenMP investment is viable.
-2. If KLU lock contention is acceptable: thread-safety audit of SubModel interface and implementations (1-2 weeks).
-3. Add thread-safety annotations and fix any shared mutable state (1 week).
-4. Implement P2: OpenMP Jacobian evaluation with dynamic scheduling (3-4 days).
-5. Implement P3: OpenMP residual and root evaluation, being careful to avoid nested parallelism in the Network model (2-3 days).
-6. Benchmark OpenMP scaling on 2, 4, 8, and 16 cores (2 days).
-7. Implement A7: custom error weight function and early convergence detection (3-4 days).
-8. Implement A6: adaptive time step controller with quasi-steady-state detection (1 week).
-9. Validate A6 on event-heavy scenarios (fault ride-through, load shedding) (1 week).
-10. Implement A8: block-Jacobi preconditioner with SUNLINSOL_SPGMR integration (2 weeks).
-11. Benchmark A8 on large-scale systems (5000+ equations) to find crossover point (1 week).
-12. Integration testing of all Phase 2 items combined (1 week).
+1. Set up PGO build infrastructure (P8) with representative workload scripts (2 days).
+2. Enable LTO (P9) in the build system with an option flag (1 day).
+3. Benchmark PGO + LTO combined (1 day).
+4. **P2 feasibility study:** Prototype OpenMP Jacobian evaluation on the Nordic system with 2 and 4 threads and measure KLU lock contention using `perf lock` (3-4 days). This determines whether the rest of the OpenMP investment is viable.
+5. If KLU lock contention is acceptable: thread-safety audit of SubModel interface and implementations (1-2 weeks).
+6. Add thread-safety annotations and fix any shared mutable state (1 week).
+7. Implement P2: OpenMP Jacobian evaluation with dynamic scheduling (3-4 days).
+8. Implement P3: OpenMP residual and root evaluation, being careful to avoid nested parallelism in the Network model (2-3 days).
+9. Benchmark OpenMP scaling on 2, 4, 8, and 16 cores (2 days).
+10. Implement A7: custom error weight function and early convergence detection (3-4 days).
+11. Implement A6: adaptive time step controller with quasi-steady-state detection (1 week).
+12. Validate A6 on event-heavy scenarios (fault ride-through, load shedding) (1 week).
+13. Implement A8: block-Jacobi preconditioner with SUNLINSOL_SPGMR integration (2 weeks).
+14. Benchmark A8 on large-scale systems (5000+ equations) to find crossover point (1 week).
+15. Integration testing of all Phase 2 items combined (1 week).
 
 **Go/No-Go Criteria for Phase 3:**
+- PGO and LTO builds produce identical numerical results (bitwise or within tolerance).
 - If OpenMP is pursued: provides at least 1.5x speedup on 4 cores for the standard benchmark suite.
 - If KLU lock contention blocks P2/P3: document findings and consider deferring to Phase 3 (GPU or alternative solver).
 - Krylov solver with preconditioner is faster than KLU for systems above the determined crossover size.
@@ -1813,7 +1813,6 @@ The following metrics should be tracked across all optimization phases:
 
 **Phase 1 to Phase 2:**
 - Cumulative speedup of at least 20%.
-- PGO/LTO build pipeline is automated and reproducible.
 - If A5 is implemented: partial Jacobian update fallback mechanism has been exercised and validated. If A5 is deferred due to complexity, document the assessment and proceed.
 
 **Phase 2 to Phase 3:**
