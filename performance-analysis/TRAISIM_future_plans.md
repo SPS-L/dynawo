@@ -188,7 +188,7 @@ Four phases, from quick wins to research-level improvements
 | A2 | Matrix structure change tolerance | 3–5% |
 | A3 | KLU numerical-only refactorization | 5–7% |
 
-**A7 is the highest priority.** Gautier Bureau already prototyped this for IDA — porting to SolverSIM is well-scoped. The other items provide layered factorization control: A1 adds decision logic, A2 extends skip criteria, A3 ensures the fast `klu_refactor` path is used.
+**A7 is the highest priority.** Code analysis confirms the FixedTimeStep solver (SolverSIM/SolverTRAP) already fully supports event severity through shared infrastructure with IDA — no solver-side changes needed. The remaining work is model-layer only: adding a fifth severity level and reclassifying events in `ModelNetwork::evalMode()` and the Modelica compiler. Effort is Low.
 
 **Validation:** Nordic test system + large-scale French system benchmark.
 
@@ -281,7 +281,7 @@ All tools and documentation are available in the `performance-analysis/` directo
 
 # Next Steps
 
-1. **Implement Phase 0** — starting with A7 (event severity classification)
+1. **Implement Phase 0** — starting with A7 (event severity classification). Code analysis confirms only model-layer changes are needed (enum extension + `ModelNetwork::evalMode()` + Modelica compiler)
 2. **Benchmark on the French system** — validate gains on Model 2 and Model 3
 3. **Engage with RTE/Dynawo upstream** — contribute improvements back to the main repository
 4. **Proceed through phases based on Go/No-Go criteria** — data-driven decisions at each gate

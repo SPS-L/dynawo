@@ -1206,8 +1206,8 @@ public:
 ### A7. Event Severity Classification for Reinit/Factorization Control
 
 **Expected Speedup:** 10-15% (during event-heavy periods; compounds with A1/A2/A3)
-**Implementation Effort:** Medium
-**Risk Level:** Low-Medium
+**Implementation Effort:** Low — solver infrastructure already in place; changes are model-layer only
+**Risk Level:** Low
 **Priority:** Highest — this is the single most impactful optimization identified during profiling and developer consultation
 **Source:** TRAISIM project discussion with Gautier Bureau (former Dynawo lead developer, RTE)
 
@@ -1215,11 +1215,40 @@ public:
 
 The current `modeChangeType_t` enum in Dynawo classifies events into four levels: `NO_MODE`, `DIFFERENTIAL_MODE`, `ALGEBRAIC_MODE`, and `ALGEBRAIC_J_UPDATE_MODE`. The Modelica-to-C++ translation layer assigns `ALGEBRAIC_J_UPDATE_MODE` to any model equation that involves a Boolean variable in an `if` clause. This heuristic was designed to catch the `running` Boolean (generator on/off) but triggers for many minor events (OEL activations, tap changer steps, AVR limit actions). The solver treats `ALGEBRAIC_J_UPDATE_MODE` as a signal to perform a full Jacobian update and symbolic refactorization, even when the event has negligible impact on the system Jacobian.
 
-Gautier Bureau has already prototyped a solution for the IDA solver: adding a new, higher-severity flag to the `modeChangeType_t` enum that is triggered only for truly disruptive events (short circuits via `NodeFault` model, and generator disconnections via the `running` Boolean). In his implementation, the IDA solver only performs full reinitialization (`IDAReInit`) when this severe flag is detected, allowing minor events to be handled with just a numerical refactorization or even no refactorization at all.
+Gautier Bureau prototyped a solution for the IDA solver: adding a new, higher-severity flag to the `modeChangeType_t` enum that is triggered only for truly disruptive events (short circuits via `NodeFault` model, and generator disconnections via the `running` Boolean). Minor events would receive the standard `ALGEBRAIC_J_UPDATE_MODE` flag, which allows the solver to skip full symbolic refactorization.
 
 The change in the Modelica translation layer is small (~3 lines of code in the C++ code generation). The new flag is derived from heuristic name matching: if the model is a `NodeFault` model or the Boolean variable is named `running`, the severe flag is set. All other Boolean-driven mode changes get the standard `ALGEBRAIC_J_UPDATE_MODE` flag.
 
-**This optimization has been tested on the French system (RTE) for several months with the IDA solver and is confirmed stable.** It has not yet been implemented for the simplified solver (SolverSIM/SolverTRAP), which is the solver used in the TRAISIM real-time use case. Extending it to the simplified solver is the primary implementation task.
+#### Code Analysis: FixedTimeStep Solver Already Supports Event Severity
+
+A detailed analysis of the upstream codebase confirms that **the FixedTimeStep solver (SolverSIM/SolverTRAP) already fully implements event severity handling.** No solver-side changes are needed — the work is entirely at the model classification layer.
+
+The event severity classification system was introduced by Adrien Guironnet (RTE) in commit `9ada292` (issue #346, July 2019) and enhanced by Florentine Rosiere in commit `bf791ae` (issue #947, July 2020, adding the configurable `minimumModeChangeTypeForAlgebraicRestoration` parameter). Both the IDA and FixedTimeStep solvers share the same base class (`Solver::Impl`) and identical severity-handling infrastructure.
+
+The FixedTimeStep solver has three key code paths that already respond to event severity:
+
+1. **`handleRoot()` (`DYNSolverCommonFixedTimeStep.cpp:396-404`):** Sets `factorizationForced_=true` only for `ALGEBRAIC_J_UPDATE_MODE`. For lower-severity events, it skips factorization and even grows the time step.
+
+2. **`reinit()` (`DYNSolverCommonFixedTimeStep.cpp:448-518`):** Checks `modeChangeType < minimumModeChangeTypeForAlgebraicRestoration_` and skips algebraic restoration entirely for low-severity events.
+
+3. **`setupNewAlgRestoration()` (`DYNSolverCommonFixedTimeStep.cpp:420-442`):** Uses different KINSOL tolerance sets depending on severity — tighter tolerances for `ALGEBRAIC_J_UPDATE_MODE` (forced J, `msbsetAlgJ_=1`), relaxed tolerances for `ALGEBRAIC_MODE` (`msbsetAlg_=5`).
+
+4. **`callAlgebraicSolver()` (`DYNSolverCommonFixedTimeStep.cpp:309-332`):** Uses the `factorizationForced_` flag to decide whether to force Jacobian setup at the next Newton solve.
+
+The configurable parameter `minimumModeChangeTypeForAlgebraicRestoration` (default: `ALGEBRAIC_MODE`) is already available in solver PAR files for both IDA and FixedTimeStep solvers.
+
+**Comparison: IDA vs FixedTimeStep handling:**
+
+| Aspect | IDA Solver | FixedTimeStep |
+|--------|-----------|---------------|
+| Mode classification | Same `modeChangeType_t` enum | Same |
+| `setupNewAlgRestoration()` | Returns `true` (force J) for `ALGEBRAIC_J_UPDATE_MODE` | Identical logic |
+| `reinit()` | Checks `minimumModeChangeTypeForAlgebraicRestoration_` | Same check |
+| KINSOL tolerance sets | Dual sets (`*Alg_` vs `*AlgJ_`) | Same dual sets |
+| Root handling | Triggers `IDAReInit` after reinit | Uses `factorizationForced_` flag |
+| Factorization control | Implicit via IDA's internal Newton | Explicit `factorizationForced_` flag |
+
+**Implication:** Any change to how models report their `modeChangeType_t` in `evalMode()` immediately benefits both solvers. Adding a new `ALGEBRAIC_J_UPDATE_SEVERE_MODE` level works automatically — the FixedTimeStep solver will only force factorization for the new severe level, while downgraded events skip factorization.
 
 #### Why This Matters for Real-Time Performance
 
@@ -1227,7 +1256,11 @@ In TRAISIM profiling of the 300,000-variable system, ~30% of computation time du
 
 This compounds with A1/A2/A3: event severity classification provides the model-side intelligence, while A1/A2/A3 provide the solver-side intelligence. Together they form a complete factorization control strategy.
 
+**Estimated savings for FixedTimeStep:** In simulations with frequent low-severity events (e.g., OLTC tap changes every few seconds), this avoids a KLU symbolic + numeric factorization at each event. For large networks (10k+ buses), KLU factorization can be 10-30% of total solver time per step. If tap changes occur at ~100 of ~1000 total events, reclassifying them could save 5-15% of total simulation time.
+
 #### Implementation Sketch
+
+Since the solver infrastructure is already in place, the implementation focuses on the model classification layer:
 
 ```cpp
 // Step 1: Extend the modeChangeType_t enum (DYNEnumUtils.h)
@@ -1239,42 +1272,28 @@ typedef enum {
   ALGEBRAIC_J_UPDATE_SEVERE_MODE  // NEW: only for faults and disconnections
 } modeChangeType_t;
 
-// Step 2: In the Modelica-to-C++ translation (ModelicaCompiler),
-// flag severe events based on model type and variable name:
-//   - NodeFault model → ALGEBRAIC_J_UPDATE_SEVERE_MODE
+// Step 2: In the Modelica compiler (dataContainer.py:2179-2208),
+// refine the classification for discrete variable mode changes:
 //   - Boolean named "running" → ALGEBRAIC_J_UPDATE_SEVERE_MODE
 //   - All other Boolean-driven mode changes → ALGEBRAIC_J_UPDATE_MODE
+// Currently, line 2208 emits: return ALGEBRAIC_J_UPDATE_MODE;
+// For the "running" Boolean, change to: return ALGEBRAIC_J_UPDATE_SEVERE_MODE;
 
-// Step 3: In the simplified solver (SolverCommonFixedTimeStep),
-// use the severity level to decide factorization strategy:
-void SolverCommonFixedTimeStep::handleModeChange(modeChangeType_t modeType) {
-  switch (modeType) {
-    case ALGEBRAIC_J_UPDATE_SEVERE_MODE:
-      // Full symbolic + numerical refactorization
-      forceFullRefactorization();
-      break;
-    case ALGEBRAIC_J_UPDATE_MODE:
-      // Numerical-only refactorization (reuse existing ordering)
-      // Or defer: let Newton failure trigger refactorization
-      if (adaptiveController_.shouldRefactorize()) {
-        numericalRefactorizationOnly();
-      }
-      break;
-    default:
-      // No factorization needed
-      break;
-  }
-}
+// Step 3: In ModelNetwork::evalMode() (DYNModelNetwork.cpp:1032-1063),
+// refine the classification for network events:
+//   - Topology changes (line trips, bus faults) → ALGEBRAIC_J_UPDATE_SEVERE_MODE
+//   - State changes (tap steps, load shedding) → ALGEBRAIC_MODE (already the case)
+
+// Step 4: No solver changes needed — both IDA and FixedTimeStep solvers
+// already distinguish all modeChangeType_t levels through:
+//   - handleRoot() → factorizationForced_ only for highest severity
+//   - reinit() → minimumModeChangeTypeForAlgebraicRestoration_ gate
+//   - setupNewAlgRestoration() → different KINSOL tolerances per severity
 ```
 
-#### Relationship to Gautier's IDA Implementation
+#### Relationship to Upstream Implementation
 
-Gautier's prototype is in a PR (not yet merged to master as of early 2026). The changes are:
-- ~3 lines in the Modelica-to-C++ code generation to add the new flag
-- IDA solver modifications to use the flag for reinit decisions
-- Extensively tested on the French system for DynaSwing simulations
-
-For the simplified solver, the implementation path is analogous but requires adapting the decision logic in `SolverCommonFixedTimeStep` and `SolverKINAlgRestoration` rather than in the IDA reinit path.
+The event severity classification system was introduced upstream by Adrien Guironnet (commit `9ada292`, issue #346) and Florentine Rosiere (commit `bf791ae`, issue #947). The existing four-level enum and all solver-side handling for both IDA and FixedTimeStep are already in the `master` branch. Gautier Bureau's prototype adds the fifth level (`ALGEBRAIC_J_UPDATE_SEVERE_MODE`) and the model-layer reclassification — this is the only remaining work.
 
 ---
 
@@ -1285,23 +1304,24 @@ For the simplified solver, the implementation path is analogous but requires ada
 **Objective:** Achieve 15-25% overall speedup with minimal code changes and low risk, focusing on factorization avoidance.
 
 **Items:**
-- **A7. Event Severity Classification** (15-30% reduction in event-period time) — **Highest priority.** Gautier Bureau already prototyped this for the IDA solver; adapting to SolverSIM and productionizing is a well-scoped task. Targets the root cause of unnecessary symbolic factorizations.
+- **A7. Event Severity Classification** (15-30% reduction in event-period time) — **Highest priority.** Code analysis confirms that the FixedTimeStep solver (SolverSIM/SolverTRAP) already fully supports event severity through shared infrastructure with IDA (`handleRoot()`, `reinit()`, `setupNewAlgRestoration()`). No solver-side changes are needed — only model-layer reclassification (adding `ALGEBRAIC_J_UPDATE_SEVERE_MODE` to the enum and updating `ModelNetwork::evalMode()` and the Modelica compiler). This reduces effort from Medium to Low.
 - **A1. Adaptive Factorization Control** (5-8% speedup)
 - **A2. Matrix Structure Change Tolerance** (3-5% speedup)
 - **A3. KLU Numerical-Only Refactorization** (5-7% speedup)
 
-**Rationale:** A7 is the single highest-impact quick win identified during the TRAISIM discussion with Gautier Bureau. Profiling shows that ~30% of event-period computation time is spent on symbolic factorizations triggered by minor automata events (tap changers, OELs) that do not actually change Jacobian structure. Since Gautier already implemented a severity-based classification for IDA, the design is proven and the port to SolverSIM is straightforward. A1, A2, and A3 complement A7 by providing layered factorization control: A1 adds decision logic, A2 extends skip criteria, and A3 ensures the fast `klu_refactor` path is used when symbolic refactorization is skipped.
+**Rationale:** A7 is the single highest-impact quick win identified during the TRAISIM discussion with Gautier Bureau. Profiling shows that ~30% of event-period computation time is spent on symbolic factorizations triggered by minor automata events (tap changers, OELs) that do not actually change Jacobian structure. Code analysis of the upstream codebase (commits `9ada292` by Adrien Guironnet and `bf791ae` by Florentine Rosiere) confirms the four-level `modeChangeType_t` enum and all solver-side handling are already shared between IDA and FixedTimeStep solvers. The FixedTimeStep `handleRoot()` already distinguishes `ALGEBRAIC_J_UPDATE_MODE` from lower severities, and `reinit()` uses the configurable `minimumModeChangeTypeForAlgebraicRestoration` parameter — no solver-side port is needed. The remaining work is model-layer only: adding a fifth enum level and reclassifying events in `ModelNetwork::evalMode()` and the Modelica compiler (`dataContainer.py`). A1, A2, and A3 complement A7 by providing layered factorization control: A1 adds decision logic, A2 extends skip criteria, and A3 ensures the fast `klu_refactor` path is used when symbolic refactorization is skipped.
 
 **Tasks:**
-1. Port Gautier's IDA event severity classification to SolverSIM: add `ALGEBRAIC_J_UPDATE_SEVERE_MODE` to `modeChangeType_t` and classify events by severity in the submodel interface.
-2. Modify `SolverSIM::handleEvent` and `SolverSIM::setupNewAlgebraicRestoration` to skip symbolic factorization for non-severe events.
-3. Instrument the current factorization code to measure symbolic vs. numerical factorization frequency.
-4. Implement A1 (adaptive factorization controller with structure hash).
-5. Implement A3 (explicit `klu_refactor` path) alongside A1.
-6. Implement A2 (structure change tolerance) with configurable threshold.
-7. Benchmark on Nordic test system and a large-scale test case, measuring factorization skip rate and event-period speedup.
-8. Tune severity classification and tolerance parameters based on benchmarks.
-9. Run the full test suite to verify correctness — ensure Newton convergence fallback triggers correctly when severity is underestimated.
+1. Add `ALGEBRAIC_J_UPDATE_SEVERE_MODE` to the `modeChangeType_t` enum (`DYNEnumUtils.h`). No solver-side changes needed — the FixedTimeStep solver already handles severity levels through `handleRoot()`, `reinit()`, and `setupNewAlgRestoration()`.
+2. Update `ModelNetwork::evalMode()` to emit `ALGEBRAIC_J_UPDATE_SEVERE_MODE` for topology changes (line trips, bus faults) instead of `ALGEBRAIC_J_UPDATE_MODE`. State changes (tap steps) remain at `ALGEBRAIC_MODE`.
+3. Update the Modelica compiler (`dataContainer.py:2208`) to emit `ALGEBRAIC_J_UPDATE_SEVERE_MODE` only for the `running` Boolean; all other Boolean-driven mode changes remain at `ALGEBRAIC_J_UPDATE_MODE`.
+4. Instrument the current factorization code to measure symbolic vs. numerical factorization frequency.
+5. Implement A1 (adaptive factorization controller with structure hash).
+6. Implement A3 (explicit `klu_refactor` path) alongside A1.
+7. Implement A2 (structure change tolerance) with configurable threshold.
+8. Benchmark on Nordic test system and a large-scale test case, measuring factorization skip rate and event-period speedup.
+9. Tune severity classification and tolerance parameters based on benchmarks.
+10. Run the full test suite to verify correctness — ensure Newton convergence fallback triggers correctly when severity is underestimated.
 
 **Go/No-Go Criteria for Phase 1:**
 - At least 10% measured speedup on the large-scale test case.
