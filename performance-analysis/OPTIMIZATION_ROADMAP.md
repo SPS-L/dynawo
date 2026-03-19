@@ -1,6 +1,6 @@
 # Dynawo Optimization Roadmap
 
-This document presents a detailed optimization plan for the Dynawo power system simulation tool. It covers 9 programming optimizations and 11 algorithmic optimizations, each with descriptions, expected speedup ranges, implementation effort and risk assessments, and implementation sketches. A phased roadmap at the end provides a structured plan for executing these improvements.
+This document presents a detailed optimization plan for the Dynawo power system simulation tool. It covers 9 programming optimizations and 7 algorithmic optimizations, each with descriptions, expected speedup ranges, implementation effort and risk assessments, and implementation sketches. A phased roadmap at the end provides a structured plan for executing these improvements.
 
 > **Developer feedback incorporated.** Sections marked "Developer Feedback (TRAISIM Discussion)" contain insights from Gautier Bureau, former lead Dynawo developer at RTE, gathered during a TRAISIM project technical meeting. His feedback has been used to validate suggestions, remove already-implemented items (P1 — now in upstream master), add a new high-value optimization (A11), and refine complexity/risk assessments.
 
@@ -47,17 +47,13 @@ An IDA solver comparison is also available via `performance-analysis/benchmarks/
    - [A3. KLU Numerical-Only Refactorization](#a3-klu-numerical-only-refactorization)
    - [A4. Improved COLAMD Ordering](#a4-improved-colamd-ordering)
    - [A5. Partial Jacobian Updates](#a5-partial-jacobian-updates)
-   - [A6. Adaptive Time Step Control](#a6-adaptive-time-step-control)
-   - [A7. Improved Newton Convergence Criteria](#a7-improved-newton-convergence-criteria)
-   - [A8. Krylov Preconditioner Strategies](#a8-krylov-preconditioner-strategies)
    - [A9. Schur Complement Decomposition](#a9-schur-complement-decomposition)
-   - [A10. Waveform Relaxation for Multi-Rate Simulation](#a10-waveform-relaxation-for-multi-rate-simulation)
    - [A11. Event Severity Classification for Reinit/Factorization Control](#a11-event-severity-classification-for-reinitfactorization-control)
 3. [Phased Roadmap](#phased-roadmap)
-   - [Phase 0: Quick Wins (1-2 weeks)](#phase-0-quick-wins-1-2-weeks)
-   - [Phase 1: Medium Effort (2-4 weeks)](#phase-1-medium-effort-2-4-weeks)
-   - [Phase 2: Advanced (1-3 months)](#phase-2-advanced-1-3-months)
-   - [Phase 3: Research (3-6 months)](#phase-3-research-3-6-months)
+   - [Phase 0: Quick Wins](#phase-0-quick-wins)
+   - [Phase 1: Medium Effort](#phase-1-medium-effort)
+   - [Phase 2: Advanced](#phase-2-advanced)
+   - [Phase 3: Research / Exploratory](#phase-3-research--exploratory)
    - [Decision Points and Go/No-Go Criteria](#decision-points-and-gono-go-criteria)
 
 ---
@@ -554,6 +550,8 @@ cmake ../dynawo \
 
 ### P10. GPU Acceleration for KLU
 
+> **High risk / Long term / Possibly out of scope.** GPU acceleration introduces a heavy dependency (CUDA/cuSOLVER) and is only beneficial above a large system-size crossover point. The data transfer overhead may negate gains for typical use cases.
+
 **Expected Speedup:** 20-50% (for very large systems, 10,000+ equations)
 **Implementation Effort:** High
 **Risk Level:** High
@@ -967,6 +965,8 @@ public:
 
 ### A5. Partial Jacobian Updates
 
+> **High risk / Long term / Possibly out of scope.** This optimization carries significant implementation complexity and may not be needed if Phase 0 factorization avoidance (A11, A1, A2, A3) provides sufficient speedup.
+
 **Expected Speedup:** 10-20%
 **Implementation Effort:** High
 **Risk Level:** Medium-High
@@ -1074,283 +1074,14 @@ void ModelMulti::evalJt(double t, double cj, SparseMatrix& Jt) {
 }
 ```
 
----
 
-### A6. Adaptive Time Step Control
 
-**Expected Speedup:** 3-10%
-**Implementation Effort:** Medium
-**Risk Level:** Medium
-
-#### Description
-
-The IDA solver in SUNDIALS uses an adaptive time step controller based on local truncation error estimates. However, the default controller parameters may not be optimal for power system dynamics, which exhibit long periods of quasi-steady-state behavior punctuated by fast transients (faults, switching events). A more aggressive time step strategy -- larger steps during steady-state periods and smaller steps only near events -- can reduce the total number of time steps significantly.
-
-Three improvements are proposed: (1) Increase the maximum time step size during quasi-steady-state periods, detected by monitoring the rate of change of key state variables (rotor angles, voltage magnitudes). (2) Implement predictive step size reduction before known events (events with scheduled times can be anticipated). (3) Use a variable-order strategy where the BDF order is also adapted based on the solution smoothness, allowing higher-order (and thus larger time step) methods during smooth phases.
-
-The risk is medium because overly aggressive time stepping can miss fast dynamics or cause solver convergence failures. The implementation must include fallback behavior (automatic step reduction) when convergence fails, which IDA already provides. The tuning of the aggressiveness parameters should be validated on a range of test cases.
-
-#### Implementation Sketch
-
-```cpp
-class AdaptiveStepController {
-  double maxStepSteadyState_;   // max dt during quasi-steady state
-  double maxStepTransient_;     // max dt during transients
-  double steadyStateThreshold_; // threshold for quasi-steady detection
-
-  // Sliding window of state change rates
-  std::deque<double> recentChangeRates_;
-  int windowSize_;
-
-public:
-  AdaptiveStepController()
-      : maxStepSteadyState_(0.1),
-        maxStepTransient_(0.001),
-        steadyStateThreshold_(1e-3),
-        windowSize_(10) {}
-
-  double computeMaxStep(double t, const double* y, const double* yp,
-                        int n, double nextEventTime) {
-
-    // 1. Compute current state change rate
-    double changeRate = 0.0;
-    for (int i = 0; i < n; ++i) {
-      changeRate += yp[i] * yp[i];
-    }
-    changeRate = std::sqrt(changeRate / n);
-
-    recentChangeRates_.push_back(changeRate);
-    if (static_cast<int>(recentChangeRates_.size()) > windowSize_) {
-      recentChangeRates_.pop_front();
-    }
-
-    // 2. Determine if system is in quasi-steady state
-    double avgRate = 0.0;
-    for (double r : recentChangeRates_) avgRate += r;
-    avgRate /= recentChangeRates_.size();
-
-    bool isSteadyState = (avgRate < steadyStateThreshold_);
-
-    // 3. Set max step based on state
-    double maxStep = isSteadyState ? maxStepSteadyState_ : maxStepTransient_;
-
-    // 4. Reduce step if approaching a known event
-    if (nextEventTime > t) {
-      double timeToEvent = nextEventTime - t;
-      if (timeToEvent < 2.0 * maxStep) {
-        // Approach the event gradually
-        maxStep = std::min(maxStep, timeToEvent / 3.0);
-      }
-    }
-
-    return maxStep;
-  }
-};
-
-// Integration with IDA:
-// Before each IDA step, call IDASetMaxStep() with the computed max step
-void SolverIDA::step(double tNext) {
-  double maxDt = stepController_.computeMaxStep(
-      tCurrent_, yData_, ypData_, N_, nextEventTime_);
-  IDASetMaxStep(idaMem_, maxDt);
-  int flag = IDASolve(idaMem_, tNext, &tReturn_, yVec_, ypVec_, IDA_NORMAL);
-  // ... handle flag ...
-}
-```
-
----
-
-### A7. Improved Newton Convergence Criteria
-
-**Expected Speedup:** 2-5%
-**Implementation Effort:** Low
-**Risk Level:** Low
-
-#### Description
-
-The Newton solver used within IDA (and KINSOL for initial conditions) uses convergence criteria based on the weighted RMS norm of the correction vector. The default convergence test may be either too strict (causing unnecessary extra iterations) or too loose (allowing poor solutions that cause time step failures). Tuning these criteria for power system simulations can reduce the average number of Newton iterations per time step.
-
-For power systems, a natural improvement is to use component-weighted norms that account for the different scales of state variables. Rotor angles (radians), voltage magnitudes (per-unit), and generator speeds (per-unit) have different natural scales, and a single uniform tolerance may over-solve some components while under-solving others. By providing SUNDIALS with appropriate error weight functions that normalize each component by its expected range, the Newton solver converges more efficiently.
-
-Additionally, the convergence rate of the Newton iterations can be monitored to detect early when the iteration is unlikely to converge, allowing a faster fallback to a smaller time step. If the correction norm is not decreasing at a sufficient rate after 2-3 iterations, it is better to reduce the time step immediately rather than exhausting the maximum iteration count.
-
-#### Implementation Sketch
-
-```cpp
-// Custom error weight function for IDA
-int customErrWeight(N_Vector y, N_Vector ewt, void* userData) {
-  SolverData* data = static_cast<SolverData*>(userData);
-  double* yData = NV_DATA_S(y);
-  double* ewtData = NV_DATA_S(ewt);
-  int n = NV_LENGTH_S(y);
-
-  for (int i = 0; i < n; ++i) {
-    double scale;
-    switch (data->varTypes[i]) {
-      case VAR_ANGLE:
-        scale = 1.0;          // radians, O(1)
-        break;
-      case VAR_VOLTAGE:
-        scale = 1.0;          // per-unit, O(1)
-        break;
-      case VAR_SPEED:
-        scale = 1.0 / 377.0;  // rad/s to per-unit
-        break;
-      case VAR_CURRENT:
-        scale = 0.1;          // currents can be larger
-        break;
-      default:
-        scale = 1.0;
-    }
-    double atol = data->absTol * scale;
-    double rtol = data->relTol;
-    double denom = rtol * std::abs(yData[i]) + atol;
-    ewtData[i] = (denom > 0) ? 1.0 / denom : 1.0 / atol;
-  }
-  return 0;
-}
-
-// Early convergence failure detection
-class NewtonConvergenceMonitor {
-  double lastCorrNorm_;
-  int iterCount_;
-  double minReductionRate_;   // correction must shrink by this factor per iter
-
-public:
-  NewtonConvergenceMonitor() : lastCorrNorm_(0), iterCount_(0),
-                                minReductionRate_(0.5) {}
-
-  void reset() {
-    lastCorrNorm_ = 0;
-    iterCount_ = 0;
-  }
-
-  // Returns true if convergence looks unlikely
-  bool shouldAbort(double corrNorm) {
-    ++iterCount_;
-    if (iterCount_ >= 3 && lastCorrNorm_ > 0) {
-      double reductionRate = corrNorm / lastCorrNorm_;
-      if (reductionRate > minReductionRate_) {
-        // Convergence rate too slow; abort and reduce step
-        return true;
-      }
-    }
-    lastCorrNorm_ = corrNorm;
-    return false;
-  }
-};
-
-// Register the custom weight function with IDA:
-// IDAWFtolerances(idaMem_, customErrWeight);
-```
-
----
-
-### A8. Krylov Preconditioner Strategies
-
-**Expected Speedup:** 20-40% (for very large systems, 5000+ equations)
-**Implementation Effort:** High
-**Risk Level:** Medium
-
-#### Description
-
-For very large power system models (5000+ equations), the direct sparse LU solver (KLU) becomes the dominant bottleneck because the factorization cost grows superlinearly with matrix size. Krylov iterative methods (GMRES, BiCGStab) scale more favorably but require effective preconditioners to converge in a reasonable number of iterations.
-
-Two preconditioner strategies are well-suited to power system Jacobians: (1) Incomplete LU factorization (ILU) computes an approximate LU factorization with controlled fill-in, providing a good trade-off between setup cost and convergence acceleration. ILU(0) uses the same sparsity pattern as the original matrix and is cheap to compute; ILU(k) allows k levels of fill for better accuracy. (2) Block-Jacobi preconditioning exploits the block structure of the multi-model Jacobian: each submodel's diagonal block is factored exactly (using KLU), while the coupling blocks are approximated or ignored. This is highly parallel and works well when the coupling between submodels is relatively weak.
-
-The crossover point where Krylov methods outperform direct solvers depends on the system size and conditioning. For well-conditioned systems below 5000 equations, KLU is typically faster. For larger systems or poorly conditioned matrices, Krylov with a good preconditioner can be 2-5x faster. SUNDIALS provides built-in support for Krylov linear solvers (SUNLINSOL_SPGMR, SUNLINSOL_SPBCGS) that integrate with IDA.
-
-#### Implementation Sketch
-
-```cpp
-// Block-Jacobi preconditioner using KLU for diagonal blocks
-class BlockJacobiPreconditioner {
-  struct Block {
-    klu_symbolic* symbolic;
-    klu_numeric* numeric;
-    klu_common common;
-    int size;
-    int offset;
-    std::vector<int> Ap, Ai;
-    std::vector<double> Ax;
-  };
-
-  std::vector<Block> blocks_;
-
-public:
-  void setup(const std::vector<SubModel*>& subModels,
-             const SparseMatrix& fullJacobian,
-             const std::vector<int>& offsets,
-             const std::vector<int>& sizes) {
-
-    blocks_.resize(subModels.size());
-
-    for (size_t i = 0; i < subModels.size(); ++i) {
-      Block& b = blocks_[i];
-      b.size = sizes[i];
-      b.offset = offsets[i];
-      klu_defaults(&b.common);
-
-      // Extract diagonal block from full Jacobian
-      extractDiagonalBlock(fullJacobian, offsets[i], sizes[i],
-                           b.Ap, b.Ai, b.Ax);
-
-      // Factor diagonal block
-      b.symbolic = klu_analyze(b.size, b.Ap.data(), b.Ai.data(), &b.common);
-      b.numeric = klu_factor(b.Ap.data(), b.Ai.data(), b.Ax.data(),
-                             b.symbolic, &b.common);
-    }
-  }
-
-  // Apply preconditioner: solve M*z = r (approximately)
-  int apply(const double* r, double* z, int n) {
-    // Solve each diagonal block independently
-    #pragma omp parallel for schedule(dynamic) if(blocks_.size() > 4)
-    for (size_t i = 0; i < blocks_.size(); ++i) {
-      Block& b = blocks_[i];
-      // Copy r[offset:offset+size] to z[offset:offset+size]
-      std::copy(r + b.offset, r + b.offset + b.size, z + b.offset);
-      // Solve block system
-      klu_solve(b.symbolic, b.numeric, b.size, 1,
-                z + b.offset, &b.common);
-    }
-    return 0;
-  }
-
-  ~BlockJacobiPreconditioner() {
-    for (auto& b : blocks_) {
-      if (b.numeric) klu_free_numeric(&b.numeric, &b.common);
-      if (b.symbolic) klu_free_symbolic(&b.symbolic, &b.common);
-    }
-  }
-
-private:
-  void extractDiagonalBlock(const SparseMatrix& J, int offset, int size,
-                            std::vector<int>& Ap, std::vector<int>& Ai,
-                            std::vector<double>& Ax) {
-    // Extract the submatrix J[offset:offset+size, offset:offset+size]
-    Ap.resize(size + 1);
-    Ai.clear();
-    Ax.clear();
-    Ap[0] = 0;
-    for (int col = 0; col < size; ++col) {
-      int gCol = col + offset;
-      for (int idx = J.colPtr(gCol); idx < J.colPtr(gCol + 1); ++idx) {
-        int gRow = J.rowIdx(idx);
-        if (gRow >= offset && gRow < offset + size) {
-          Ai.push_back(gRow - offset);
-          Ax.push_back(J.value(idx));
-        }
-      }
-      Ap[col + 1] = static_cast<int>(Ai.size());
-    }
-  }
-};
-```
 
 ---
 
 ### A9. Schur Complement Decomposition
+
+> **High risk / Long term / Possibly out of scope.** Requires significant architectural changes and is only beneficial for the largest systems. Should be evaluated as a research prototype before any production commitment.
 
 **Expected Speedup:** 15-30% (for large multi-machine systems)
 **Implementation Effort:** High
@@ -1469,120 +1200,6 @@ public:
 };
 ```
 
----
-
-### A10. Waveform Relaxation for Multi-Rate Simulation
-
-**Expected Speedup:** 10-25% (for systems with widely varying time constants)
-**Implementation Effort:** High
-**Risk Level:** High
-
-#### Description
-
-Power system simulations often contain subsystems with very different time scales: fast electromagnetic transients in power electronics (microsecond scale), electromechanical dynamics in generators (millisecond to second scale), and slow controls and protection systems (second to minute scale). A monolithic solver must use a time step small enough for the fastest dynamics, which wastes computation on the slow subsystems.
-
-Waveform relaxation (WR) decomposes the system into subsystems that can be integrated independently with different time step sizes, then iterates to account for the coupling between subsystems. Each subsystem uses a time step appropriate to its own dynamics: fast subsystems take many small steps while slow subsystems take fewer large steps. The coupling is handled by exchanging waveforms (interpolated solution trajectories) between subsystems at synchronization points.
-
-For a power system with N_fast fast variables and N_slow slow variables, WR can reduce the total number of function evaluations from O((N_fast + N_slow) / dt_fast) to O(N_fast / dt_fast + N_slow / dt_slow + K * N_coupling) where K is the number of WR iterations and N_coupling is the coupling dimension. If the coupling is weak (as is typical between electromagnetic and electromechanical dynamics), K is small (2-5 iterations).
-
-The risk is high because WR introduces an outer iteration loop whose convergence depends on the coupling strength and the synchronization interval. Poorly chosen partitioning or synchronization intervals can lead to divergence. Extensive testing on representative systems is required, and a fallback to monolithic simulation should be available when WR convergence is poor.
-
-#### Implementation Sketch
-
-```cpp
-class WaveformRelaxationSolver {
-  struct Subsystem {
-    std::unique_ptr<SubSystemSolver> solver;
-    std::vector<int> varIndices;      // global variable indices
-    double dtMax;                     // maximum time step for this subsystem
-    std::vector<double> waveform;     // interpolated coupling input
-    int rate;                         // relative time step ratio
-  };
-
-  std::vector<Subsystem> subsystems_;
-  double syncInterval_;               // WR synchronization interval
-  int maxWRIterations_;
-  double wrTolerance_;
-
-public:
-  WaveformRelaxationSolver(double syncInterval = 0.01,
-                           int maxIter = 5,
-                           double tol = 1e-4)
-      : syncInterval_(syncInterval),
-        maxWRIterations_(maxIter),
-        wrTolerance_(tol) {}
-
-  void addSubsystem(std::unique_ptr<SubSystemSolver> solver,
-                    const std::vector<int>& varIdx,
-                    double dtMax, int rate) {
-    subsystems_.push_back({std::move(solver), varIdx, dtMax, {}, rate});
-  }
-
-  // Advance from tStart to tStart + syncInterval
-  int solveWindow(double tStart, double* yGlobal) {
-    double tEnd = tStart + syncInterval_;
-
-    // Store previous waveforms for convergence check
-    std::vector<std::vector<double>> prevWaveforms(subsystems_.size());
-
-    for (int wrIter = 0; wrIter < maxWRIterations_; ++wrIter) {
-      // Integrate each subsystem independently
-      for (size_t i = 0; i < subsystems_.size(); ++i) {
-        Subsystem& sub = subsystems_[i];
-
-        // Save previous waveform
-        prevWaveforms[i] = sub.waveform;
-
-        // Extract local state from global vector
-        std::vector<double> yLocal(sub.varIndices.size());
-        for (size_t j = 0; j < sub.varIndices.size(); ++j) {
-          yLocal[j] = yGlobal[sub.varIndices[j]];
-        }
-
-        // Integrate from tStart to tEnd with subsystem's own time step
-        sub.solver->integrate(tStart, tEnd, yLocal.data(),
-                              sub.waveform, sub.dtMax);
-
-        // Write back to global vector
-        for (size_t j = 0; j < sub.varIndices.size(); ++j) {
-          yGlobal[sub.varIndices[j]] = yLocal[j];
-        }
-      }
-
-      // Exchange waveforms between subsystems
-      exchangeWaveforms();
-
-      // Check convergence
-      double maxChange = 0.0;
-      for (size_t i = 0; i < subsystems_.size(); ++i) {
-        if (!prevWaveforms[i].empty()) {
-          for (size_t j = 0; j < subsystems_[i].waveform.size(); ++j) {
-            double diff = std::abs(subsystems_[i].waveform[j] - prevWaveforms[i][j]);
-            maxChange = std::max(maxChange, diff);
-          }
-        }
-      }
-
-      if (maxChange < wrTolerance_) {
-        return 0;  // Converged
-      }
-    }
-
-    return -1;  // Did not converge; fall back to monolithic
-  }
-
-private:
-  void exchangeWaveforms() {
-    // For each subsystem, update its coupling input waveform
-    // from the latest solutions of the other subsystems.
-    // This involves interpolation when subsystems have different
-    // time step sizes.
-    for (size_t i = 0; i < subsystems_.size(); ++i) {
-      subsystems_[i].solver->updateCouplingInputs(subsystems_);
-    }
-  }
-};
-```
 
 ---
 
@@ -1591,6 +1208,7 @@ private:
 **Expected Speedup:** 10-15% (during event-heavy periods; compounds with A1/A2/A3)
 **Implementation Effort:** Medium
 **Risk Level:** Low-Medium
+**Priority:** Highest — this is the single most impactful optimization identified during profiling and developer consultation
 **Source:** TRAISIM project discussion with Gautier Bureau (former Dynawo lead developer, RTE)
 
 #### Description
@@ -1662,7 +1280,7 @@ For the simplified solver, the implementation path is analogous but requires ada
 
 ## Phased Roadmap
 
-### Phase 0: Quick Wins (1-2 weeks)
+### Phase 0: Quick Wins
 
 **Objective:** Achieve 15-25% overall speedup with minimal code changes and low risk, focusing on factorization avoidance.
 
@@ -1675,15 +1293,15 @@ For the simplified solver, the implementation path is analogous but requires ada
 **Rationale:** A11 is the single highest-impact quick win identified during the TRAISIM discussion with Gautier Bureau. Profiling shows that ~30% of event-period computation time is spent on symbolic factorizations triggered by minor automata events (tap changers, OELs) that do not actually change Jacobian structure. Since Gautier already implemented a severity-based classification for IDA, the design is proven and the port to SolverSIM is straightforward. A1, A2, and A3 complement A11 by providing layered factorization control: A1 adds decision logic, A2 extends skip criteria, and A3 ensures the fast `klu_refactor` path is used when symbolic refactorization is skipped.
 
 **Tasks:**
-1. Port Gautier's IDA event severity classification to SolverSIM: add `ALGEBRAIC_J_UPDATE_SEVERE_MODE` to `modeChangeType_t` and classify events by severity in the submodel interface (2-3 days).
-2. Modify `SolverSIM::handleEvent` and `SolverSIM::setupNewAlgebraicRestoration` to skip symbolic factorization for non-severe events (1-2 days).
-3. Instrument the current factorization code to measure symbolic vs. numerical factorization frequency (1 day).
-4. Implement A1 (adaptive factorization controller with structure hash) (2 days).
-5. Implement A3 (explicit `klu_refactor` path) alongside A1 (1 day).
-6. Implement A2 (structure change tolerance) with configurable threshold (2 days).
-7. Benchmark on Nordic test system and a large-scale test case, measuring factorization skip rate and event-period speedup (1 day).
-8. Tune severity classification and tolerance parameters based on benchmarks (1 day).
-9. Run the full test suite to verify correctness — ensure Newton convergence fallback triggers correctly when severity is underestimated (1 day).
+1. Port Gautier's IDA event severity classification to SolverSIM: add `ALGEBRAIC_J_UPDATE_SEVERE_MODE` to `modeChangeType_t` and classify events by severity in the submodel interface.
+2. Modify `SolverSIM::handleEvent` and `SolverSIM::setupNewAlgebraicRestoration` to skip symbolic factorization for non-severe events.
+3. Instrument the current factorization code to measure symbolic vs. numerical factorization frequency.
+4. Implement A1 (adaptive factorization controller with structure hash).
+5. Implement A3 (explicit `klu_refactor` path) alongside A1.
+6. Implement A2 (structure change tolerance) with configurable threshold.
+7. Benchmark on Nordic test system and a large-scale test case, measuring factorization skip rate and event-period speedup.
+8. Tune severity classification and tolerance parameters based on benchmarks.
+9. Run the full test suite to verify correctness — ensure Newton convergence fallback triggers correctly when severity is underestimated.
 
 **Go/No-Go Criteria for Phase 1:**
 - At least 10% measured speedup on the large-scale test case.
@@ -1693,101 +1311,72 @@ For the simplified solver, the implementation path is analogous but requires ada
 
 ---
 
-### Phase 1: Medium Effort (2-4 weeks)
+### Phase 1: Medium Effort
 
 **Objective:** Achieve an additional 10-20% speedup through remaining data structure improvements and careful exploration of partial Jacobian updates.
 
 **Items:**
 - **Remaining `std::map` audit** — P1 (Flat Vector Derivatives) was implemented upstream by Gautier Bureau (commit `#3749`), but only for the Network model's `Derivatives` class. Audit and convert remaining `std::map<int, double>` usage in Modelica-generated C++ and SubModel coupling code.
-- **A5. Partial Jacobian Updates** (10-20% speedup) — **High complexity.** Developer feedback (Gautier Bureau, TRAISIM discussion) flags this as "difficult to implement" due to cross-model coupling and the need for a reliable dirty-flag mechanism across the SubModel interface. Consider a conservative Newton-failure fallback approach (as used in RAMSES) rather than full change detection.
+- **A4. Improved COLAMD Ordering** — Cache and reuse ordering across factorizations.
 
-**Rationale:** The remaining `std::map` audit extends the upstream P1 work to other parts of the codebase. A5 remains the algorithmic optimization with the highest potential payoff but carries significant implementation complexity; the RAMSES approach (always update on short circuits, rely on Newton failure for other events) is a pragmatic fallback if full change detection proves too fragile.
+**Rationale:** The remaining `std::map` audit extends the upstream P1 work to other parts of the codebase. A4 provides incremental gains by avoiding redundant ordering computations.
 
 **Tasks:**
-1. Audit remaining `std::map<int, double>` usage outside the Network model's `Derivatives` class (Modelica-generated C++, SubModel interface coupling) and convert where beneficial (2-3 days).
-2. Prototype A5: start with a conservative approach — only skip Jacobian re-evaluation when no state variable changes exceed a threshold, with automatic full re-evaluation on Newton failure (4-5 days).
-3. If the conservative A5 prototype shows promise, implement finer-grained change detection per SubModel (3-4 days).
-4. Comprehensive benchmarking of all Phase 1 items combined (2 days).
-5. Regression testing on the full test suite (2 days).
+1. Audit remaining `std::map<int, double>` usage outside the Network model's `Derivatives` class (Modelica-generated C++, SubModel interface coupling) and convert where beneficial.
+2. Implement A4 (ordering cache with invalidation on structure change).
+3. Comprehensive benchmarking of all Phase 1 items combined.
+4. Regression testing on the full test suite.
 
 **Go/No-Go Criteria for Phase 2:**
 - Cumulative speedup (Phase 0 + Phase 1) of at least 20% on the large-scale test case.
-- If A5 is implemented: partial Jacobian updates do not increase the total number of Newton iterations by more than 5%.
 - No new test failures.
 
 ---
 
-### Phase 2: Advanced (1-3 months)
+### Phase 2: Advanced
 
-**Objective:** Enable parallel execution, improve solver adaptivity, and apply build-level optimizations for an additional 15-30% speedup, with architecture changes that enable further scaling.
+**Objective:** Enable parallel execution and apply build-level optimizations for an additional 15-30% speedup.
 
 **Items:**
-- **P8. Profile-Guided Optimization (PGO)** (5-10% speedup) — **Lower priority.** Build-system-only change with zero code risk, but deferred from Phase 1 as algorithmic optimizations (A5, std::map audit) offer higher impact with more direct performance insight.
-- **P9. Link-Time Optimization (LTO)** (3-5% speedup) — **Lower priority.** Same rationale as P8; straightforward to enable but deferred to this phase.
-- **P2. OpenMP Jacobian Evaluation** (8-12% speedup) — **Known risks from RTE experience.** KLU's internal data structures use global locks that serialize parallel threads during factorization. RTE attempted OpenMP parallelization for N-1 contingency analysis and encountered significant lock contention. Effective parallelization requires either KLU-level changes or a different parallel strategy.
-- **P3. OpenMP SubModel Evaluation** (3-5% speedup) — **Nested parallelism risk.** The Network model is itself a submodel containing internal components; naively parallelizing at the SubModel level can trigger nested OpenMP regions with poor scaling. Parallelization must target the right granularity level.
-- **A6. Adaptive Time Step Control** (3-10% speedup)
-- **A7. Improved Newton Convergence Criteria** (2-5% speedup)
-- **A8. Krylov Preconditioner Strategies** (20-40% for large systems)
+- **P8. Profile-Guided Optimization (PGO)** (5-10% speedup) — Build-system-only change with zero code risk.
+- **P9. Link-Time Optimization (LTO)** (3-5% speedup) — Straightforward to enable.
+- **P2. OpenMP Jacobian Evaluation** (8-12% speedup) — **Known risks from RTE experience.** KLU's internal data structures use global locks that serialize parallel threads during factorization.
+- **P3. OpenMP SubModel Evaluation** (3-5% speedup) — **Nested parallelism risk.**
 
-**Rationale:** P8 and P9 are low-risk build-system changes that can be applied at any point; they are deferred here to keep Phase 1 focused on algorithmic gains. OpenMP parallelization (P2, P3) has the highest potential payoff in this phase but also the highest risk. Developer feedback from RTE (Gautier Bureau, TRAISIM discussion) confirms that KLU lock contention is a real problem encountered during prior parallelization attempts. Two mitigation paths exist: (1) use a thread-local KLU workspace per contingency (works for N-1 but not within a single simulation), or (2) replace KLU with a thread-safe sparse solver. The recommendation is to prototype P2 early and measure actual lock contention before committing to the full phase. Adaptive time stepping (A6) and Newton criteria (A7) improve the solver's efficiency without changing the underlying algorithms. The Krylov preconditioner (A8) targets very large systems that may emerge as use cases grow.
+**Rationale:** P8 and P9 are low-risk build-system changes. OpenMP parallelization (P2, P3) has high potential payoff but also high risk. Developer feedback from RTE (Gautier Bureau, TRAISIM discussion) confirms that KLU lock contention is a real problem. The recommendation is to prototype P2 early and measure actual lock contention before committing.
 
 **Tasks:**
-1. Set up PGO build infrastructure (P8) with representative workload scripts (2 days).
-2. Enable LTO (P9) in the build system with an option flag (1 day).
-3. Benchmark PGO + LTO combined (1 day).
-4. **P2 feasibility study:** Prototype OpenMP Jacobian evaluation on the Nordic system with 2 and 4 threads and measure KLU lock contention using `perf lock` (3-4 days). This determines whether the rest of the OpenMP investment is viable.
-5. If KLU lock contention is acceptable: thread-safety audit of SubModel interface and implementations (1-2 weeks).
-6. Add thread-safety annotations and fix any shared mutable state (1 week).
-7. Implement P2: OpenMP Jacobian evaluation with dynamic scheduling (3-4 days).
-8. Implement P3: OpenMP residual and root evaluation, being careful to avoid nested parallelism in the Network model (2-3 days).
-9. Benchmark OpenMP scaling on 2, 4, 8, and 16 cores (2 days).
-10. Implement A7: custom error weight function and early convergence detection (3-4 days).
-11. Implement A6: adaptive time step controller with quasi-steady-state detection (1 week).
-12. Validate A6 on event-heavy scenarios (fault ride-through, load shedding) (1 week).
-13. Implement A8: block-Jacobi preconditioner with SUNLINSOL_SPGMR integration (2 weeks).
-14. Benchmark A8 on large-scale systems (5000+ equations) to find crossover point (1 week).
-15. Integration testing of all Phase 2 items combined (1 week).
+1. Set up PGO build infrastructure (P8) with representative workload scripts.
+2. Enable LTO (P9) in the build system with an option flag.
+3. Benchmark PGO + LTO combined.
+4. **P2 feasibility study:** Prototype OpenMP Jacobian evaluation on the Nordic system with 2 and 4 threads and measure KLU lock contention.
+5. If viable: thread-safety audit, implementation of P2 and P3.
+6. Benchmark OpenMP scaling on 2, 4, 8, and 16 cores.
+7. Integration testing of all Phase 2 items combined.
 
 **Go/No-Go Criteria for Phase 3:**
-- PGO and LTO builds produce identical numerical results (bitwise or within tolerance).
-- If OpenMP is pursued: provides at least 1.5x speedup on 4 cores for the standard benchmark suite.
-- If KLU lock contention blocks P2/P3: document findings and consider deferring to Phase 3 (GPU or alternative solver).
-- Krylov solver with preconditioner is faster than KLU for systems above the determined crossover size.
-- Adaptive time stepping reduces total step count by at least 15% on quasi-steady-state test cases.
-- All numerical results are within acceptable tolerance of the sequential baseline.
+- PGO and LTO builds produce identical numerical results.
+- If OpenMP is pursued: provides at least 1.5x speedup on 4 cores.
+- If KLU lock contention blocks P2/P3: document findings and evaluate alternatives.
+- All numerical results within acceptable tolerance of the sequential baseline.
 
 ---
 
-### Phase 3: Research (3-6 months)
+### Phase 3: Research / Exploratory
 
-**Objective:** Explore advanced techniques that can provide 2-5x speedup for the largest and most complex simulations, requiring significant architectural changes.
+> **High risk / Long term / Possibly out of scope.** These items require significant architectural changes, carry high implementation risk, and may not be justified unless Phases 0-2 prove insufficient. Each should be evaluated as a research prototype before any production commitment.
 
 **Items:**
-- **P10. GPU Acceleration for KLU** (20-50% for very large systems)
-- **A9. Schur Complement Decomposition** (15-30%)
-- **A10. Waveform Relaxation for Multi-Rate Simulation** (10-25%)
-
-**Rationale:** These items require substantial development effort and carry higher risk, but offer the largest potential speedups. They are research-oriented and should be evaluated as prototypes before committing to production integration. GPU acceleration (P10) and Schur complement (A9) both target the linear algebra bottleneck from different angles; waveform relaxation (A10) targets the time-stepping bottleneck for multi-rate systems.
+- **A5. Partial Jacobian Updates** (10-20% speedup) — High complexity; developer feedback flags cross-model coupling difficulties. May not be needed if Phase 0 factorization avoidance provides sufficient gains.
+- **P10. GPU Acceleration for KLU** (20-50% for very large systems) — Heavy dependency (CUDA/cuSOLVER), only beneficial above a large crossover system size.
+- **A9. Schur Complement Decomposition** (15-30%) — Requires partitioning network vs. device models, significant architectural change.
 
 **Tasks:**
-1. Prototype P10: GPU sparse solve using cuSOLVER on extracted Jacobian matrices from benchmark runs (2-3 weeks).
-2. Measure data transfer overhead and determine crossover system size for GPU advantage (1 week).
-3. If GPU crossover is favorable, integrate GPU solve path with runtime selection (2-3 weeks).
-4. Prototype A9: Schur complement solver with manual partitioning for a specific test case (2-3 weeks).
-5. Implement automatic partitioning based on model type (network vs. device) (2 weeks).
-6. Benchmark A9 against full KLU and Krylov approaches on multiple system sizes (1 week).
-7. Prototype A10: waveform relaxation with manual partitioning into fast/slow subsystems (3-4 weeks).
-8. Implement convergence monitoring and fallback to monolithic solver (1 week).
-9. Benchmark A10 on multi-rate test cases (power electronics + electromechanical) (2 weeks).
-10. Evaluate which Phase 3 items to productionize based on prototype results (1 week).
-
-**Decision Points:**
-- After P10 prototype: decide if GPU acceleration is worth the dependency complexity.
-- After A9 prototype: decide if Schur complement provides enough benefit over Krylov preconditioners.
-- After A10 prototype: decide if waveform relaxation is robust enough for production use.
-
----
+1. Evaluate whether Phase 0-2 gains are sufficient for the target use cases. If yes, defer Phase 3.
+2. If A5 is pursued: prototype with a conservative Newton-failure fallback approach on a small test case before committing.
+3. If P10 is pursued: prototype GPU sparse solve using cuSOLVER on extracted Jacobian matrices, measure data transfer overhead.
+4. If A9 is pursued: prototype Schur complement solver with manual partitioning.
+5. Each prototype must produce a written evaluation report with benchmarks and a go/no-go recommendation.
 
 ### Decision Points and Go/No-Go Criteria
 
@@ -1813,12 +1402,10 @@ The following metrics should be tracked across all optimization phases:
 
 **Phase 1 to Phase 2:**
 - Cumulative speedup of at least 20%.
-- If A5 is implemented: partial Jacobian update fallback mechanism has been exercised and validated. If A5 is deferred due to complexity, document the assessment and proceed.
+- No new test failures.
 
 **Phase 2 to Phase 3:**
 - Cumulative speedup of at least 40%.
-- OpenMP scaling efficiency > 60% on 4 cores.
-- Krylov solver performance crossover point has been empirically determined.
 - No numerical accuracy regressions.
 
 **Phase 3 Exit Criteria:**

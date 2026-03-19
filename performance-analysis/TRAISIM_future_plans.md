@@ -177,7 +177,7 @@ Four phases, from quick wins to research-level improvements
 
 ---
 
-# Phase 0 — Quick Wins (1–2 weeks)
+# Phase 0 — Quick Wins
 
 **Target:** 15–25% speedup with minimal code changes
 
@@ -194,26 +194,25 @@ Four phases, from quick wins to research-level improvements
 
 ---
 
-# Phase 1 — Medium Effort (2–4 weeks)
+# Phase 1 — Medium Effort
 
-**Target:** Additional 10–20% speedup through data structure and algorithmic improvements
+**Target:** Additional 10–20% speedup through data structure improvements
 
 | Item | Description | Expected Gain |
 |------|-------------|---------------|
 | — | Remaining `std::map` audit | Variable |
-| A5 | Partial Jacobian updates | 10–20% |
+| A4 | Improved COLAMD ordering (cache reuse) | 2–4% |
 
 - **std::map audit:** Extends upstream P1 work to Modelica-generated C++ and SubModel coupling code.
-- **A5:** Highest potential payoff but complex; developer feedback flags cross-model coupling difficulties. Use a conservative Newton-failure fallback approach.
-- P8 (PGO) and P9 (LTO) deferred to Phase 2 — algorithmic gains prioritized first.
+- **A4:** Cache and reuse ordering across factorizations to avoid redundant computations.
 
 **Go/No-Go:** Cumulative speedup ≥ 20% before advancing.
 
 ---
 
-# Phase 2 — Advanced (1–3 months)
+# Phase 2 — Advanced
 
-**Target:** Additional 15–30% speedup via parallelization, solver adaptivity, and build optimizations
+**Target:** Additional 15–30% speedup via build optimizations and parallelization
 
 | Item | Description | Expected Gain |
 |------|-------------|---------------|
@@ -221,42 +220,39 @@ Four phases, from quick wins to research-level improvements
 | P9 | Link-Time Optimization (LTO) | 3–5% |
 | P2 | OpenMP Jacobian evaluation | 8–12% |
 | P3 | OpenMP SubModel evaluation | 3–5% |
-| A6 | Adaptive time step control | 3–10% |
-| A7 | Improved Newton convergence | 2–5% |
-| A8 | Krylov preconditioner strategies | 20–40% (large systems) |
 
-- **P8/P9:** Build-system-only, zero code risk — deferred from Phase 1 to prioritize algorithmic work.
-- **Known risk (P2/P3):** RTE encountered KLU lock contention during prior OpenMP attempts.
+- **P8/P9:** Build-system-only, zero code risk.
+- **Known risk (P2/P3):** RTE encountered KLU lock contention during prior OpenMP attempts. Feasibility study required before committing.
 
-**Go/No-Go:** OpenMP ≥ 1.5x on 4 cores; Krylov crossover point determined.
+**Go/No-Go:** OpenMP ≥ 1.5x on 4 cores; PGO/LTO numerical correctness verified.
 
 ---
 
-# Phase 3 — Research (3–6 months)
+# Phase 3 — Research / Exploratory
 
-**Target:** 2–5x speedup for the largest simulations, requiring architectural changes
+> **High risk / Long term / Possibly out of scope.** These items require significant architectural changes and may not be justified if Phases 0–2 provide sufficient gains.
 
 | Item | Description | Expected Gain |
 |------|-------------|---------------|
+| A5 | Partial Jacobian updates | 10–20% |
 | P10 | GPU acceleration (cuSOLVER) | 20–50% (very large) |
 | A9 | Schur complement decomposition | 15–30% |
-| A10 | Waveform relaxation (multi-rate) | 10–25% |
 
-- **P10:** Prototype GPU sparse solve, measure data transfer overhead, determine crossover system size
-- **A9:** Partition network vs. device models, exploit block structure
-- **A10:** Separate fast (power electronics) and slow (electromechanical) dynamics
+- **A5:** Complex cross-model coupling; may be unnecessary if Phase 0 factorization avoidance suffices.
+- **P10:** Heavy CUDA dependency, only beneficial above a large system-size crossover.
+- **A9:** Requires partitioning network vs. device models — significant architectural change.
 
-Each item is prototyped and evaluated before production commitment.
+Each item must be prototyped and evaluated before any production commitment.
 
 ---
 
 # Cumulative Impact
 
 ```
-Phase 0 (1–2 weeks)    ████████████████░░░░░░░░  15–25% speedup
-Phase 1 (2–4 weeks)    ████████████████████░░░░  25–40% cumulative
-Phase 2 (1–3 months)   ████████████████████████  40–75% cumulative
-Phase 3 (3–6 months)   ████████████████████████  60–125%+ cumulative
+Phase 0    ████████████████░░░░░░░░  15–25% speedup
+Phase 1    ████████████████████░░░░  25–40% cumulative
+Phase 2    ████████████████████████  40–70% cumulative
+Phase 3    ████████████████████████  (exploratory)
 ```
 
 **Phase 0 alone may be sufficient** to bring Model 2 into real-time feasibility.
@@ -276,7 +272,7 @@ Phases 1–3 target Model 3 feasibility and provide headroom for even larger sys
 | Solver parameter tuning (2x speedup on topology events) | Done |
 | Profiling of French system — 3 model detail levels | Done |
 | P1: Flat vector derivatives (upstream by G. Bureau) | Done |
-| Detailed optimization roadmap with 20 items | Done |
+| Detailed optimization roadmap with 16 items | Done |
 | Developer feedback integration (TRAISIM discussion) | Done |
 
 All tools and documentation are available in the `performance-analysis/` directory of the [SPS-L/dynawo](https://github.com/SPS-L/dynawo/tree/performance-analysis-framework/performance-analysis) fork.
@@ -290,7 +286,7 @@ All tools and documentation are available in the `performance-analysis/` directo
 3. **Engage with RTE/Dynawo upstream** — contribute improvements back to the main repository
 4. **Proceed through phases based on Go/No-Go criteria** — data-driven decisions at each gate
 
-**Timeline alignment:** Phase 0–1 align with TRAISIM v2 extension (Jan 2026 – Jun 2027, Task #4: New Solver Implementation). Phases 2–3 are longer-term research directions.
+Phase 0–1 align with TRAISIM v2 extension (Task #4: New Solver Implementation). Phases 2–3 are longer-term research directions.
 
 ---
 
