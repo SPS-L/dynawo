@@ -1,8 +1,8 @@
 # Dynawo Optimization Roadmap
 
-This document presents a detailed optimization plan for the Dynawo power system simulation tool. It covers 10 programming optimizations and 11 algorithmic optimizations, each with descriptions, expected speedup ranges, implementation effort and risk assessments, and implementation sketches. A phased roadmap at the end provides a structured plan for executing these improvements.
+This document presents a detailed optimization plan for the Dynawo power system simulation tool. It covers 9 programming optimizations and 11 algorithmic optimizations, each with descriptions, expected speedup ranges, implementation effort and risk assessments, and implementation sketches. A phased roadmap at the end provides a structured plan for executing these improvements.
 
-> **Developer feedback incorporated.** Sections marked "Developer Feedback (TRAISIM Discussion)" contain insights from Gautier Bureau, former lead Dynawo developer at RTE, gathered during a TRAISIM project technical meeting. His feedback has been used to validate suggestions, flag already-implemented items (P1), add a new high-value optimization (A11), and refine complexity/risk assessments.
+> **Developer feedback incorporated.** Sections marked "Developer Feedback (TRAISIM Discussion)" contain insights from Gautier Bureau, former lead Dynawo developer at RTE, gathered during a TRAISIM project technical meeting. His feedback has been used to validate suggestions, remove already-implemented items (P1 — now in upstream master), add a new high-value optimization (A11), and refine complexity/risk assessments.
 
 All speedup estimates are relative to typical large-scale power system simulations (1000+ buses, 10-60 second simulation windows). Actual improvements will vary depending on network size, event density, and solver configuration.
 
@@ -32,7 +32,6 @@ An IDA solver comparison is also available via `performance-analysis/benchmarks/
 ## Table of Contents
 
 1. [Programming Optimizations](#programming-optimizations)
-   - [P1. Flat Vector Derivatives](#p1-flat-vector-derivatives)
    - [P2. OpenMP Jacobian Evaluation](#p2-openmp-jacobian-evaluation)
    - [P3. OpenMP SubModel Evaluation](#p3-openmp-submodel-evaluation)
    - [P4. Cache-Optimized Sparse Matrix Layout](#p4-cache-optimized-sparse-matrix-layout)
@@ -64,76 +63,6 @@ An IDA solver comparison is also available via `performance-analysis/benchmarks/
 ---
 
 ## Programming Optimizations
-
-### P1. Flat Vector Derivatives
-
-**Status: IMPLEMENTED UPSTREAM** (commit `#3749` by Gautier Bureau, merged to master)
-
-**Expected Speedup:** 8-10%
-**Implementation Effort:** ~~Medium~~ Done
-**Risk Level:** Low
-
-#### Description
-
-The `Derivatives` class in the Network model previously used `std::map<int, double>` to store sparse derivative values indexed by variable ID. The red-black tree implementation incurred significant overhead: each entry required a separate heap allocation for the tree node (typically 48-64 bytes per entry on 64-bit systems, compared to 8 bytes for the actual `double` value), and traversal followed pointer chains hostile to CPU cache prefetching.
-
-**This has been addressed upstream.** In PR #3749, Gautier Bureau replaced `std::map<int, double>` with `std::vector<double>` + `std::vector<int>` (values and indices stored separately in contiguous memory). The change spans the `DYNDerivative.h/.cpp` class and all Network model components that use it (ModelBus, ModelLine, ModelLoad, ModelTwoWindingsTransformer, etc. — 14 files, +369/−168 lines). This was confirmed during a TRAISIM project discussion where Gautier noted the change had been in development for approximately six months before merging to master.
-
-**Remaining opportunity:** The upstream change only covers the Network model's `Derivatives` class. Other parts of the codebase that use similar map-based sparse storage patterns (e.g., in Modelica-generated C++ code or in the `SubModel` interface for cross-model coupling) could benefit from the same treatment. An audit of remaining `std::map<int, double>` usage outside the Network model would identify any additional targets.
-
-#### Implementation Sketch
-
-```cpp
-// Before: in Derivatives class
-class Derivatives {
-  std::map<int, double> values_;  // sparse, heap-heavy
-public:
-  void setValue(int varIdx, double val) { values_[varIdx] = val; }
-  double getValue(int varIdx) const {
-    auto it = values_.find(varIdx);
-    return (it != values_.end()) ? it->second : 0.0;
-  }
-};
-
-// After: flat vector with index remapping
-class Derivatives {
-  std::vector<double> values_;         // dense, cache-friendly
-  std::vector<int> globalToLocal_;     // index remapping table
-  int localSize_;
-
-public:
-  void init(const std::vector<int>& globalIndices) {
-    localSize_ = static_cast<int>(globalIndices.size());
-    values_.resize(localSize_, 0.0);
-    int maxGlobal = *std::max_element(globalIndices.begin(), globalIndices.end());
-    globalToLocal_.assign(maxGlobal + 1, -1);
-    for (int i = 0; i < localSize_; ++i) {
-      globalToLocal_[globalIndices[i]] = i;
-    }
-  }
-
-  void setValue(int varIdx, double val) {
-    int local = globalToLocal_[varIdx];
-    if (local >= 0)
-      values_[local] = val;
-  }
-
-  double getValue(int varIdx) const {
-    int local = globalToLocal_[varIdx];
-    return (local >= 0) ? values_[local] : 0.0;
-  }
-
-  void clear() {
-    std::fill(values_.begin(), values_.end(), 0.0);
-  }
-
-  // Direct access for inner loops (no bounds check)
-  double* data() { return values_.data(); }
-  int size() const { return localSize_; }
-};
-```
-
----
 
 ### P2. OpenMP Jacobian Evaluation
 
@@ -1769,23 +1698,22 @@ For the simplified solver, the implementation path is analogous but requires ada
 **Objective:** Achieve an additional 10-20% speedup through build optimizations, remaining data structure improvements, and careful exploration of partial Jacobian updates.
 
 **Items:**
-- **P1. Flat Vector Derivatives** — **ALREADY DONE upstream** (commit `#3749` by Gautier Bureau). The core `Derivatives` class has been changed from `std::map` to `std::vector` in master. Remaining task: audit for similar patterns outside the Network model.
 - **P8. Profile-Guided Optimization (PGO)** (5-10% speedup)
 - **P9. Link-Time Optimization (LTO)** (3-5% speedup)
+- **Remaining `std::map` audit** — P1 (Flat Vector Derivatives) was implemented upstream by Gautier Bureau (commit `#3749`), but only for the Network model's `Derivatives` class. Audit and convert remaining `std::map<int, double>` usage in Modelica-generated C++ and SubModel coupling code.
 - **A5. Partial Jacobian Updates** (10-20% speedup) — **High complexity.** Developer feedback (Gautier Bureau, TRAISIM discussion) flags this as "difficult to implement" due to cross-model coupling and the need for a reliable dirty-flag mechanism across the SubModel interface. Consider a conservative Newton-failure fallback approach (as used in RAMSES) rather than full change detection.
 
-**Rationale:** P1's core change is already merged upstream, so Phase 1 time can be redirected to the remaining `std::map` audit and to build optimizations. P8 and P9 are build-system-only changes that improve all code paths simultaneously with zero code risk. A5 remains the algorithmic optimization with the highest potential payoff but carries significant implementation complexity; the RAMSES approach (always update on short circuits, rely on Newton failure for other events) is a pragmatic fallback if full change detection proves too fragile.
+**Rationale:** P8 and P9 are build-system-only changes that improve all code paths simultaneously with zero code risk. The remaining `std::map` audit extends the upstream P1 work to other parts of the codebase. A5 remains the algorithmic optimization with the highest potential payoff but carries significant implementation complexity; the RAMSES approach (always update on short circuits, rely on Newton failure for other events) is a pragmatic fallback if full change detection proves too fragile.
 
 **Tasks:**
 1. Audit remaining `std::map<int, double>` usage outside the Network model's `Derivatives` class (Modelica-generated C++, SubModel interface coupling) and convert where beneficial (2-3 days).
-2. Benchmark the upstream P1 change on the Nordic test system to quantify actual improvement (1 day).
-3. Set up PGO build infrastructure (P8) with representative workload scripts (2 days).
-4. Enable LTO (P9) in the build system with an option flag (1 day).
-5. Benchmark PGO + LTO combined (1 day).
-6. Prototype A5: start with a conservative approach — only skip Jacobian re-evaluation when no state variable changes exceed a threshold, with automatic full re-evaluation on Newton failure (4-5 days).
-7. If the conservative A5 prototype shows promise, implement finer-grained change detection per SubModel (3-4 days).
-8. Comprehensive benchmarking of all Phase 1 items combined (2 days).
-9. Regression testing on the full test suite (2 days).
+2. Set up PGO build infrastructure (P8) with representative workload scripts (2 days).
+3. Enable LTO (P9) in the build system with an option flag (1 day).
+4. Benchmark PGO + LTO combined (1 day).
+5. Prototype A5: start with a conservative approach — only skip Jacobian re-evaluation when no state variable changes exceed a threshold, with automatic full re-evaluation on Newton failure (4-5 days).
+6. If the conservative A5 prototype shows promise, implement finer-grained change detection per SubModel (3-4 days).
+7. Comprehensive benchmarking of all Phase 1 items combined (2 days).
+8. Regression testing on the full test suite (2 days).
 
 **Go/No-Go Criteria for Phase 2:**
 - Cumulative speedup (Phase 0 + Phase 1) of at least 20% on the large-scale test case.
