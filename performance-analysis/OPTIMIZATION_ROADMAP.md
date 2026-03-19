@@ -1,6 +1,8 @@
 # Dynawo Optimization Roadmap
 
-This document presents a detailed optimization plan for the Dynawo power system simulation tool. It covers 10 programming optimizations and 10 algorithmic optimizations, each with descriptions, expected speedup ranges, implementation effort and risk assessments, and implementation sketches. A phased roadmap at the end provides a structured plan for executing these improvements.
+This document presents a detailed optimization plan for the Dynawo power system simulation tool. It covers 10 programming optimizations and 11 algorithmic optimizations, each with descriptions, expected speedup ranges, implementation effort and risk assessments, and implementation sketches. A phased roadmap at the end provides a structured plan for executing these improvements.
+
+> **Developer feedback incorporated.** Sections marked "Developer Feedback (TRAISIM Discussion)" contain insights from Gautier Bureau, former lead Dynawo developer at RTE, gathered during a TRAISIM project technical meeting. His feedback has been used to validate suggestions, flag already-implemented items (P1), add a new high-value optimization (A11), and refine complexity/risk assessments.
 
 All speedup estimates are relative to typical large-scale power system simulations (1000+ buses, 10-60 second simulation windows). Actual improvements will vary depending on network size, event density, and solver configuration.
 
@@ -51,6 +53,7 @@ An IDA solver comparison is also available via `performance-analysis/benchmarks/
    - [A8. Krylov Preconditioner Strategies](#a8-krylov-preconditioner-strategies)
    - [A9. Schur Complement Decomposition](#a9-schur-complement-decomposition)
    - [A10. Waveform Relaxation for Multi-Rate Simulation](#a10-waveform-relaxation-for-multi-rate-simulation)
+   - [A11. Event Severity Classification for Reinit/Factorization Control](#a11-event-severity-classification-for-reinitfactorization-control)
 3. [Phased Roadmap](#phased-roadmap)
    - [Phase 0: Quick Wins (1-2 weeks)](#phase-0-quick-wins-1-2-weeks)
    - [Phase 1: Medium Effort (2-4 weeks)](#phase-1-medium-effort-2-4-weeks)
@@ -64,17 +67,19 @@ An IDA solver comparison is also available via `performance-analysis/benchmarks/
 
 ### P1. Flat Vector Derivatives
 
+**Status: IMPLEMENTED UPSTREAM** (commit `#3749` by Gautier Bureau, merged to master)
+
 **Expected Speedup:** 8-10%
-**Implementation Effort:** Medium
+**Implementation Effort:** ~~Medium~~ Done
 **Risk Level:** Low
 
 #### Description
 
-The current `Derivatives` class and related data structures in Dynawo use `std::map<int, double>` to store sparse derivative values indexed by variable ID. While `std::map` provides convenient insertion and lookup for arbitrary keys, its red-black tree implementation incurs significant overhead: each entry requires a separate heap allocation for the tree node (typically 48-64 bytes per entry on 64-bit systems, compared to 8 bytes for the actual `double` value), and traversal follows pointer chains that are hostile to CPU cache prefetching.
+The `Derivatives` class in the Network model previously used `std::map<int, double>` to store sparse derivative values indexed by variable ID. The red-black tree implementation incurred significant overhead: each entry required a separate heap allocation for the tree node (typically 48-64 bytes per entry on 64-bit systems, compared to 8 bytes for the actual `double` value), and traversal followed pointer chains hostile to CPU cache prefetching.
 
-For the Jacobian evaluation and residual computation phases, which are called thousands of times per simulation and dominate the runtime, replacing `std::map<int, double>` with flat `std::vector<double>` indexed by dense variable IDs can eliminate this overhead. Since variable indices in a given submodel are typically dense and known at initialization time, a flat vector with direct indexing is both feasible and natural.
+**This has been addressed upstream.** In PR #3749, Gautier Bureau replaced `std::map<int, double>` with `std::vector<double>` + `std::vector<int>` (values and indices stored separately in contiguous memory). The change spans the `DYNDerivative.h/.cpp` class and all Network model components that use it (ModelBus, ModelLine, ModelLoad, ModelTwoWindingsTransformer, etc. — 14 files, +369/−168 lines). This was confirmed during a TRAISIM project discussion where Gautier noted the change had been in development for approximately six months before merging to master.
 
-The primary challenge is handling the sparse-to-dense transition at model boundaries, where variable indices may not be contiguous. This can be addressed with an index remapping table computed once during initialization, converting global sparse indices to dense local indices.
+**Remaining opportunity:** The upstream change only covers the Network model's `Derivatives` class. Other parts of the codebase that use similar map-based sparse storage patterns (e.g., in Modelica-generated C++ code or in the `SubModel` interface for cross-model coupling) could benefit from the same treatment. An audit of remaining `std::map<int, double>` usage outside the Network model would identify any additional targets.
 
 #### Implementation Sketch
 
@@ -133,7 +138,7 @@ public:
 ### P2. OpenMP Jacobian Evaluation
 
 **Expected Speedup:** 8-12%
-**Implementation Effort:** Medium
+**Implementation Effort:** Medium-High
 **Risk Level:** Medium
 
 #### Description
@@ -143,6 +148,18 @@ The Jacobian evaluation phase (`ModelMulti::evalJt()`) iterates over all submode
 The main complication is that each submodel writes to a different row/column block of the sparse Jacobian. As long as the write regions do not overlap -- which is guaranteed by the block structure of the multi-model Jacobian -- the loop can be parallelized without locks. Care must be taken with thread-local scratch buffers and ensuring that no submodel modifies shared state during Jacobian evaluation.
 
 The expected speedup depends on the number of submodels and their relative evaluation cost. For simulations with many generator models (each with its own Jacobian block), the speedup scales well with core count up to the number of submodels. For network-dominated simulations with few large submodels, the speedup is more modest.
+
+#### Developer Feedback (TRAISIM Discussion)
+
+Gautier Bureau (former Dynawo lead developer at RTE) provided critical context:
+
+1. **KLU lock contention:** RTE previously attempted OpenMP parallelization for N-1 batch simulations (multiple independent simulations in parallel). They found that KLU has internal locks on shared data structures that caused contention and poor scaling. This affected inter-simulation parallelism but may also affect intra-simulation parallelism if KLU is called within the parallel region.
+
+2. **Network model is a submodel:** The network model (`ModelNetwork`) is itself one of the submodels in the `ModelMulti` structure. Parallelizing the submodel loop and separately parallelizing within the network model would create nested OpenMP regions. Nested parallelism must be carefully managed (or avoided) to prevent thread oversubscription.
+
+3. **RTE's historical priority:** RTE historically parallelized at the simulation level (N-1 scenarios) rather than within a single simulation, because their use case involves running many independent simulations. For real-time OTS (the TRAISIM use case), intra-simulation parallelism is the priority instead.
+
+**Recommended approach:** Parallelize at the submodel `evalJt` level but treat `ModelNetwork` specially — either exclude it from the parallel loop (evaluate it sequentially before/after the other submodels) or ensure its internal parallelization is disabled when called from within a parallel region. Profile with `OMP_NESTED=false` first.
 
 #### Implementation Sketch
 
@@ -716,6 +733,18 @@ Adaptive factorization control tracks whether the Jacobian structure has actuall
 
 This optimization is low-risk because it preserves the existing factorization quality -- it simply skips redundant work. The primary requirement is a reliable mechanism for detecting structure changes, which can be implemented by tracking the `nnz` count and a hash of the column pointer array.
 
+#### Developer Feedback (TRAISIM Discussion)
+
+Gautier Bureau confirmed that the excessive symbolic factorization is a known issue. In RTE's large-scale French system tests, they do not observe as many factorizations because their scenarios tend to have fewer cascading events. However, for the TRAISIM use case (300,000-variable system with cascading automata), the problem is acute: profiling showed ~30% of computation time spent on symbolic factorization alone.
+
+Gautier's key insight: the root cause is that Dynawo's `modeChangeType_t` heuristic in the Modelica-to-C++ translation flags `ALGEBRAIC_J_UPDATE_MODE` (which triggers full Jacobian/factorization update) for **any** Boolean variable change in an `if` clause. This was originally intended to catch the `running` Boolean (generator on/off), but it also fires for many minor control automata actions (e.g., OEL activation, tap changer steps). The result is that even small events during the post-fault recovery period (e.g., 7 seconds of automata actions after a generator trip) force repeated full factorizations.
+
+Gautier suggested a two-pronged approach:
+1. **Metrics-based (solver-side):** The monitoring approach described below (structure hash, nnz tracking) — applicable immediately.
+2. **Engineering-based (model-side):** A new event severity classification in the model translation layer (see A11) that provides richer information to the solver about whether a change is "severe" enough to warrant factorization. This approach gives better results because it uses domain knowledge about what events actually affect the Jacobian structure significantly.
+
+The RAMSES simulator (used by Petros Aristidou) takes the most aggressive approach: it only forces Jacobian update for short circuits. For all other events, it relies on Newton iteration failure as a fallback trigger — if the stale Jacobian causes more than 5 Newton iterations, factorization is forced. This is too aggressive for offline accuracy but demonstrates the headroom available for real-time applications.
+
 #### Implementation Sketch
 
 ```cpp
@@ -1011,7 +1040,7 @@ public:
 
 **Expected Speedup:** 10-20%
 **Implementation Effort:** High
-**Risk Level:** Medium
+**Risk Level:** Medium-High
 
 #### Description
 
@@ -1020,6 +1049,12 @@ In a multi-model simulation, the global Jacobian matrix is block-structured: eac
 Implementing partial Jacobian updates requires: (1) A change-detection mechanism that identifies which submodels have experienced significant state changes since the last Jacobian evaluation. This can be based on the norm of the state variable change vector for each submodel, compared to a threshold. (2) A Jacobian assembly framework that can selectively update blocks while preserving the rest of the matrix. (3) A refactorization strategy that accounts for the partially-updated matrix (typically, numerical refactorization is sufficient if only values changed, not structure).
 
 The potential speedup is large because Jacobian evaluation is typically the most expensive phase, and in many simulations only a small fraction of submodels are actively changing at any given time. However, the implementation is complex and carries medium risk because an incorrectly reused Jacobian block can lead to Newton convergence failures or incorrect results.
+
+#### Developer Feedback (TRAISIM Discussion)
+
+Gautier Bureau assessed this as conceptually straightforward but "difficult to implement" in practice, particularly with the existing sparse matrix data structures. Updating already-factorized LU factors after partial Jacobian changes is non-trivial. Literature review found a few papers demonstrating the mathematics, but only on small matrices in prototype code, not at production scale.
+
+**Recommendation:** Prioritize A1, A2, A3, and A11 (event severity classification) first. These address the same root problem (unnecessary Jacobian work during events) with much lower implementation complexity. If those optimizations reduce Jacobian overhead sufficiently, A5 may not be needed. If further Jacobian savings are still required after implementing the factorization control improvements, A5 should be prototyped on a small test case before committing to a full implementation.
 
 #### Implementation Sketch
 
@@ -1622,30 +1657,108 @@ private:
 
 ---
 
+### A11. Event Severity Classification for Reinit/Factorization Control
+
+**Expected Speedup:** 10-15% (during event-heavy periods; compounds with A1/A2/A3)
+**Implementation Effort:** Medium
+**Risk Level:** Low-Medium
+**Source:** TRAISIM project discussion with Gautier Bureau (former Dynawo lead developer, RTE)
+
+#### Description
+
+The current `modeChangeType_t` enum in Dynawo classifies events into four levels: `NO_MODE`, `DIFFERENTIAL_MODE`, `ALGEBRAIC_MODE`, and `ALGEBRAIC_J_UPDATE_MODE`. The Modelica-to-C++ translation layer assigns `ALGEBRAIC_J_UPDATE_MODE` to any model equation that involves a Boolean variable in an `if` clause. This heuristic was designed to catch the `running` Boolean (generator on/off) but triggers for many minor events (OEL activations, tap changer steps, AVR limit actions). The solver treats `ALGEBRAIC_J_UPDATE_MODE` as a signal to perform a full Jacobian update and symbolic refactorization, even when the event has negligible impact on the system Jacobian.
+
+Gautier Bureau has already prototyped a solution for the IDA solver: adding a new, higher-severity flag to the `modeChangeType_t` enum that is triggered only for truly disruptive events (short circuits via `NodeFault` model, and generator disconnections via the `running` Boolean). In his implementation, the IDA solver only performs full reinitialization (`IDAReInit`) when this severe flag is detected, allowing minor events to be handled with just a numerical refactorization or even no refactorization at all.
+
+The change in the Modelica translation layer is small (~3 lines of code in the C++ code generation). The new flag is derived from heuristic name matching: if the model is a `NodeFault` model or the Boolean variable is named `running`, the severe flag is set. All other Boolean-driven mode changes get the standard `ALGEBRAIC_J_UPDATE_MODE` flag.
+
+**This optimization has been tested on the French system (RTE) for several months with the IDA solver and is confirmed stable.** It has not yet been implemented for the simplified solver (SolverSIM/SolverTRAP), which is the solver used in the TRAISIM real-time use case. Extending it to the simplified solver is the primary implementation task.
+
+#### Why This Matters for Real-Time Performance
+
+In TRAISIM profiling of the 300,000-variable system, ~30% of computation time during event periods was spent on symbolic factorization triggered by minor automata actions. A generator trip at t=0 correctly triggers factorization, but the subsequent 7 seconds of follow-up control actions (OELs, AVRs, secondary frequency control) each trigger unnecessary full factorizations. With event severity classification, only the initial generator trip would force full factorization; the follow-up events would use numerical-only refactorization or be deferred to Newton failure fallback.
+
+This compounds with A1/A2/A3: event severity classification provides the model-side intelligence, while A1/A2/A3 provide the solver-side intelligence. Together they form a complete factorization control strategy.
+
+#### Implementation Sketch
+
+```cpp
+// Step 1: Extend the modeChangeType_t enum (DYNEnumUtils.h)
+typedef enum {
+  NO_MODE = 0,
+  DIFFERENTIAL_MODE,
+  ALGEBRAIC_MODE,
+  ALGEBRAIC_J_UPDATE_MODE,
+  ALGEBRAIC_J_UPDATE_SEVERE_MODE  // NEW: only for faults and disconnections
+} modeChangeType_t;
+
+// Step 2: In the Modelica-to-C++ translation (ModelicaCompiler),
+// flag severe events based on model type and variable name:
+//   - NodeFault model → ALGEBRAIC_J_UPDATE_SEVERE_MODE
+//   - Boolean named "running" → ALGEBRAIC_J_UPDATE_SEVERE_MODE
+//   - All other Boolean-driven mode changes → ALGEBRAIC_J_UPDATE_MODE
+
+// Step 3: In the simplified solver (SolverCommonFixedTimeStep),
+// use the severity level to decide factorization strategy:
+void SolverCommonFixedTimeStep::handleModeChange(modeChangeType_t modeType) {
+  switch (modeType) {
+    case ALGEBRAIC_J_UPDATE_SEVERE_MODE:
+      // Full symbolic + numerical refactorization
+      forceFullRefactorization();
+      break;
+    case ALGEBRAIC_J_UPDATE_MODE:
+      // Numerical-only refactorization (reuse existing ordering)
+      // Or defer: let Newton failure trigger refactorization
+      if (adaptiveController_.shouldRefactorize()) {
+        numericalRefactorizationOnly();
+      }
+      break;
+    default:
+      // No factorization needed
+      break;
+  }
+}
+```
+
+#### Relationship to Gautier's IDA Implementation
+
+Gautier's prototype is in a PR (not yet merged to master as of early 2026). The changes are:
+- ~3 lines in the Modelica-to-C++ code generation to add the new flag
+- IDA solver modifications to use the flag for reinit decisions
+- Extensively tested on the French system for DynaSwing simulations
+
+For the simplified solver, the implementation path is analogous but requires adapting the decision logic in `SolverCommonFixedTimeStep` and `SolverKINAlgRestoration` rather than in the IDA reinit path.
+
+---
+
 ## Phased Roadmap
 
 ### Phase 0: Quick Wins (1-2 weeks)
 
-**Objective:** Achieve 10-18% overall speedup with minimal code changes and low risk.
+**Objective:** Achieve 15-25% overall speedup with minimal code changes and low risk, focusing on factorization avoidance.
 
 **Items:**
+- **A11. Event Severity Classification** (15-30% reduction in event-period time) — **Highest priority.** Gautier Bureau already prototyped this for the IDA solver; adapting to SolverSIM and productionizing is a well-scoped task. Targets the root cause of unnecessary symbolic factorizations.
 - **A1. Adaptive Factorization Control** (5-8% speedup)
 - **A2. Matrix Structure Change Tolerance** (3-5% speedup)
 - **A3. KLU Numerical-Only Refactorization** (5-7% speedup)
 
-**Rationale:** These three algorithmic optimizations all target the sparse linear algebra pipeline, which typically consumes 40-60% of simulation time. They are complementary: A1 provides the decision logic, A2 extends the criteria for when to skip symbolic factorization, and A3 ensures the fast refactorization path is used. Together they form a layered factorization strategy that can be implemented and tested incrementally.
+**Rationale:** A11 is the single highest-impact quick win identified during the TRAISIM discussion with Gautier Bureau. Profiling shows that ~30% of event-period computation time is spent on symbolic factorizations triggered by minor automata events (tap changers, OELs) that do not actually change Jacobian structure. Since Gautier already implemented a severity-based classification for IDA, the design is proven and the port to SolverSIM is straightforward. A1, A2, and A3 complement A11 by providing layered factorization control: A1 adds decision logic, A2 extends skip criteria, and A3 ensures the fast `klu_refactor` path is used when symbolic refactorization is skipped.
 
 **Tasks:**
-1. Instrument the current factorization code to measure how often symbolic vs. numerical factorization is performed (1 day).
-2. Implement A1 (adaptive factorization controller with structure hash) (2 days).
-3. Implement A3 (explicit `klu_refactor` path) alongside A1 (1 day).
-4. Implement A2 (structure change tolerance) with configurable threshold (2 days).
-5. Benchmark on IEEE 14, IEEE 39, and a large-scale test case (1 day).
-6. Tune tolerance parameters based on benchmarks (1 day).
-7. Run the full test suite to verify correctness (1 day).
+1. Port Gautier's IDA event severity classification to SolverSIM: add `ALGEBRAIC_J_UPDATE_SEVERE_MODE` to `modeChangeType_t` and classify events by severity in the submodel interface (2-3 days).
+2. Modify `SolverSIM::handleEvent` and `SolverSIM::setupNewAlgebraicRestoration` to skip symbolic factorization for non-severe events (1-2 days).
+3. Instrument the current factorization code to measure symbolic vs. numerical factorization frequency (1 day).
+4. Implement A1 (adaptive factorization controller with structure hash) (2 days).
+5. Implement A3 (explicit `klu_refactor` path) alongside A1 (1 day).
+6. Implement A2 (structure change tolerance) with configurable threshold (2 days).
+7. Benchmark on Nordic test system and a large-scale test case, measuring factorization skip rate and event-period speedup (1 day).
+8. Tune severity classification and tolerance parameters based on benchmarks (1 day).
+9. Run the full test suite to verify correctness — ensure Newton convergence fallback triggers correctly when severity is underestimated (1 day).
 
 **Go/No-Go Criteria for Phase 1:**
-- At least 8% measured speedup on the large-scale test case.
+- At least 10% measured speedup on the large-scale test case.
+- Event-period symbolic factorization rate reduced by at least 50%.
 - No increase in Newton iteration failures or convergence warnings.
 - All unit tests and integration tests pass.
 
@@ -1653,32 +1766,31 @@ private:
 
 ### Phase 1: Medium Effort (2-4 weeks)
 
-**Objective:** Achieve an additional 15-30% speedup through a combination of data structure improvements, build optimizations, and partial Jacobian updates.
+**Objective:** Achieve an additional 10-20% speedup through build optimizations, remaining data structure improvements, and careful exploration of partial Jacobian updates.
 
 **Items:**
-- **P1. Flat Vector Derivatives** (8-10% speedup)
+- **P1. Flat Vector Derivatives** — **ALREADY DONE upstream** (commit `#3749` by Gautier Bureau). The core `Derivatives` class has been changed from `std::map` to `std::vector` in master. Remaining task: audit for similar patterns outside the Network model.
 - **P8. Profile-Guided Optimization (PGO)** (5-10% speedup)
 - **P9. Link-Time Optimization (LTO)** (3-5% speedup)
-- **A5. Partial Jacobian Updates** (10-20% speedup)
+- **A5. Partial Jacobian Updates** (10-20% speedup) — **High complexity.** Developer feedback (Gautier Bureau, TRAISIM discussion) flags this as "difficult to implement" due to cross-model coupling and the need for a reliable dirty-flag mechanism across the SubModel interface. Consider a conservative Newton-failure fallback approach (as used in RAMSES) rather than full change detection.
 
-**Rationale:** P1 addresses a fundamental data structure inefficiency that affects every Jacobian and residual evaluation. P8 and P9 are build-system-only changes that improve all code paths simultaneously. A5 is the algorithmic optimization with the highest payoff that does not require changing the solver architecture.
+**Rationale:** P1's core change is already merged upstream, so Phase 1 time can be redirected to the remaining `std::map` audit and to build optimizations. P8 and P9 are build-system-only changes that improve all code paths simultaneously with zero code risk. A5 remains the algorithmic optimization with the highest potential payoff but carries significant implementation complexity; the RAMSES approach (always update on short circuits, rely on Newton failure for other events) is a pragmatic fallback if full change detection proves too fragile.
 
 **Tasks:**
-1. Implement P1: flat vector derivatives with index remapping (3-4 days).
-2. Audit all `std::map<int, double>` usage in derivatives and Jacobian assembly (2 days).
-3. Benchmark P1 in isolation to confirm the 8-10% estimate (1 day).
-4. Set up PGO build infrastructure (P8) with representative workload scripts (2 days).
-5. Enable LTO (P9) in the build system with an option flag (1 day).
-6. Benchmark PGO + LTO combined (1 day).
-7. Implement A5: partial Jacobian update with change detection (4-5 days).
-8. Implement convergence fallback for A5 (when partial update leads to Newton failure, re-evaluate full Jacobian) (2 days).
-9. Comprehensive benchmarking of all Phase 1 items combined (2 days).
-10. Regression testing on the full test suite (2 days).
+1. Audit remaining `std::map<int, double>` usage outside the Network model's `Derivatives` class (Modelica-generated C++, SubModel interface coupling) and convert where beneficial (2-3 days).
+2. Benchmark the upstream P1 change on the Nordic test system to quantify actual improvement (1 day).
+3. Set up PGO build infrastructure (P8) with representative workload scripts (2 days).
+4. Enable LTO (P9) in the build system with an option flag (1 day).
+5. Benchmark PGO + LTO combined (1 day).
+6. Prototype A5: start with a conservative approach — only skip Jacobian re-evaluation when no state variable changes exceed a threshold, with automatic full re-evaluation on Newton failure (4-5 days).
+7. If the conservative A5 prototype shows promise, implement finer-grained change detection per SubModel (3-4 days).
+8. Comprehensive benchmarking of all Phase 1 items combined (2 days).
+9. Regression testing on the full test suite (2 days).
 
 **Go/No-Go Criteria for Phase 2:**
-- Cumulative speedup (Phase 0 + Phase 1) of at least 25% on the large-scale test case.
+- Cumulative speedup (Phase 0 + Phase 1) of at least 20% on the large-scale test case.
 - PGO and LTO builds produce identical numerical results (bitwise or within tolerance).
-- Partial Jacobian updates do not increase the total number of Newton iterations by more than 5%.
+- If A5 is implemented: partial Jacobian updates do not increase the total number of Newton iterations by more than 5%.
 - No new test failures.
 
 ---
@@ -1688,29 +1800,31 @@ private:
 **Objective:** Enable parallel execution and improve solver adaptivity for an additional 15-30% speedup, with architecture changes that enable further scaling.
 
 **Items:**
-- **P2. OpenMP Jacobian Evaluation** (8-12% speedup)
-- **P3. OpenMP SubModel Evaluation** (3-5% speedup)
+- **P2. OpenMP Jacobian Evaluation** (8-12% speedup) — **Known risks from RTE experience.** KLU's internal data structures use global locks that serialize parallel threads during factorization. RTE attempted OpenMP parallelization for N-1 contingency analysis and encountered significant lock contention. Effective parallelization requires either KLU-level changes or a different parallel strategy.
+- **P3. OpenMP SubModel Evaluation** (3-5% speedup) — **Nested parallelism risk.** The Network model is itself a submodel containing internal components; naively parallelizing at the SubModel level can trigger nested OpenMP regions with poor scaling. Parallelization must target the right granularity level.
 - **A6. Adaptive Time Step Control** (3-10% speedup)
 - **A7. Improved Newton Convergence Criteria** (2-5% speedup)
 - **A8. Krylov Preconditioner Strategies** (20-40% for large systems)
 
-**Rationale:** OpenMP parallelization (P2, P3) requires a thread-safety audit of all submodel code, which is the main time investment. Adaptive time stepping (A6) and Newton criteria (A7) improve the solver's efficiency without changing the underlying algorithms. The Krylov preconditioner (A8) targets very large systems that may emerge as use cases grow.
+**Rationale:** OpenMP parallelization (P2, P3) has the highest potential payoff in this phase but also the highest risk. Developer feedback from RTE (Gautier Bureau, TRAISIM discussion) confirms that KLU lock contention is a real problem encountered during prior parallelization attempts. Two mitigation paths exist: (1) use a thread-local KLU workspace per contingency (works for N-1 but not within a single simulation), or (2) replace KLU with a thread-safe sparse solver. The recommendation is to prototype P2 early and measure actual lock contention before committing to the full phase. Adaptive time stepping (A6) and Newton criteria (A7) improve the solver's efficiency without changing the underlying algorithms. The Krylov preconditioner (A8) targets very large systems that may emerge as use cases grow.
 
 **Tasks:**
-1. Thread-safety audit of SubModel interface and implementations (1-2 weeks).
-2. Add thread-safety annotations and fix any shared mutable state (1 week).
-3. Implement P2: OpenMP Jacobian evaluation with dynamic scheduling (3-4 days).
-4. Implement P3: OpenMP residual and root evaluation (2-3 days).
-5. Benchmark OpenMP scaling on 2, 4, 8, and 16 cores (2 days).
-6. Implement A7: custom error weight function and early convergence detection (3-4 days).
-7. Implement A6: adaptive time step controller with quasi-steady-state detection (1 week).
-8. Validate A6 on event-heavy scenarios (fault ride-through, load shedding) (1 week).
-9. Implement A8: block-Jacobi preconditioner with SUNLINSOL_SPGMR integration (2 weeks).
-10. Benchmark A8 on large-scale systems (5000+ equations) to find crossover point (1 week).
-11. Integration testing of all Phase 2 items combined (1 week).
+1. **P2 feasibility study first:** Prototype OpenMP Jacobian evaluation on the Nordic system with 2 and 4 threads and measure KLU lock contention using `perf lock` (3-4 days). This determines whether the rest of the OpenMP investment is viable.
+2. If KLU lock contention is acceptable: thread-safety audit of SubModel interface and implementations (1-2 weeks).
+3. Add thread-safety annotations and fix any shared mutable state (1 week).
+4. Implement P2: OpenMP Jacobian evaluation with dynamic scheduling (3-4 days).
+5. Implement P3: OpenMP residual and root evaluation, being careful to avoid nested parallelism in the Network model (2-3 days).
+6. Benchmark OpenMP scaling on 2, 4, 8, and 16 cores (2 days).
+7. Implement A7: custom error weight function and early convergence detection (3-4 days).
+8. Implement A6: adaptive time step controller with quasi-steady-state detection (1 week).
+9. Validate A6 on event-heavy scenarios (fault ride-through, load shedding) (1 week).
+10. Implement A8: block-Jacobi preconditioner with SUNLINSOL_SPGMR integration (2 weeks).
+11. Benchmark A8 on large-scale systems (5000+ equations) to find crossover point (1 week).
+12. Integration testing of all Phase 2 items combined (1 week).
 
 **Go/No-Go Criteria for Phase 3:**
-- OpenMP provides at least 1.5x speedup on 4 cores for the standard benchmark suite.
+- If OpenMP is pursued: provides at least 1.5x speedup on 4 cores for the standard benchmark suite.
+- If KLU lock contention blocks P2/P3: document findings and consider deferring to Phase 3 (GPU or alternative solver).
 - Krylov solver with preconditioner is faster than KLU for systems above the determined crossover size.
 - Adaptive time stepping reduces total step count by at least 15% on quasi-steady-state test cases.
 - All numerical results are within acceptable tolerance of the sequential baseline.
@@ -1770,9 +1884,9 @@ The following metrics should be tracked across all optimization phases:
 - Profiling data confirms factorization skip rate > 50% in steady-state periods.
 
 **Phase 1 to Phase 2:**
-- Cumulative speedup of at least 25%.
+- Cumulative speedup of at least 20%.
 - PGO/LTO build pipeline is automated and reproducible.
-- Partial Jacobian update fallback mechanism has been exercised and validated.
+- If A5 is implemented: partial Jacobian update fallback mechanism has been exercised and validated. If A5 is deferred due to complexity, document the assessment and proceed.
 
 **Phase 2 to Phase 3:**
 - Cumulative speedup of at least 40%.
