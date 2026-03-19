@@ -2,7 +2,7 @@
 
 This document presents a detailed optimization plan for the Dynawo power system simulation tool. It covers 9 programming optimizations and 7 algorithmic optimizations, each with descriptions, expected speedup ranges, implementation effort and risk assessments, and implementation sketches. A phased roadmap at the end provides a structured plan for executing these improvements.
 
-> **Developer feedback incorporated.** Sections marked "Developer Feedback (TRAISIM Discussion)" contain insights from Gautier Bureau, former lead Dynawo developer at RTE, gathered during a TRAISIM project technical meeting. His feedback has been used to validate suggestions, remove already-implemented items (P1 — now in upstream master), add a new high-value optimization (A11), and refine complexity/risk assessments.
+> **Developer feedback incorporated.** Sections marked "Developer Feedback (TRAISIM Discussion)" contain insights from Gautier Bureau, former lead Dynawo developer at RTE, gathered during a TRAISIM project technical meeting. His feedback has been used to validate suggestions, remove already-implemented items (P1 — now in upstream master), add a new high-value optimization (A7), and refine complexity/risk assessments.
 
 All speedup estimates are relative to typical large-scale power system simulations (1000+ buses, 10-60 second simulation windows). Actual improvements will vary depending on network size, event density, and solver configuration.
 
@@ -32,23 +32,23 @@ An IDA solver comparison is also available via `performance-analysis/benchmarks/
 ## Table of Contents
 
 1. [Programming Optimizations](#programming-optimizations)
-   - [P2. OpenMP Jacobian Evaluation](#p2-openmp-jacobian-evaluation)
-   - [P3. OpenMP SubModel Evaluation](#p3-openmp-submodel-evaluation)
-   - [P4. Cache-Optimized Sparse Matrix Layout](#p4-cache-optimized-sparse-matrix-layout)
-   - [P5. SIMD Vectorization in Residual Evaluation](#p5-simd-vectorization-in-residual-evaluation)
-   - [P6. Memory Pool Allocator](#p6-memory-pool-allocator)
-   - [P7. Reduce SUNDIALS N_Vector Copies](#p7-reduce-sundials-nvector-copies)
-   - [P8. Profile-Guided Optimization (PGO)](#p8-profile-guided-optimization-pgo)
-   - [P9. Link-Time Optimization (LTO)](#p9-link-time-optimization-lto)
-   - [P10. GPU Acceleration for KLU](#p10-gpu-acceleration-for-klu)
+   - [P1. OpenMP Jacobian Evaluation](#p1-openmp-jacobian-evaluation)
+   - [P2. OpenMP SubModel Evaluation](#p2-openmp-submodel-evaluation)
+   - [P3. Cache-Optimized Sparse Matrix Layout](#p3-cache-optimized-sparse-matrix-layout)
+   - [P4. SIMD Vectorization in Residual Evaluation](#p4-simd-vectorization-in-residual-evaluation)
+   - [P5. Memory Pool Allocator](#p5-memory-pool-allocator)
+   - [P6. Reduce SUNDIALS N_Vector Copies](#p6-reduce-sundials-nvector-copies)
+   - [P7. Profile-Guided Optimization (PGO)](#p7-profile-guided-optimization-pgo)
+   - [P8. Link-Time Optimization (LTO)](#p8-link-time-optimization-lto)
+   - [P9. GPU Acceleration for KLU](#p9-gpu-acceleration-for-klu)
 2. [Algorithmic Optimizations](#algorithmic-optimizations)
    - [A1. Adaptive Factorization Control](#a1-adaptive-factorization-control)
    - [A2. Matrix Structure Change Tolerance](#a2-matrix-structure-change-tolerance)
    - [A3. KLU Numerical-Only Refactorization](#a3-klu-numerical-only-refactorization)
    - [A4. Improved COLAMD Ordering](#a4-improved-colamd-ordering)
    - [A5. Partial Jacobian Updates](#a5-partial-jacobian-updates)
-   - [A9. Schur Complement Decomposition](#a9-schur-complement-decomposition)
-   - [A11. Event Severity Classification for Reinit/Factorization Control](#a11-event-severity-classification-for-reinitfactorization-control)
+   - [A6. Schur Complement Decomposition](#a6-schur-complement-decomposition)
+   - [A7. Event Severity Classification for Reinit/Factorization Control](#a7-event-severity-classification-for-reinitfactorization-control)
 3. [Phased Roadmap](#phased-roadmap)
    - [Phase 0: Quick Wins](#phase-0-quick-wins)
    - [Phase 1: Medium Effort](#phase-1-medium-effort)
@@ -60,7 +60,7 @@ An IDA solver comparison is also available via `performance-analysis/benchmarks/
 
 ## Programming Optimizations
 
-### P2. OpenMP Jacobian Evaluation
+### P1. OpenMP Jacobian Evaluation
 
 **Expected Speedup:** 8-12%
 **Implementation Effort:** Medium-High
@@ -120,7 +120,7 @@ endif()
 
 ---
 
-### P3. OpenMP SubModel Evaluation
+### P2. OpenMP SubModel Evaluation
 
 **Expected Speedup:** 3-5%
 **Implementation Effort:** Medium
@@ -170,7 +170,7 @@ void ModelMulti::evalG(double t, const double* y, const double* yp, double* g) {
 
 ---
 
-### P4. Cache-Optimized Sparse Matrix Layout
+### P3. Cache-Optimized Sparse Matrix Layout
 
 **Expected Speedup:** 2-3%
 **Implementation Effort:** Medium
@@ -245,7 +245,7 @@ public:
 
 ---
 
-### P5. SIMD Vectorization in Residual Evaluation
+### P4. SIMD Vectorization in Residual Evaluation
 
 **Expected Speedup:** 3-5%
 **Implementation Effort:** High
@@ -306,7 +306,7 @@ void NetworkModel::evalBranchResiduals(
 
 ---
 
-### P6. Memory Pool Allocator
+### P5. Memory Pool Allocator
 
 **Expected Speedup:** 2-4%
 **Implementation Effort:** Medium
@@ -389,7 +389,7 @@ void SolverIDA::step() {
 
 ---
 
-### P7. Reduce SUNDIALS N_Vector Copies
+### P6. Reduce SUNDIALS N_Vector Copies
 
 **Expected Speedup:** 1-3%
 **Implementation Effort:** Low
@@ -445,7 +445,7 @@ int residualCallback(double t, N_Vector yy, N_Vector yp, N_Vector rr, void* user
 
 ---
 
-### P8. Profile-Guided Optimization (PGO)
+### P7. Profile-Guided Optimization (PGO)
 
 **Expected Speedup:** 5-10%
 **Implementation Effort:** Low
@@ -503,7 +503,7 @@ endif()
 
 ---
 
-### P9. Link-Time Optimization (LTO)
+### P8. Link-Time Optimization (LTO)
 
 **Expected Speedup:** 3-5%
 **Implementation Effort:** Low
@@ -548,7 +548,7 @@ cmake ../dynawo \
 
 ---
 
-### P10. GPU Acceleration for KLU
+### P9. GPU Acceleration for KLU
 
 > **High risk / Long term / Possibly out of scope.** GPU acceleration introduces a heavy dependency (CUDA/cuSOLVER) and is only beneficial above a large system-size crossover point. The data transfer overhead may negate gains for typical use cases.
 
@@ -668,7 +668,7 @@ Gautier's key insight: the root cause is that Dynawo's `modeChangeType_t` heuris
 
 Gautier suggested a two-pronged approach:
 1. **Metrics-based (solver-side):** The monitoring approach described below (structure hash, nnz tracking) — applicable immediately.
-2. **Engineering-based (model-side):** A new event severity classification in the model translation layer (see A11) that provides richer information to the solver about whether a change is "severe" enough to warrant factorization. This approach gives better results because it uses domain knowledge about what events actually affect the Jacobian structure significantly.
+2. **Engineering-based (model-side):** A new event severity classification in the model translation layer (see A7) that provides richer information to the solver about whether a change is "severe" enough to warrant factorization. This approach gives better results because it uses domain knowledge about what events actually affect the Jacobian structure significantly.
 
 The RAMSES simulator (used by Petros Aristidou) takes the most aggressive approach: it only forces Jacobian update for short circuits. For all other events, it relies on Newton iteration failure as a fallback trigger — if the stale Jacobian causes more than 5 Newton iterations, factorization is forced. This is too aggressive for offline accuracy but demonstrates the headroom available for real-time applications.
 
@@ -965,7 +965,7 @@ public:
 
 ### A5. Partial Jacobian Updates
 
-> **High risk / Long term / Possibly out of scope.** This optimization carries significant implementation complexity and may not be needed if Phase 0 factorization avoidance (A11, A1, A2, A3) provides sufficient speedup.
+> **High risk / Long term / Possibly out of scope.** This optimization carries significant implementation complexity and may not be needed if Phase 0 factorization avoidance (A7, A1, A2, A3) provides sufficient speedup.
 
 **Expected Speedup:** 10-20%
 **Implementation Effort:** High
@@ -983,7 +983,7 @@ The potential speedup is large because Jacobian evaluation is typically the most
 
 Gautier Bureau assessed this as conceptually straightforward but "difficult to implement" in practice, particularly with the existing sparse matrix data structures. Updating already-factorized LU factors after partial Jacobian changes is non-trivial. Literature review found a few papers demonstrating the mathematics, but only on small matrices in prototype code, not at production scale.
 
-**Recommendation:** Prioritize A1, A2, A3, and A11 (event severity classification) first. These address the same root problem (unnecessary Jacobian work during events) with much lower implementation complexity. If those optimizations reduce Jacobian overhead sufficiently, A5 may not be needed. If further Jacobian savings are still required after implementing the factorization control improvements, A5 should be prototyped on a small test case before committing to a full implementation.
+**Recommendation:** Prioritize A1, A2, A3, and A7 (event severity classification) first. These address the same root problem (unnecessary Jacobian work during events) with much lower implementation complexity. If those optimizations reduce Jacobian overhead sufficiently, A5 may not be needed. If further Jacobian savings are still required after implementing the factorization control improvements, A5 should be prototyped on a small test case before committing to a full implementation.
 
 #### Implementation Sketch
 
@@ -1079,7 +1079,7 @@ void ModelMulti::evalJt(double t, double cj, SparseMatrix& Jt) {
 
 ---
 
-### A9. Schur Complement Decomposition
+### A6. Schur Complement Decomposition
 
 > **High risk / Long term / Possibly out of scope.** Requires significant architectural changes and is only beneficial for the largest systems. Should be evaluated as a research prototype before any production commitment.
 
@@ -1203,7 +1203,7 @@ public:
 
 ---
 
-### A11. Event Severity Classification for Reinit/Factorization Control
+### A7. Event Severity Classification for Reinit/Factorization Control
 
 **Expected Speedup:** 10-15% (during event-heavy periods; compounds with A1/A2/A3)
 **Implementation Effort:** Medium
@@ -1285,12 +1285,12 @@ For the simplified solver, the implementation path is analogous but requires ada
 **Objective:** Achieve 15-25% overall speedup with minimal code changes and low risk, focusing on factorization avoidance.
 
 **Items:**
-- **A11. Event Severity Classification** (15-30% reduction in event-period time) — **Highest priority.** Gautier Bureau already prototyped this for the IDA solver; adapting to SolverSIM and productionizing is a well-scoped task. Targets the root cause of unnecessary symbolic factorizations.
+- **A7. Event Severity Classification** (15-30% reduction in event-period time) — **Highest priority.** Gautier Bureau already prototyped this for the IDA solver; adapting to SolverSIM and productionizing is a well-scoped task. Targets the root cause of unnecessary symbolic factorizations.
 - **A1. Adaptive Factorization Control** (5-8% speedup)
 - **A2. Matrix Structure Change Tolerance** (3-5% speedup)
 - **A3. KLU Numerical-Only Refactorization** (5-7% speedup)
 
-**Rationale:** A11 is the single highest-impact quick win identified during the TRAISIM discussion with Gautier Bureau. Profiling shows that ~30% of event-period computation time is spent on symbolic factorizations triggered by minor automata events (tap changers, OELs) that do not actually change Jacobian structure. Since Gautier already implemented a severity-based classification for IDA, the design is proven and the port to SolverSIM is straightforward. A1, A2, and A3 complement A11 by providing layered factorization control: A1 adds decision logic, A2 extends skip criteria, and A3 ensures the fast `klu_refactor` path is used when symbolic refactorization is skipped.
+**Rationale:** A7 is the single highest-impact quick win identified during the TRAISIM discussion with Gautier Bureau. Profiling shows that ~30% of event-period computation time is spent on symbolic factorizations triggered by minor automata events (tap changers, OELs) that do not actually change Jacobian structure. Since Gautier already implemented a severity-based classification for IDA, the design is proven and the port to SolverSIM is straightforward. A1, A2, and A3 complement A7 by providing layered factorization control: A1 adds decision logic, A2 extends skip criteria, and A3 ensures the fast `klu_refactor` path is used when symbolic refactorization is skipped.
 
 **Tasks:**
 1. Port Gautier's IDA event severity classification to SolverSIM: add `ALGEBRAIC_J_UPDATE_SEVERE_MODE` to `modeChangeType_t` and classify events by severity in the submodel interface.
@@ -1316,10 +1316,10 @@ For the simplified solver, the implementation path is analogous but requires ada
 **Objective:** Achieve an additional 10-20% speedup through remaining data structure improvements and careful exploration of partial Jacobian updates.
 
 **Items:**
-- **Remaining `std::map` audit** — P1 (Flat Vector Derivatives) was implemented upstream by Gautier Bureau (commit `#3749`), but only for the Network model's `Derivatives` class. Audit and convert remaining `std::map<int, double>` usage in Modelica-generated C++ and SubModel coupling code.
+- **Remaining `std::map` audit** — Flat Vector Derivatives was implemented upstream by Gautier Bureau (commit `#3749`), but only for the Network model's `Derivatives` class. Audit and convert remaining `std::map<int, double>` usage in Modelica-generated C++ and SubModel coupling code.
 - **A4. Improved COLAMD Ordering** — Cache and reuse ordering across factorizations.
 
-**Rationale:** The remaining `std::map` audit extends the upstream P1 work to other parts of the codebase. A4 provides incremental gains by avoiding redundant ordering computations.
+**Rationale:** The remaining `std::map` audit extends the upstream Flat Vector Derivatives work to other parts of the codebase. A4 provides incremental gains by avoiding redundant ordering computations.
 
 **Tasks:**
 1. Audit remaining `std::map<int, double>` usage outside the Network model's `Derivatives` class (Modelica-generated C++, SubModel interface coupling) and convert where beneficial.
@@ -1338,26 +1338,26 @@ For the simplified solver, the implementation path is analogous but requires ada
 **Objective:** Enable parallel execution and apply build-level optimizations for an additional 15-30% speedup.
 
 **Items:**
-- **P8. Profile-Guided Optimization (PGO)** (5-10% speedup) — Build-system-only change with zero code risk.
-- **P9. Link-Time Optimization (LTO)** (3-5% speedup) — Straightforward to enable.
-- **P2. OpenMP Jacobian Evaluation** (8-12% speedup) — **Known risks from RTE experience.** KLU's internal data structures use global locks that serialize parallel threads during factorization.
-- **P3. OpenMP SubModel Evaluation** (3-5% speedup) — **Nested parallelism risk.**
+- **P7. Profile-Guided Optimization (PGO)** (5-10% speedup) — Build-system-only change with zero code risk.
+- **P8. Link-Time Optimization (LTO)** (3-5% speedup) — Straightforward to enable.
+- **P1. OpenMP Jacobian Evaluation** (8-12% speedup) — **Known risks from RTE experience.** KLU's internal data structures use global locks that serialize parallel threads during factorization.
+- **P2. OpenMP SubModel Evaluation** (3-5% speedup) — **Nested parallelism risk.**
 
-**Rationale:** P8 and P9 are low-risk build-system changes. OpenMP parallelization (P2, P3) has high potential payoff but also high risk. Developer feedback from RTE (Gautier Bureau, TRAISIM discussion) confirms that KLU lock contention is a real problem. The recommendation is to prototype P2 early and measure actual lock contention before committing.
+**Rationale:** P7 and P8 are low-risk build-system changes. OpenMP parallelization (P1, P2) has high potential payoff but also high risk. Developer feedback from RTE (Gautier Bureau, TRAISIM discussion) confirms that KLU lock contention is a real problem. The recommendation is to prototype P1 early and measure actual lock contention before committing.
 
 **Tasks:**
-1. Set up PGO build infrastructure (P8) with representative workload scripts.
-2. Enable LTO (P9) in the build system with an option flag.
+1. Set up PGO build infrastructure (P7) with representative workload scripts.
+2. Enable LTO (P8) in the build system with an option flag.
 3. Benchmark PGO + LTO combined.
-4. **P2 feasibility study:** Prototype OpenMP Jacobian evaluation on the Nordic system with 2 and 4 threads and measure KLU lock contention.
-5. If viable: thread-safety audit, implementation of P2 and P3.
+4. **P1 feasibility study:** Prototype OpenMP Jacobian evaluation on the Nordic system with 2 and 4 threads and measure KLU lock contention.
+5. If viable: thread-safety audit, implementation of P1 and P2.
 6. Benchmark OpenMP scaling on 2, 4, 8, and 16 cores.
 7. Integration testing of all Phase 2 items combined.
 
 **Go/No-Go Criteria for Phase 3:**
 - PGO and LTO builds produce identical numerical results.
 - If OpenMP is pursued: provides at least 1.5x speedup on 4 cores.
-- If KLU lock contention blocks P2/P3: document findings and evaluate alternatives.
+- If KLU lock contention blocks P1/P2: document findings and evaluate alternatives.
 - All numerical results within acceptable tolerance of the sequential baseline.
 
 ---
@@ -1368,14 +1368,14 @@ For the simplified solver, the implementation path is analogous but requires ada
 
 **Items:**
 - **A5. Partial Jacobian Updates** (10-20% speedup) — High complexity; developer feedback flags cross-model coupling difficulties. May not be needed if Phase 0 factorization avoidance provides sufficient gains.
-- **P10. GPU Acceleration for KLU** (20-50% for very large systems) — Heavy dependency (CUDA/cuSOLVER), only beneficial above a large crossover system size.
-- **A9. Schur Complement Decomposition** (15-30%) — Requires partitioning network vs. device models, significant architectural change.
+- **P9. GPU Acceleration for KLU** (20-50% for very large systems) — Heavy dependency (CUDA/cuSOLVER), only beneficial above a large crossover system size.
+- **A6. Schur Complement Decomposition** (15-30%) — Requires partitioning network vs. device models, significant architectural change.
 
 **Tasks:**
 1. Evaluate whether Phase 0-2 gains are sufficient for the target use cases. If yes, defer Phase 3.
 2. If A5 is pursued: prototype with a conservative Newton-failure fallback approach on a small test case before committing.
-3. If P10 is pursued: prototype GPU sparse solve using cuSOLVER on extracted Jacobian matrices, measure data transfer overhead.
-4. If A9 is pursued: prototype Schur complement solver with manual partitioning.
+3. If P9 is pursued: prototype GPU sparse solve using cuSOLVER on extracted Jacobian matrices, measure data transfer overhead.
+4. If A6 is pursued: prototype Schur complement solver with manual partitioning.
 5. Each prototype must produce a written evaluation report with benchmarks and a go/no-go recommendation.
 
 ### Decision Points and Go/No-Go Criteria

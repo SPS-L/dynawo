@@ -183,12 +183,12 @@ Four phases, from quick wins to research-level improvements
 
 | Item | Description | Expected Gain |
 |------|-------------|---------------|
-| A11 | Event severity classification | 15–30% of event time |
+| A7 | Event severity classification | 15–30% of event time |
 | A1 | Adaptive factorization control | 5–8% |
 | A2 | Matrix structure change tolerance | 3–5% |
 | A3 | KLU numerical-only refactorization | 5–7% |
 
-**A11 is the highest priority.** Gautier Bureau already prototyped this for IDA — porting to SolverSIM is well-scoped. The other items provide layered factorization control: A1 adds decision logic, A2 extends skip criteria, A3 ensures the fast `klu_refactor` path is used.
+**A7 is the highest priority.** Gautier Bureau already prototyped this for IDA — porting to SolverSIM is well-scoped. The other items provide layered factorization control: A1 adds decision logic, A2 extends skip criteria, A3 ensures the fast `klu_refactor` path is used.
 
 **Validation:** Nordic test system + large-scale French system benchmark.
 
@@ -203,7 +203,7 @@ Four phases, from quick wins to research-level improvements
 | — | Remaining `std::map` audit | Variable |
 | A4 | Improved COLAMD ordering (cache reuse) | 2–4% |
 
-- **std::map audit:** Extends upstream P1 work to Modelica-generated C++ and SubModel coupling code.
+- **std::map audit:** Extends upstream Flat Vector Derivatives work to Modelica-generated C++ and SubModel coupling code.
 - **A4:** Cache and reuse ordering across factorizations to avoid redundant computations.
 
 **Go/No-Go:** Cumulative speedup ≥ 20% before advancing.
@@ -216,13 +216,13 @@ Four phases, from quick wins to research-level improvements
 
 | Item | Description | Expected Gain |
 |------|-------------|---------------|
-| P8 | Profile-Guided Optimization (PGO) | 5–10% |
-| P9 | Link-Time Optimization (LTO) | 3–5% |
-| P2 | OpenMP Jacobian evaluation | 8–12% |
-| P3 | OpenMP SubModel evaluation | 3–5% |
+| P7 | Profile-Guided Optimization (PGO) | 5–10% |
+| P8 | Link-Time Optimization (LTO) | 3–5% |
+| P1 | OpenMP Jacobian evaluation | 8–12% |
+| P2 | OpenMP SubModel evaluation | 3–5% |
 
-- **P8/P9:** Build-system-only, zero code risk.
-- **Known risk (P2/P3):** RTE encountered KLU lock contention during prior OpenMP attempts. Feasibility study required before committing.
+- **P7/P8:** Build-system-only, zero code risk.
+- **Known risk (P1/P2):** RTE encountered KLU lock contention during prior OpenMP attempts. Feasibility study required before committing.
 
 **Go/No-Go:** OpenMP ≥ 1.5x on 4 cores; PGO/LTO numerical correctness verified.
 
@@ -235,12 +235,12 @@ Four phases, from quick wins to research-level improvements
 | Item | Description | Expected Gain |
 |------|-------------|---------------|
 | A5 | Partial Jacobian updates | 10–20% |
-| P10 | GPU acceleration (cuSOLVER) | 20–50% (very large) |
-| A9 | Schur complement decomposition | 15–30% |
+| P9 | GPU acceleration (cuSOLVER) | 20–50% (very large) |
+| A6 | Schur complement decomposition | 15–30% |
 
 - **A5:** Complex cross-model coupling; may be unnecessary if Phase 0 factorization avoidance suffices.
-- **P10:** Heavy CUDA dependency, only beneficial above a large system-size crossover.
-- **A9:** Requires partitioning network vs. device models — significant architectural change.
+- **P9:** Heavy CUDA dependency, only beneficial above a large system-size crossover.
+- **A6:** Requires partitioning network vs. device models — significant architectural change.
 
 Each item must be prototyped and evaluated before any production commitment.
 
@@ -271,7 +271,7 @@ Phases 1–3 target Model 3 feasibility and provide headroom for even larger sys
 | Build guide for Ubuntu 24.04 | Done |
 | Solver parameter tuning (2x speedup on topology events) | Done |
 | Profiling of French system — 3 model detail levels | Done |
-| P1: Flat vector derivatives (upstream by G. Bureau) | Done |
+| Flat vector derivatives (upstream by G. Bureau) | Done |
 | Detailed optimization roadmap with 16 items | Done |
 | Developer feedback integration (TRAISIM discussion) | Done |
 
@@ -281,7 +281,7 @@ All tools and documentation are available in the `performance-analysis/` directo
 
 # Next Steps
 
-1. **Implement Phase 0** — starting with A11 (event severity classification)
+1. **Implement Phase 0** — starting with A7 (event severity classification)
 2. **Benchmark on the French system** — validate gains on Model 2 and Model 3
 3. **Engage with RTE/Dynawo upstream** — contribute improvements back to the main repository
 4. **Proceed through phases based on Go/No-Go criteria** — data-driven decisions at each gate
