@@ -190,32 +190,20 @@ The performance profiling instrumentation is controlled by the CMake option
 solver code compile into active instrumentation.  When `OFF` (the default),
 they compile to no-ops with zero overhead.
 
-To enable profiling, rebuild Dynawo with the extra CMake flag.  You do
+To enable profiling, do a clean build with the profiling flag.  You do
 **not** need to rebuild the third-party libraries.
 
-### Option A: One-Off Profiling Build
+### Clean Profiling Build
 
-Pass the flag directly through the CMake configuration step, then rebuild:
-
-```bash
-# Re-configure with profiling
-./myEnvDynawo.sh config-dynawo
-
-# Manually add the profiling flag to the existing CMake cache
-cmake -DDYNAWO_PROFILING=ON $(./myEnvDynawo.sh build-dir 2>/dev/null || echo build/gcc*/shared/dynawo)
-
-# Rebuild only Dynawo (fast — just recompiles the instrumented solvers)
-./myEnvDynawo.sh build-dynawo
-```
-
-### Option B: Clean Profiling Build
-
-For a clean build with profiling from scratch, add the flag to your
-`myEnvDynawo.sh` before the `$DYNAWO_HOME/util/envDynawo.sh` call:
+Add the following to your `myEnvDynawo.sh` before the
+`$DYNAWO_HOME/util/envDynawo.sh` call:
 
 ```bash
-# Add this line to myEnvDynawo.sh before the last line:
+# RelWithDebInfo: optimised build with debug symbols (compatible with perf, Valgrind)
 export DYNAWO_RELEASE_WITH_DEBUG=true
+
+# Enable solver profiling instrumentation at compile time
+export DYNAWO_CMAKE_OPTIONAL="-DDYNAWO_PROFILING=ON"
 ```
 
 Then do a clean rebuild:
@@ -223,13 +211,6 @@ Then do a clean rebuild:
 ```bash
 ./myEnvDynawo.sh clean-build-dynawo
 ```
-
-> **Note:** `DYNAWO_RELEASE_WITH_DEBUG=true` gives you `RelWithDebInfo`
-> builds that are compatible with profilers like `perf` and Valgrind while
-> keeping compiler optimisations.  For the compile-time profiling macros
-> specifically, you still need `-DDYNAWO_PROFILING=ON` via the CMake cache
-> (Option A) because the upstream build script does not expose this flag
-> directly.
 
 ### Verify Profiling Is Active
 
@@ -428,3 +409,8 @@ upstream master, do a clean rebuild of the third-party libraries:
 ```
 
 This takes longer but ensures all dependencies are consistent.
+
+---
+
+*Author: Petros Aristidou, Sustainable Power Systems Lab (SPS-L) — https://sps-lab.org | info@sps-lab.org*  
+*Last edited: March 2025*
