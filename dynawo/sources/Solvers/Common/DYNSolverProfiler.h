@@ -28,7 +28,6 @@
 #include <string>
 #include <vector>
 #include <chrono>
-#include <atomic>
 #include <cstdint>
 
 namespace DYN {
@@ -47,6 +46,7 @@ enum ProfilePhase {
   PHASE_MODE_EVAL,
   PHASE_DISCRETE_EVAL,
   PHASE_LINEAR_SOLVE,
+  PHASE_NR_SOLVE,      ///< Newton-Raphson algebraic solve (fixed-timestep solvers)
   PHASE_MATRIX_COPY,
   PHASE_KINSOL_SOLVE,
   PHASE_REINIT,
@@ -79,7 +79,7 @@ struct PhaseStats {
 /**
  * @brief Singleton solver profiler collecting per-phase performance data
  *
- * Thread-safe counters for potential future OpenMP parallelization.
+ * Not thread-safe; designed for single-threaded solver execution.
  * Activated via DYNAWO_PROFILING=1 environment variable or
  * DYNAWO_PROFILING CMake option.
  */

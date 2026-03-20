@@ -95,11 +95,12 @@ Located at `dynawo/sources/Solvers/Common/`:
   - `PHASE_ROOT_EVAL` -- root/zero-crossing evaluation
   - `PHASE_MODE_EVAL` -- mode change evaluation
   - `PHASE_DISCRETE_EVAL` -- discrete variable evaluation
-  - `PHASE_LINEAR_SOLVE` -- sparse linear system solve (KLU)
+  - `PHASE_LINEAR_SOLVE` -- sparse linear system solve (IDA/KLU only)
+  - `PHASE_NR_SOLVE` -- Newton-Raphson algebraic solve (SIM/TRAP fixed-timestep solvers)
   - `PHASE_MATRIX_COPY` -- matrix data copy operations
   - `PHASE_KINSOL_SOLVE` -- KINSOL nonlinear solve
   - `PHASE_REINIT` -- solver reinitialization after events
-  - `PHASE_IO` -- file I/O operations
+  - `PHASE_IO` -- file I/O operations (output writing in terminate())
 
 - **`PhaseStats` struct:** Stores per-phase statistics (total time, min/max/avg call time, call count, peak memory).
 
@@ -111,7 +112,7 @@ Located at `dynawo/sources/Solvers/Common/`:
   - `DYN_PROFILE_PHASE(phase)` -- create a scoped timer for a phase
   - `DYN_PROFILE_PHASE_MEM(phase)` -- scoped timer with memory tracking
   - `DYN_PROFILE_RECORD_TIMESTEP(simTime, stepMs, memKB)` -- record a timestep entry
-  - `DYN_PROFILE_PRINT_REPORT()` -- print summary to stdout
+  - `DYN_PROFILE_PRINT_REPORT()` -- print summary to the Dynawo trace log
   - `DYN_PROFILE_EXPORT_CSV(filename)` -- export CSV
   - `DYN_PROFILE_EXPORT_JSON(filename)` -- export JSON
 
@@ -417,6 +418,10 @@ export DYNAWO_PROFILE_OUTPUT=/path/to/results/profile.json
 
 The file extension determines the format. The profiler writes data in its destructor at process exit.
 
+### Timestep Time-Series Requirement
+
+The timestep time-series section (per-step durations and memory) is only recorded when the job's `enableRealTimeTracking` option is set to `true` in the simulation entry of the `.jobs` XML file. Without this setting, only the phase summary section will be populated; the Python tools (`analyze_profile.py` step duration and memory plots, `memory_analyzer.py` leak detection) require the time-series data to produce timestep-level output.
+
 ---
 
 ## Running Benchmarks
@@ -522,7 +527,9 @@ The profiler summary table shows each phase with the following columns:
 
 - **DiscreteEval:** Evaluation of discrete variables. Related to event handling and mode changes.
 
-- **LinearSolve:** Sparse linear system solve using KLU. This is the other major bottleneck alongside JacobianEval. High percentage here (>20%) indicates the linear algebra is dominant.
+- **LinearSolve:** Sparse linear system solve using KLU. Only appears in IDA (variable-timestep) solver output. High percentage here (>20%) indicates the linear algebra is dominant.
+
+- **NRSolve:** Newton-Raphson algebraic solve. Only appears in SIM/TRAP (fixed-timestep) solver output. This covers the full KINSOL-based NR iteration including residual evaluation, Jacobian factorization, and linear solves. It is the fixed-timestep equivalent of the IDA `LinearSolve`.
 
 - **MatrixCopy:** Copying matrix data between internal representations. Should be a small fraction; if not, this indicates unnecessary data movement.
 
@@ -530,11 +537,11 @@ The profiler summary table shows each phase with the following columns:
 
 - **Reinit:** Solver reinitialization after mode changes or events. Frequent reinitializations indicate many discrete events.
 
-- **IO:** File I/O operations (reading input, writing output files). Should be small unless the output frequency is very high.
+- **IO:** File I/O operations during `terminate()` (writing curves, timeline, constraints, IIDM state, dump files). Should be small unless output is very large.
 
 ### Key Metrics to Watch
 
-1. **JacobianEval + LinearSolve combined percentage:** If these together exceed 60% of simulation time, the simulation is compute-bound on sparse linear algebra. Consider the optimization strategies in `OPTIMIZATION_ROADMAP.md`.
+1. **JacobianEval + LinearSolve (IDA) or NRSolve (SIM/TRAP) combined percentage:** If these together exceed 60% of simulation time, the simulation is compute-bound on sparse linear algebra. Consider the optimization strategies in `OPTIMIZATION_ROADMAP.md`.
 
 2. **JacobianEval call count vs. SolverStep call count:** If Jacobian evaluations are much more frequent than time steps, the Newton solver may be struggling to converge. Check tolerance settings.
 

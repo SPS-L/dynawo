@@ -75,6 +75,7 @@ SolverKINEuler::init(const std::shared_ptr<Model>& model, Solver* timeSchemeSolv
 
 int
 SolverKINEuler::evalF_KIN(N_Vector yy, N_Vector rr, void* data) {
+  DYN_PROFILE_PHASE(PHASE_RESIDUAL_EVAL);
   SolverKINEuler* solver = reinterpret_cast<SolverKINEuler*> (data);
   Model& model = solver->getModel();
   Solver& timeSchemeSolver = solver->getTimeSchemeSolver();

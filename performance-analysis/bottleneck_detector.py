@@ -153,11 +153,18 @@ def _hotspot_recommendation(phase):
         "linearsolve": (
             "Consider using a sparse direct solver (KLU) if not already. "
             "For very large systems, an iterative solver with "
-            "preconditioning may help."
+            "preconditioning may help. (IDA solver only.)"
+        ),
+        "nrsolve": (
+            "This is the full Newton-Raphson algebraic solve for "
+            "fixed-timestep solvers (SIM/TRAP). If it dominates, "
+            "check JacobianEval and KINSOLSolve sub-phases. Consider "
+            "relaxing NR tolerances or improving initial guesses."
         ),
         "solversolve": (
             "This is the overall solver time. Drill down into sub-phases "
-            "(JacobianEval, LinearSolve, ResidualEval) to find the root cause."
+            "(JacobianEval, LinearSolve/NRSolve, ResidualEval) to find "
+            "the root cause."
         ),
         "kinsolsolve": (
             "Many KINSOL solves may indicate convergence difficulty. "
@@ -173,6 +180,16 @@ def _hotspot_recommendation(phase):
             "Slow initial condition calculation may indicate a poor "
             "starting point. Consider providing better initial guesses "
             "or relaxing IC tolerances."
+        ),
+        "modeeval": (
+            "Mode evaluation detects topology changes and protection "
+            "relay actions. If expensive, check for frequent mode "
+            "changes or complex model transitions."
+        ),
+        "io": (
+            "Output writing (curves, timeline, IIDM state) is taking "
+            "significant time. Consider reducing output frequency or "
+            "the number of exported variables."
         ),
     }
     key = phase.lower().replace(" ", "")
@@ -221,8 +238,15 @@ def check_jacobian_rebuilds(phase_df, findings):
 
 
 def check_linear_solver_efficiency(phase_df, findings):
-    """Check the ratio of linear solves to Jacobian factorisations."""
+    """Check the ratio of linear solves to Jacobian factorisations.
+
+    For IDA solver output, uses LinearSolve phase.
+    For SIM/TRAP solver output, uses NRSolve phase instead.
+    """
     linear_calls = get_phase_value(phase_df, "LinearSolve", "call_count", 0)
+    # Fall back to NRSolve for fixed-timestep solvers (SIM/TRAP)
+    if linear_calls <= 0:
+        linear_calls = get_phase_value(phase_df, "NRSolve", "call_count", 0)
     jac_calls = get_phase_value(phase_df, "JacobianEval", "call_count", 0)
 
     if jac_calls <= 0 or linear_calls <= 0:

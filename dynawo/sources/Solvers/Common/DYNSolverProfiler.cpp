@@ -18,6 +18,7 @@
  */
 
 #include "DYNSolverProfiler.h"
+#include "DYNTrace.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -47,6 +48,7 @@ const char* phaseToString(ProfilePhase phase) {
     case PHASE_MODE_EVAL:       return "ModeEval";
     case PHASE_DISCRETE_EVAL:   return "DiscreteEval";
     case PHASE_LINEAR_SOLVE:    return "LinearSolve";
+    case PHASE_NR_SOLVE:        return "NRSolve";
     case PHASE_MATRIX_COPY:     return "MatrixCopy";
     case PHASE_KINSOL_SOLVE:    return "KINSOLSolve";
     case PHASE_REINIT:          return "Reinit";
@@ -216,7 +218,7 @@ void SolverProfiler::printReport() const {
 
   oss << "===============================================================\n";
 
-  std::cout << oss.str();
+  Trace::info() << oss.str() << Trace::endline;
 }
 
 void SolverProfiler::exportCSV(const std::string& filename) const {

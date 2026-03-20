@@ -253,7 +253,10 @@ SolverCommonFixedTimeStep::calculateICCommon() {
 
   // Updating discrete variable values and mode
   model_->copyContinuousVariables(&vectorY_[0], &vectorYp_[0]);
-  model_->evalG(tSolve_, g0_);
+  {
+    DYN_PROFILE_PHASE(PHASE_ROOT_EVAL);
+    model_->evalG(tSolve_, g0_);
+  }
   evalZMode(g0_, g1_, tSolve_);
   model_->rotateBuffers();
   state_.reset();
@@ -267,7 +270,10 @@ SolverCommonFixedTimeStep::calculateICCommon() {
 bool
 SolverCommonFixedTimeStep::calculateICCommonModeChange(int& counter, bool& change) {
   // Updating discrete variable values and mode
-  model_->evalG(tSolve_, g1_);
+  {
+    DYN_PROFILE_PHASE(PHASE_ROOT_EVAL);
+    model_->evalG(tSolve_, g1_);
+  }
   if (std::equal(g0_.begin(), g0_.end(), g1_.begin())) {
     return true;
   } else {
@@ -313,7 +319,7 @@ SolverCommonFixedTimeStep::SolverStatus_t SolverCommonFixedTimeStep::analyzeResu
 
 int
 SolverCommonFixedTimeStep::callAlgebraicSolver() {
-  DYN_PROFILE_PHASE(PHASE_LINEAR_SOLVE);
+  DYN_PROFILE_PHASE(PHASE_NR_SOLVE);
   int flag = 0;
   if (skipNextNR_) {
     return KIN_INITIAL_GUESS_OK;
@@ -338,8 +344,11 @@ SolverCommonFixedTimeStep::callAlgebraicSolver() {
 
 void SolverCommonFixedTimeStep::updateZAndMode(SolverStatus_t& status) {
   // Evaluate root values after the time step (using updated y and yp)
-  model_->evalG(tSolve_ + h_, g1_);
-  ++stats_.nge_;
+  {
+    DYN_PROFILE_PHASE(PHASE_ROOT_EVAL);
+    model_->evalG(tSolve_ + h_, g1_);
+    ++stats_.nge_;
+  }
 
   if (!std::equal(g0_.begin(), g0_.end(), g1_.begin())) {
     // A root change has occurred - Dealing with propagation and algebraic mode detection
@@ -506,8 +515,11 @@ SolverCommonFixedTimeStep::reinit() {
     model_->reinitMode();
 
     // Root stabilization - tSolve_ has been updated in the solve method to the current time
-    model_->evalG(tSolve_, g1_);
-    ++stats_.nge_;
+    {
+      DYN_PROFILE_PHASE(PHASE_ROOT_EVAL);
+      model_->evalG(tSolve_, g1_);
+      ++stats_.nge_;
+    }
     if (std::equal(g0_.begin(), g0_.end(), g1_.begin())) {
       break;
     } else {

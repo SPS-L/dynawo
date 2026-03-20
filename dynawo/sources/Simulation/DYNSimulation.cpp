@@ -1159,8 +1159,8 @@ Simulation::simulate() {
         remove(timetableOutputFile_);
 #ifdef DYNAWO_PROFILING
     DYN_PROFILE_PRINT_REPORT();
-    DYN_PROFILE_EXPORT_CSV("dynawo_profile.csv");
-    DYN_PROFILE_EXPORT_JSON("dynawo_profile.json");
+    // Export is handled automatically by the SolverProfiler destructor
+    // when the DYNAWO_PROFILE_OUTPUT environment variable is set.
 #endif
   } catch (const Terminate& t) {
     Trace::warn() << t.what() << Trace::endline;
@@ -1313,6 +1313,7 @@ Simulation::terminate() {
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer timer("Simulation::terminate()");
 #endif
+  DYN_PROFILE_PHASE(PHASE_IO);
   updateParametersValues();   // update parameter curves' value
 
   if (!curvesOutputFile_.empty()) {

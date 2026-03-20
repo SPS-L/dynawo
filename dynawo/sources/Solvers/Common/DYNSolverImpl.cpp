@@ -255,50 +255,55 @@ Solver::Impl::evalZMode(vector<state_g>& G0, vector<state_g>& G1, const double t
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer timer("SolverIMPL::evalZMode");
 #endif
-  DYN_PROFILE_PHASE(PHASE_DISCRETE_EVAL);
   bool change = false;
 
-  // evalZ part
-  bool nonSilentZChange;
-  int i = 0;
-  do {
-    nonSilentZChange = false;
-    model_->evalZ(time);
-    ++stats_.nze_;
+  // evalZ part (discrete variable evaluation)
+  {
+    DYN_PROFILE_PHASE(PHASE_DISCRETE_EVAL);
+    bool nonSilentZChange;
+    int i = 0;
+    do {
+      nonSilentZChange = false;
+      model_->evalZ(time);
+      ++stats_.nze_;
 
-    const zChangeType_t zChangeType = model_->getSilentZChangeType();
-    if (zChangeType == NOT_SILENT_Z_CHANGE
-        || zChangeType == NOT_USED_IN_CONTINUOUS_EQ_Z_CHANGE) {
-      // at least one discrete variable that is used in discrete equations has been modified: continue the propagation
-      model_->evalG(time, G1);
-      ++stats_.nge_;
-      nonSilentZChange = true;
+      const zChangeType_t zChangeType = model_->getSilentZChangeType();
+      if (zChangeType == NOT_SILENT_Z_CHANGE
+          || zChangeType == NOT_USED_IN_CONTINUOUS_EQ_Z_CHANGE) {
+        // at least one discrete variable that is used in discrete equations has been modified: continue the propagation
+        model_->evalG(time, G1);
+        ++stats_.nge_;
+        nonSilentZChange = true;
+        change = true;
+        if (printUnstableRoot_)
+          printUnstableRoot(time, G0, G1);
+      }
+
+      if (zChangeType == NOT_SILENT_Z_CHANGE) {
+        state_.setFlags(NotSilentZChange);
+      } else if (zChangeType == NOT_USED_IN_CONTINUOUS_EQ_Z_CHANGE) {
+        state_.setFlags(SilentZNotUsedInContinuousEqChange);
+      } else if (zChangeType == NOT_USED_IN_DISCRETE_EQ_Z_CHANGE) {
+        state_.setFlags(SilentZNotUsedInDiscreteEqChange);
+      }
+      ++i;
+      if (i >= maxNumberUnstableRoots)
+        throw DYNError(Error::SOLVER_ALGO, SolverUnstableZMode);
+    } while (nonSilentZChange);
+
+    std::copy(G1.begin(), G1.end(), G0.begin());
+  }  // end PHASE_DISCRETE_EVAL scope
+
+  // evalMode part (mode change evaluation)
+  {
+    DYN_PROFILE_PHASE(PHASE_MODE_EVAL);
+    model_->evalMode(time);
+    ++stats_.nme_;
+    if (model_->modeChange()) {
       change = true;
-      if (printUnstableRoot_)
-        printUnstableRoot(time, G0, G1);
+      state_.setFlags(ModeChange);
     }
-
-    if (zChangeType == NOT_SILENT_Z_CHANGE) {
-      state_.setFlags(NotSilentZChange);
-    } else if (zChangeType == NOT_USED_IN_CONTINUOUS_EQ_Z_CHANGE) {
-      state_.setFlags(SilentZNotUsedInContinuousEqChange);
-    } else if (zChangeType == NOT_USED_IN_DISCRETE_EQ_Z_CHANGE) {
-      state_.setFlags(SilentZNotUsedInDiscreteEqChange);
-    }
-    ++i;
-    if (i >= maxNumberUnstableRoots)
-      throw DYNError(Error::SOLVER_ALGO, SolverUnstableZMode);
-  } while (nonSilentZChange);
-
-  std::copy(G1.begin(), G1.end(), G0.begin());
-
-  // evalMode part
-  model_->evalMode(time);
-  ++stats_.nme_;
-  if (model_->modeChange()) {
-    change = true;
-    state_.setFlags(ModeChange);
-  }
+  }  // end PHASE_MODE_EVAL scope
 
   return change;
 }
