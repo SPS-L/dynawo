@@ -121,8 +121,8 @@ Located in `performance-analysis/`. Install dependencies first:
 
 ```bash
 cd /path/to/dynawo/performance-analysis
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv .dynawo-profiling-env
+source .dynawo-profiling-env/bin/activate
 pip install -r requirements.txt   # matplotlib, pandas, numpy, jinja2
 ```
 
@@ -705,8 +705,8 @@ cd /path/to/dynawo
 ```bash
 cd /path/to/dynawo/performance-analysis
 
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv .dynawo-profiling-env
+source .dynawo-profiling-env/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -744,7 +744,7 @@ NRSolve                   3.210      850      3.7765      1.5600     12.3400    
 
 ```bash
 cd /path/to/dynawo/performance-analysis
-source venv/bin/activate
+source .dynawo-profiling-env/bin/activate
 
 # Generate charts and console summary
 python analyze_profile.py $DYNAWO_HOME/results/nordic/profile.csv \

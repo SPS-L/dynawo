@@ -273,8 +273,8 @@ generate charts, HTML comparison reports, and bottleneck summaries.
 ```bash
 cd performance-analysis
 
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv .dynawo-profiling-env
+source .dynawo-profiling-env/bin/activate
 pip install -r requirements.txt
 ```
 

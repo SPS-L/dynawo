@@ -1,0 +1,3 @@
+.dynawo-profiling-env/
+__pycache__/
+*.pyc
