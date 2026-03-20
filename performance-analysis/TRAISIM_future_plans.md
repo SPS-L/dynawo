@@ -290,7 +290,7 @@ Phases 1–3 target Model 3 feasibility and provide headroom for even larger sys
 | Developer feedback integration (TRAISIM discussion) | Done |
 | Code analysis: A7 event severity, P3 Jacobian layout, P6 N_Vector scope | Done |
 
-All tools and documentation are available in the `performance-analysis/` directory of the [SPS-L/dynawo](https://github.com/SPS-L/dynawo/tree/performance-analysis-framework/performance-analysis) fork.
+All tools and documentation are available in the `performance-analysis/` directory of the [SPS-L/dynawo](https://github.com/SPS-L/dynawo/tree/3_performance-analysis-framework/performance-analysis) fork.
 
 ---
 

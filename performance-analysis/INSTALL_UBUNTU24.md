@@ -1,7 +1,7 @@
 # Building the Performance Analysis Branch on Ubuntu 24.04 LTS
 
 Step-by-step instructions for cloning, building, and running the
-[`performance-analysis-framework`](https://github.com/SPS-L/dynawo/tree/performance-analysis-framework)
+[`3_performance-analysis-framework`](https://github.com/SPS-L/dynawo/tree/3_performance-analysis-framework)
 branch of the [SPS-L/dynawo](https://github.com/SPS-L/dynawo) fork on
 Ubuntu 24.04 LTS (Noble Numbat).
 
@@ -77,20 +77,20 @@ export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 
 ## Clone and Checkout
 
-Clone the SPS-L fork and switch to the `performance-analysis-framework`
+Clone the SPS-L fork and switch to the `3_performance-analysis-framework`
 branch:
 
 ```bash
 git clone https://github.com/SPS-L/dynawo.git
 cd dynawo
-git checkout performance-analysis-framework
+git checkout 3_performance-analysis-framework
 ```
 
 Verify you are on the correct branch:
 
 ```bash
 git branch
-# * performance-analysis-framework
+# * 3_performance-analysis-framework
 ```
 
 ---
@@ -397,7 +397,7 @@ sudo apt install -y qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools
 
 ### Build Fails After Upstream Sync
 
-If the `performance-analysis-framework` branch has been rebased onto a newer
+If the `3_performance-analysis-framework` branch has been rebased onto a newer
 upstream master, do a clean rebuild of the third-party libraries:
 
 ```bash
