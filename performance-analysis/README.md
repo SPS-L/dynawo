@@ -4,14 +4,30 @@ A comprehensive profiling and benchmarking framework for the Dynawo power system
 
 ## Table of Contents
 
-1. [Architecture Overview](#architecture-overview)
-2. [Components](#components)
-3. [Directory Structure](#directory-structure)
-4. [Enabling Profiling](#enabling-profiling)
-5. [Running Benchmarks](#running-benchmarks)
-6. [Interpreting Results](#interpreting-results)
-7. [Adding New Instrumentation Points](#adding-new-instrumentation-points)
-8. [Example Workflow](#example-workflow)
+1. [Quick Start](#quick-start)
+2. [Architecture Overview](#architecture-overview)
+3. [Components](#components)
+4. [Directory Structure](#directory-structure)
+5. [Enabling Profiling](#enabling-profiling)
+6. [Running Benchmarks](#running-benchmarks)
+7. [Interpreting Results](#interpreting-results)
+8. [Adding New Instrumentation Points](#adding-new-instrumentation-points)
+9. [Example Workflow](#example-workflow)
+
+---
+
+## Quick Start
+
+For full build-from-source instructions on Ubuntu 24.04 (dependencies, clone,
+build, profiling build, troubleshooting), see
+**[INSTALL_UBUNTU24.md](INSTALL_UBUNTU24.md)**.
+
+For the optimization roadmap and future plans, see
+**[OPTIMIZATION_ROADMAP.md](OPTIMIZATION_ROADMAP.md)** and
+**[TRAISIM_future_plans.md](TRAISIM_future_plans.md)** (Marp presentation).
+
+The rest of this README documents the profiling framework architecture,
+Python analysis tools, benchmark infrastructure, and data formats.
 
 ---
 
@@ -119,7 +135,8 @@ Located in `performance-analysis/benchmarks/`:
 performance-analysis/
 |-- README.md                    # This file
 |-- INSTALL_UBUNTU24.md          # Build guide for Ubuntu 24.04
-|-- OPTIMIZATION_ROADMAP.md      # Optimization suggestions and roadmap
+|-- OPTIMIZATION_ROADMAP.md      # Detailed optimization roadmap (16 items, phased)
+|-- TRAISIM_future_plans.md      # Marp slide deck — optimization roadmap presentation
 |-- requirements.txt             # Python dependencies
 |-- analyze_profile.py           # CSV/JSON parser, charts, statistics
 |-- compare_runs.py              # Side-by-side run comparison, HTML report
@@ -159,7 +176,9 @@ cmake -DDYNAWO_PROFILING=ON $(find build/ -name 'CMakeCache.txt' -path '*/shared
 
 This defines the `DYNAWO_PROFILING` preprocessor macro, which activates all `DYN_PROFILE_PHASE` and related macros throughout the solver code. Without this flag, these macros expand to `((void)0)` and are optimized away completely.
 
-See [INSTALL_UBUNTU24.md](INSTALL_UBUNTU24.md) for detailed build instructions on Ubuntu 24.04.
+For the complete build-from-source workflow (dependencies, clone, environment
+setup, profiling verification, and troubleshooting), see
+[INSTALL_UBUNTU24.md](INSTALL_UBUNTU24.md).
 
 ### Method 2: Runtime Activation
 
@@ -453,8 +472,9 @@ This section walks through a complete workflow from building with profiling to a
 
 ### 1. Build with Profiling
 
-Follow the full setup in [INSTALL_UBUNTU24.md](INSTALL_UBUNTU24.md), then
-enable profiling and rebuild:
+Follow the full setup in [INSTALL_UBUNTU24.md](INSTALL_UBUNTU24.md)
+(dependencies, clone, `myEnvDynawo.sh` creation, initial build), then enable
+profiling and rebuild:
 
 ```bash
 cd /path/to/dynawo
