@@ -18,6 +18,7 @@
  */
 
 #include "DYNSolverProfiler.h"
+#include "DYNTrace.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -212,7 +213,7 @@ void SolverProfiler::printReport() const {
 
   oss << "===============================================================\n";
 
-  std::cout << oss.str();
+  Trace::info() << oss.str() << Trace::endline;
 }
 
 void SolverProfiler::exportCSV(const std::string& filename) const {

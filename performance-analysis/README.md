@@ -111,7 +111,7 @@ Located at `dynawo/sources/Solvers/Common/`:
   - `DYN_PROFILE_PHASE(phase)` -- create a scoped timer for a phase
   - `DYN_PROFILE_PHASE_MEM(phase)` -- scoped timer with memory tracking
   - `DYN_PROFILE_RECORD_TIMESTEP(simTime, stepMs, memKB)` -- record a timestep entry
-  - `DYN_PROFILE_PRINT_REPORT()` -- print summary to stdout
+  - `DYN_PROFILE_PRINT_REPORT()` -- print summary to the Dynawo log file
   - `DYN_PROFILE_EXPORT_CSV(filename)` -- export CSV
   - `DYN_PROFILE_EXPORT_JSON(filename)` -- export JSON
 
