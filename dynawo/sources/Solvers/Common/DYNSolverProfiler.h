@@ -18,8 +18,8 @@
  *
  * Provides per-phase timing, memory tracking, call counters,
  * and CSV/JSON export for solver performance analysis.
- * Enabled at build time via DYNAWO_PROFILING CMake option,
- * or at runtime via DYNAWO_PROFILING=1 environment variable.
+ * Enabled at build time via the DYNAWO_PROFILING CMake option.
+ * In non-profiling builds all macros expand to no-ops.
  */
 
 #ifndef SOLVERS_COMMON_DYNSOLVERPROFILER_H_
@@ -79,8 +79,7 @@ struct PhaseStats {
  * @brief Singleton solver profiler collecting per-phase performance data
  *
  * Not thread-safe; designed for single-threaded solver execution.
- * Activated via DYNAWO_PROFILING=1 environment variable or
- * DYNAWO_PROFILING CMake option.
+ * Activated at build time via the DYNAWO_PROFILING CMake option.
  */
 class SolverProfiler {
  public:

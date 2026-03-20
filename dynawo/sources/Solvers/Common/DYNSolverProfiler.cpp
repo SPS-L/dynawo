@@ -84,12 +84,8 @@ SolverProfiler& SolverProfiler::instance() {
 }
 
 SolverProfiler::SolverProfiler() : enabled_(false) {
-  // Check environment variable for runtime activation
-  const char* envVal = std::getenv("DYNAWO_PROFILING");
-  if (envVal != NULL && std::strcmp(envVal, "1") == 0) {
-    enabled_ = true;
-  }
 #ifdef DYNAWO_PROFILING
+  // Build-time activation: profiling is always on in profiling builds
   enabled_ = true;
 #endif
   reset();

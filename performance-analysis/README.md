@@ -393,17 +393,11 @@ For the complete build-from-source workflow (dependencies, clone, environment
 setup, profiling verification, and troubleshooting), see
 [INSTALL_UBUNTU24.md](INSTALL_UBUNTU24.md).
 
-### Method 2: Runtime Activation
+### Runtime Behaviour
 
-Set the environment variable before running the simulation:
+When built with `-DDYNAWO_PROFILING=ON`, profiling is always active — there is no runtime switch to disable it. All `PhaseTimer` macros are compiled in and the `SolverProfiler` singleton is unconditionally enabled.
 
-```bash
-export DYNAWO_PROFILING=1
-```
-
-The `SolverProfiler` constructor checks for this variable. This enables the singleton's `record()` and `recordTimestep()` methods, but the RAII `PhaseTimer` macros will only be active if the build was compiled with `-DDYNAWO_PROFILING=ON`.
-
-For full instrumentation, use both methods together.
+In a non-profiling build (the default), all profiling macros expand to `((void)0)` and are optimised away completely, so there is zero overhead regardless of environment variables.
 
 ### Automatic Export
 
