@@ -95,7 +95,6 @@ Located at `dynawo/sources/Solvers/Common/`:
   - `PHASE_ROOT_EVAL` -- root/zero-crossing evaluation
   - `PHASE_MODE_EVAL` -- mode change evaluation
   - `PHASE_DISCRETE_EVAL` -- discrete variable evaluation
-  - `PHASE_LINEAR_SOLVE` -- sparse linear system solve (IDA/KLU only)
   - `PHASE_NR_SOLVE` -- Newton-Raphson algebraic solve (SIM/TRAP fixed-timestep solvers)
   - `PHASE_MATRIX_COPY` -- matrix data copy operations
   - `PHASE_KINSOL_SOLVE` -- KINSOL nonlinear solve
@@ -527,9 +526,7 @@ The profiler summary table shows each phase with the following columns:
 
 - **DiscreteEval:** Evaluation of discrete variables. Related to event handling and mode changes.
 
-- **LinearSolve:** Sparse linear system solve using KLU. Only appears in IDA (variable-timestep) solver output. High percentage here (>20%) indicates the linear algebra is dominant.
-
-- **NRSolve:** Newton-Raphson algebraic solve. Only appears in SIM/TRAP (fixed-timestep) solver output. This covers the full KINSOL-based NR iteration including residual evaluation, Jacobian factorization, and linear solves. It is the fixed-timestep equivalent of the IDA `LinearSolve`.
+- **NRSolve:** Newton-Raphson algebraic solve. Only appears in SIM/TRAP (fixed-timestep) solver output. This covers the full KINSOL-based NR iteration including residual evaluation, Jacobian factorization, and linear solves. For IDA (variable-timestep), there is no separate linear solve phase because the KLU solve happens internally within SUNDIALS and its time is included in `SolverStep`.
 
 - **MatrixCopy:** Copying matrix data between internal representations. Should be a small fraction; if not, this indicates unnecessary data movement.
 
@@ -541,7 +538,7 @@ The profiler summary table shows each phase with the following columns:
 
 ### Key Metrics to Watch
 
-1. **JacobianEval + LinearSolve (IDA) or NRSolve (SIM/TRAP) combined percentage:** If these together exceed 60% of simulation time, the simulation is compute-bound on sparse linear algebra. Consider the optimization strategies in `OPTIMIZATION_ROADMAP.md`.
+1. **JacobianEval + NRSolve (SIM/TRAP) combined percentage:** If these together exceed 60% of simulation time, the simulation is compute-bound on sparse linear algebra. For IDA, JacobianEval alone is the key indicator since the KLU linear solve time is embedded in SolverStep. Consider the optimization strategies in `OPTIMIZATION_ROADMAP.md`.
 
 2. **JacobianEval call count vs. SolverStep call count:** If Jacobian evaluations are much more frequent than time steps, the Newton solver may be struggling to converge. Check tolerance settings.
 
@@ -746,7 +743,7 @@ SimulationLoop           12.345        1  12345.0000  12345.0000  12345.0000   1
 SolverSolve              11.890        1  11890.0000  11890.0000  11890.0000    96.3
 JacobianEval              4.567      850      5.3729      2.1200     15.8900    37.0
 ResidualEval              2.345     3200      0.7328      0.4100      3.2100    19.0
-LinearSolve               3.210      850      3.7765      1.5600     12.3400    26.0
+NRSolve                   3.210      850      3.7765      1.5600     12.3400    26.0
 ...
 ===============================================================
 ```
@@ -773,7 +770,7 @@ python bottleneck_detector.py $DYNAWO_HOME/results/nordic/profile.csv
 
 Review the severity-ranked findings. Based on the output:
 - If JacobianEval dominates (>30%), focus on Jacobian evaluation optimizations (see OPTIMIZATION_ROADMAP.md).
-- If LinearSolve dominates (>25%), focus on KLU and sparse matrix optimizations.
+- If NRSolve dominates (>25%), focus on NR tolerance tuning, Jacobian reuse, and sparse matrix optimizations.
 - If ResidualEval has a very high call count relative to time steps, the Newton solver may need tuning.
 
 ### 7. Check Memory Usage

@@ -23,7 +23,7 @@ For the SIM solver, the key hot path is:
 solveStep → solveStepCommon → callAlgebraicSolver → SolverKINEuler::solve → KINSOL iterations
 ```
 
-Each KINSOL iteration involves: `evalF_KIN` (residual), `evalJ_KIN` (Jacobian), and `solveCommon → KINSol` (linear solve). The `callAlgebraicSolver` and `setupNewAlgebraicRestoration` methods are instrumented with `PHASE_LINEAR_SOLVE` and `PHASE_REINIT` respectively.
+Each KINSOL iteration involves: `evalF_KIN` (residual), `evalJ_KIN` (Jacobian), and `solveCommon → KINSol` (linear solve). The `callAlgebraicSolver` and `setupNewAlgebraicRestoration` methods are instrumented with `PHASE_NR_SOLVE` and `PHASE_REINIT` respectively.
 
 An IDA solver comparison is also available via `performance-analysis/benchmarks/Nordic_IDA.jobs`, which runs the same Nordic system with `dynawo_SolverIDA` (variable-step). This allows direct comparison of IDA vs SIM solver performance characteristics.
 

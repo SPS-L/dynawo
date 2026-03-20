@@ -45,7 +45,6 @@ enum ProfilePhase {
   PHASE_ROOT_EVAL,
   PHASE_MODE_EVAL,
   PHASE_DISCRETE_EVAL,
-  PHASE_LINEAR_SOLVE,
   PHASE_NR_SOLVE,      ///< Newton-Raphson algebraic solve (fixed-timestep solvers)
   PHASE_MATRIX_COPY,
   PHASE_KINSOL_SOLVE,

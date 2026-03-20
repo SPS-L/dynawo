@@ -150,11 +150,6 @@ def _hotspot_recommendation(phase):
             "Look for table lookups or external function calls that "
             "could be simplified."
         ),
-        "linearsolve": (
-            "Consider using a sparse direct solver (KLU) if not already. "
-            "For very large systems, an iterative solver with "
-            "preconditioning may help. (IDA solver only.)"
-        ),
         "nrsolve": (
             "This is the full Newton-Raphson algebraic solve for "
             "fixed-timestep solvers (SIM/TRAP). If it dominates, "
@@ -163,7 +158,7 @@ def _hotspot_recommendation(phase):
         ),
         "solversolve": (
             "This is the overall solver time. Drill down into sub-phases "
-            "(JacobianEval, LinearSolve/NRSolve, ResidualEval) to find "
+            "(JacobianEval, NRSolve, ResidualEval) to find "
             "the root cause."
         ),
         "kinsolsolve": (
@@ -238,15 +233,13 @@ def check_jacobian_rebuilds(phase_df, findings):
 
 
 def check_linear_solver_efficiency(phase_df, findings):
-    """Check the ratio of linear solves to Jacobian factorisations.
+    """Check the ratio of NR solves to Jacobian factorisations.
 
-    For IDA solver output, uses LinearSolve phase.
-    For SIM/TRAP solver output, uses NRSolve phase instead.
+    Uses the NRSolve phase (SIM/TRAP fixed-timestep solvers).
+    For IDA profiles this check is skipped since the linear solve
+    happens internally within SUNDIALS and has no separate phase.
     """
-    linear_calls = get_phase_value(phase_df, "LinearSolve", "call_count", 0)
-    # Fall back to NRSolve for fixed-timestep solvers (SIM/TRAP)
-    if linear_calls <= 0:
-        linear_calls = get_phase_value(phase_df, "NRSolve", "call_count", 0)
+    linear_calls = get_phase_value(phase_df, "NRSolve", "call_count", 0)
     jac_calls = get_phase_value(phase_df, "JacobianEval", "call_count", 0)
 
     if jac_calls <= 0 or linear_calls <= 0:
@@ -258,24 +251,24 @@ def check_linear_solver_efficiency(phase_df, findings):
         findings.append({
             "severity": WARNING,
             "category": "Linear Solver Efficiency",
-            "phase": "LinearSolve",
+            "phase": "NRSolve",
             "message": (
-                f"Only {ratio:.1f} linear solves per Jacobian evaluation "
+                f"Only {ratio:.1f} NR solves per Jacobian evaluation "
                 f"({linear_calls} solves, {jac_calls} factorisations). "
                 f"The factorisation cost is not being amortised well."
             ),
             "recommendation": (
                 "Increase the Jacobian reuse count so that each "
-                "factorisation is used for more linear solves."
+                "factorisation is used for more NR solves."
             ),
         })
     elif ratio > 50:
         findings.append({
             "severity": INFO,
             "category": "Linear Solver Efficiency",
-            "phase": "LinearSolve",
+            "phase": "NRSolve",
             "message": (
-                f"High reuse ratio: {ratio:.1f} linear solves per "
+                f"High reuse ratio: {ratio:.1f} NR solves per "
                 f"Jacobian evaluation. This is efficient but verify "
                 f"that convergence is not degraded."
             ),

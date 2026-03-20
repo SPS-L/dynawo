@@ -47,7 +47,6 @@ const char* phaseToString(ProfilePhase phase) {
     case PHASE_ROOT_EVAL:       return "RootEval";
     case PHASE_MODE_EVAL:       return "ModeEval";
     case PHASE_DISCRETE_EVAL:   return "DiscreteEval";
-    case PHASE_LINEAR_SOLVE:    return "LinearSolve";
     case PHASE_NR_SOLVE:        return "NRSolve";
     case PHASE_MATRIX_COPY:     return "MatrixCopy";
     case PHASE_KINSOL_SOLVE:    return "KINSOLSolve";
