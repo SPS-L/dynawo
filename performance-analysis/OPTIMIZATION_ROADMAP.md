@@ -64,7 +64,7 @@ An IDA solver comparison is also available via `performance-analysis/benchmarks/
 
 **Expected Speedup:** 8-12%
 **Implementation Effort:** Medium-High
-**Risk Level:** Medium
+**Risk Level:** Medium (practical integration risk is high until thread-safety audit and KLU lock-contention profiling pass — see Developer Feedback below)
 
 #### Description
 
@@ -124,7 +124,7 @@ endif()
 
 **Expected Speedup:** 3-5%
 **Implementation Effort:** Medium
-**Risk Level:** Medium
+**Risk Level:** Medium (practical integration risk is high until thread-safety audit confirms no shared mutable state in submodel evaluation paths)
 
 #### Description
 
@@ -173,10 +173,12 @@ void ModelMulti::evalG(double t, const double* y, const double* yp, double* g) {
 ### P3. Cache-Optimized Sparse Matrix Layout
 
 **Expected Speedup:** 2-3%
-**Implementation Effort:** Medium (reframed — see code analysis below)
-**Risk Level:** Low
+**Implementation Effort:** High (staged rollout required — see delivery strategy below)
+**Risk Level:** Medium-High (sparsity pattern stability must be validated across mode changes and discrete events before production use)
 
 > **Code Analysis (March 2026).** Upstream code analysis reveals that the original framing of this item (row-major intermediates transposed before KLU) is **incorrect** — Dynawo already avoids explicit transposition through a deliberate CSR/transpose trick. However, the analysis uncovered real inefficiencies in the Jacobian assembly pipeline that this item should target instead. See the Code Analysis section below.
+>
+> **Important caveat:** Adept does not support sparse Jacobian computation — there is no `jacobian_with_pattern()` or coloring/compressed evaluation API. The dense `stack.jacobian()` call is unavoidable with the current AD library. The optimization therefore targets the extraction loop and allocation overhead, not the AD computation itself.
 
 #### Description (Original — Superseded)
 
@@ -209,35 +211,66 @@ When SUNDIALS/KLU sees `CSR_MAT`, it interprets the same `(Ap, Ai, Ax)` arrays a
 
 Given the code analysis, this item should target three concrete inefficiencies:
 
-1. **Adept dense→sparse conversion (highest impact):** The `evalJtAdept` path produces a full dense Jacobian and iterates all `O(n²)` entries. Adept supports sparse Jacobian computation (`stack.jacobian_forward/reverse` with sparsity patterns), which could skip the dense intermediate entirely.
+1. **Compile-time structural index map for extraction loop (highest impact):** The `evalJtAdept` extraction loop (lines 356–368 in `DYNModelManager.cpp`) iterates all `sizeF × sizeY` entries and calls `addTerm()` for each, relying on `doubleIsZero()` to skip zeros. A pre-computed structural index map can skip known-zero positions entirely. **Note:** Adept does not support sparse Jacobian computation — `stack.jacobian()` will remain a dense O(n²) call. The optimization targets only the extraction/filling phase, not the AD computation itself. For Modelica submodels with high sparsity, this can still significantly reduce the number of `addTerm()` calls and improve cache locality.
 
 2. **`copySparseToKINSOL` element-by-element copy:** Every Jacobian evaluation copies all `Ap`, `Ai`, `Ax` arrays from `SparseMatrix` → `SUNMatrix` via loops. If the `SparseMatrix` could directly use the SUNMatrix's memory (or a compatible layout), this copy could be eliminated.
 
 3. **Repeated `SparseMatrix` allocation:** In both `evalJ_KIN` (SolverKINEuler) and `evalJ` (SolverIDA), a new `SparseMatrix smj` is created on the stack every call, with dynamic `std::vector` allocations (`Ai_`, `Ax_` grow in 1024-element blocks via `increaseReserve()`). Reusing a pre-allocated matrix would avoid repeated heap allocations.
 
+#### Recommended Delivery Strategy (SolverSIM-first)
+
+P3 should be delivered in three stages to manage the risk of incorrect sparsity assumptions:
+
+**Phase A (prototype — Phase 1):** Build a compile-time structural index map from the first dense `stack.jacobian()` call. Cache the set of `(i, j)` pairs where `jac[i + j * sizeY] != 0`. On subsequent evaluations, `stack.jacobian()` still computes the full dense matrix, but the extraction loop iterates only over the cached non-zero positions instead of all `sizeF × sizeY` entries. Also pre-allocate the `SparseMatrix` (Target 3). This is a safe, incremental change.
+
+**Phase B (conservative invalidation):** Invalidate the cached structural index map on any mode change or discrete variable change (`modeChangeType_t >= ALGEBRAIC_MODE`). Re-compute the index map from the next dense evaluation. Add instrumentation to count "unexpected nonzero outside structural map" events. This catches structural changes conservatively.
+
+**Phase C (severe-only invalidation):** After stress-test validation confirms zero missed-structure events, restrict invalidation to severe events only (`modeChangeType_t >= ALGEBRAIC_J_UPDATE_MODE`). **This phase is gated by test evidence; the default must remain conservative (Phase B).**
+
+> **Risk note:** Severe-only invalidation (Phase C) must never be promoted without passing the structural-sparsity validation checklist below. A missed structural nonzero means KLU solves with an incomplete Jacobian, which can cause silent convergence degradation or Newton failure.
+
 #### Implementation Sketch (Reframed)
 
 ```cpp
-// Target 1: Sparse Adept Jacobian (replaces dense O(n²) path)
-// In ModelManager::evalJtAdept, replace:
-//   stack.jacobian(&jac[0]);  // dense n×n
-// With sparse Jacobian using pre-computed sparsity pattern:
-if (!sparsityPatternComputed_) {
-  // One-time: compute and cache the sparsity pattern
-  stack.jacobian(&jac[0]);  // dense, just once
-  for (int i = 0; i < sizeF; ++i)
-    for (int j = 0; j < sizeY; ++j)
-      if (!doubleIsZero(jac[i + j * sizeY]))
-        sparsityPattern_.push_back({i, j});
-  sparsityPatternComputed_ = true;
+// Phase A: Compile-time structural index map for extraction loop
+// In ModelManager::evalJtAdept:
+
+// stack.jacobian() remains unchanged — Adept has no sparse API
+stack.jacobian(&jac[0]);  // dense (2*sizeY) * sizeY array
+
+if (!structuralMapComputed_) {
+  // One-time: scan dense Jacobian for non-zero structure
+  structuralMap_.clear();
+  for (unsigned int i = 0; i < sizeF(); ++i) {
+    for (unsigned int j = 0; j < sizeY(); ++j) {
+      const int indice = i + j * sizeY();
+      const double term = coeff * jac[indice] + cj * jac[indice + offsetJPrim];
+      if (!doubleIsZero(term))
+        structuralMap_.push_back({i, j, indice});
+    }
+  }
+  structuralMapComputed_ = true;
 }
-// Subsequent calls: sparse Jacobian using cached pattern
-stack.jacobian_reverse_with_pattern(sparsityPattern_, &sparseJac[0]);
+
+// Fast path: iterate only over known non-zero positions
+for (unsigned int col = 0; col < sizeF(); ++col) {
+  Jt.changeCol();
+  // Binary search or pre-grouped iteration over entries for this column
+}
+for (const auto& entry : structuralMap_) {
+  const double term = coeff * jac[entry.indice] + cj * jac[entry.indice + offsetJPrim];
+  Jt.addTerm(entry.j + rowOffset, term);  // within correct column context
+}
+
+// Phase B: Invalidation on mode/discrete change
+void ModelManager::notifyModeChange(modeChangeType_t type) {
+  if (type >= ALGEBRAIC_MODE)
+    structuralMapComputed_ = false;  // conservative: any mode change
+}
 
 // Target 3: Pre-allocated SparseMatrix (avoids per-call heap alloc)
 class SolverKINEuler {
   SparseMatrix smj_;  // Reuse across evalJ_KIN calls
-  // ...
   void initJacobianMatrix(int size) {
     smj_.init(size, size);
     // Pre-reserve based on expected nnz from first evaluation
@@ -760,7 +793,7 @@ private:
 
 **Expected Speedup:** 3-5%
 **Implementation Effort:** Low
-**Risk Level:** Medium
+**Risk Level:** Medium (operational debug risk is elevated without robust fallback and telemetry — a stale symbolic factorization produces silent accuracy degradation that is difficult to diagnose)
 
 #### Description
 
@@ -1355,19 +1388,25 @@ The event severity classification system was introduced upstream by Adrien Guiro
 
 ### Phase 1: Medium Effort
 
-**Objective:** Achieve an additional 10-20% speedup through remaining data structure improvements and careful exploration of partial Jacobian updates.
+**Objective:** Achieve an additional 10-20% speedup through remaining data structure improvements, Jacobian assembly optimization, and careful exploration of partial Jacobian updates.
 
 **Items:**
+- **P3 Phase A. Structural Index Map for Jacobian Extraction** — Build a compile-time structural index map from the first dense Adept Jacobian evaluation; skip known-zero entries in the extraction loop. Pre-allocate the `SparseMatrix` to avoid per-call heap allocation. This is a scoped prototype — Phase B/C (invalidation strategies) are gated by validation.
 - **Remaining `std::map` audit** — Flat Vector Derivatives was implemented upstream by Gautier Bureau (commit `#3749`), but only for the Network model's `Derivatives` class. Audit and convert remaining `std::map<int, double>` usage in Modelica-generated C++ and SubModel coupling code.
 - **A4. Improved COLAMD Ordering** — Cache and reuse ordering across factorizations.
 
-**Rationale:** The remaining `std::map` audit extends the upstream Flat Vector Derivatives work to other parts of the codebase. A4 provides incremental gains by avoiding redundant ordering computations.
+**Rationale:** P3 Phase A targets the O(n²) extraction loop in `evalJtAdept`, which processes all `sizeF × sizeY` entries even though most are zero for typical Modelica submodels. The structural index map is safe (conservative: invalidated on any mode change) and provides direct benefit to both SolverSIM and IDA. The remaining `std::map` audit extends the upstream Flat Vector Derivatives work. A4 provides incremental gains by avoiding redundant ordering computations. P6 is excluded from SolverSIM speedup accounting (IDA-only).
 
 **Tasks:**
-1. Audit remaining `std::map<int, double>` usage outside the Network model's `Derivatives` class (Modelica-generated C++, SubModel interface coupling) and convert where beneficial.
-2. Implement A4 (ordering cache with invalidation on structure change).
-3. Comprehensive benchmarking of all Phase 1 items combined.
-4. Regression testing on the full test suite.
+1. Implement P3 Phase A: structural index map in `ModelManager::evalJtAdept` with conservative invalidation on any mode change.
+2. Pre-allocate `SparseMatrix` in `SolverKINEuler::evalJ_KIN` and `SolverIDA::evalJ` to avoid per-call heap allocation.
+3. Instrument to measure extraction loop speedup (proportion of entries skipped) on Nordic system and event-heavy cases.
+4. Audit remaining `std::map<int, double>` usage outside the Network model's `Derivatives` class (Modelica-generated C++, SubModel interface coupling) and convert where beneficial.
+5. Implement A4 (ordering cache with invalidation on structure change).
+6. Comprehensive benchmarking of all Phase 1 items combined.
+7. Regression testing on the full test suite.
+
+**Gate for P3 Phase B/C:** No Jacobian-structure miss events in the event-heavy regression set (see Structural-Sparsity Validation checklist in Decision Criteria). Phase B (conservative invalidation with instrumentation) and Phase C (severe-only invalidation) proceed only after this gate passes.
 
 **Go/No-Go Criteria for Phase 2:**
 - Cumulative speedup (Phase 0 + Phase 1) of at least 20% on the large-scale test case.
@@ -1421,6 +1460,23 @@ The event severity classification system was introduced upstream by Adrien Guiro
 5. Each prototype must produce a written evaluation report with benchmarks and a go/no-go recommendation.
 
 ### Decision Points and Go/No-Go Criteria
+
+> **Speedup accounting note.** Phase speedups are not strictly additive; totals should be measured incrementally with ablation runs. Interactions between optimizations (e.g., reduced factorization frequency changes the relative cost of Jacobian assembly) can shift the balance.
+
+#### Structural-Sparsity Validation (for P3 Phase B/C)
+
+Before promoting P3 from Phase A (structural index map) to Phase B (invalidation instrumentation) or Phase C (severe-only invalidation), the following pass/fail checks must be satisfied:
+
+| Check | Method | Pass Criterion |
+|-------|--------|-----------------|
+| Pattern hash stability | Compare nnz pattern hash at each Jacobian eval vs. expected structural map | Zero misses across all test cases below |
+| Unexpected nonzero counter | Track "nonzero outside structural map" events per simulation | Counter = 0 |
+| Nordic baseline | Run Nordic test system (no events, steady-state) | Zero structural map misses |
+| Event-heavy case | Run Nordic with tap/OEL/AVR activity (frequent minor events) | Zero structural map misses |
+| Severe events | Run Nordic with fault + line disconnection | Zero structural map misses |
+| Large-scale case | Run French 6,000+ bus system (if available) | Zero structural map misses |
+
+**Abort rule:** If any miss is detected, abort promotion to Phase C. Investigate whether the miss is caused by a genuine structural change (requiring invalidation) or a numerical artifact. Phase B's conservative invalidation remains the production default until all checks pass.
 
 #### Metrics for All Phases
 

@@ -174,7 +174,7 @@ The solver currently forces a full symbolic factorization (`klu_analyze` + `klu_
 
 Detailed code analysis of the upstream Dynawo codebase validates our profiling results and refines several roadmap items:
 
-**Jacobian assembly (P3):** The original hypothesis (row-major→CSC transposition overhead) is incorrect. Dynawo uses a deliberate CSR/transpose trick: models produce Jt in CSC-structured arrays; SUNDIALS/KLU reads them as CSR, implicitly transposing. **No explicit transposition occurs.** The real inefficiency is in the Modelica path: `ModelManager::evalJtAdept` computes a full dense O(n²) Jacobian via Adept AD, then iterates all entries to extract the sparse structure — on every evaluation.
+**Jacobian assembly (P3):** The original hypothesis (row-major→CSC transposition overhead) is incorrect. Dynawo uses a deliberate CSR/transpose trick: models produce Jt in CSC-structured arrays; SUNDIALS/KLU reads them as CSR, implicitly transposing. **No explicit transposition occurs.** The real inefficiency is in the Modelica path: `ModelManager::evalJtAdept` computes a full dense O(n²) Jacobian via Adept AD, then iterates all entries to extract the sparse structure — on every evaluation. Adept has no sparse Jacobian API, so optimization targets the extraction loop via a structural index map (staged rollout with validation gates).
 
 **N_Vector copies (P6):** The FixedTimeStep solver (SolverSIM) uses `std::vector<double>` with `.assign()` for save/restore — not N_Vector copies. `sundialsVectorY_` is a zero-copy wrapper via `N_VMake_Serial`. **P6 is IDA-specific and out of scope for the TRAISIM FixedTimeStep target.**
 
@@ -208,15 +208,17 @@ Four phases, from quick wins to research-level improvements
 
 # Phase 1 — Medium Effort
 
-**Target:** Additional 10–20% speedup through data structure improvements
+**Target:** Additional 10–20% speedup through Jacobian assembly optimization and data structure improvements
 
 | Item | Description | Expected Gain |
 |------|-------------|---------------|
+| P3-A | Structural index map for Jacobian extraction | 2–3% |
 | — | Remaining `std::map` audit | Variable |
 | A4 | Improved COLAMD ordering (cache reuse) | 2–4% |
 
+- **P3 Phase A:** Cache non-zero positions from first Adept Jacobian eval; skip known-zero entries in extraction loop. Conservative invalidation on any mode change. Staged rollout: Phase B/C (refined invalidation) gated by structural-sparsity validation.
 - **std::map audit:** Extends upstream Flat Vector Derivatives work to Modelica-generated C++ and SubModel coupling code.
-- **A4:** Cache and reuse ordering across factorizations to avoid redundant computations.
+- P6 (N_Vector copies) is excluded from SolverSIM speedup accounting (IDA-only).
 
 **Go/No-Go:** Cumulative speedup ≥ 20% before advancing.
 
