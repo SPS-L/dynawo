@@ -1129,9 +1129,6 @@ void ModelMulti::evalJt(double t, double cj, SparseMatrix& Jt) {
 }
 ```
 
-
-
-
 ---
 
 ### A6. Schur Complement Decomposition
@@ -1254,7 +1251,6 @@ public:
   }
 };
 ```
-
 
 ---
 
@@ -1494,7 +1490,7 @@ The following metrics should be tracked across all optimization phases:
 #### Phase Transition Criteria
 
 **Phase 0 to Phase 1:**
-- Minimum 8% measured speedup on the reference large-scale test case.
+- Minimum 10% measured speedup on the reference large-scale test case.
 - All existing tests pass without modification.
 - Profiling data confirms factorization skip rate > 50% in steady-state periods.
 
