@@ -13,7 +13,7 @@
 -->
 <dyn:jobs xmlns:dyn="http://www.rte-france.com/dynawo">
     <dyn:job name="Nordic Test System with IDA solver (for SIM vs IDA comparison)">
-        <dyn:solver lib="dynawo_SolverIDA" parFile="../../benchmarks/solver_configs/ida_nordic.par" parId="Solver"/>
+        <dyn:solver lib="dynawo_SolverIDA" parFile="./solver_configs/ida_nordic.par" parId="Solver"/>
         <dyn:modeler compileDir="outputs/compilation">
             <dyn:network iidmFile="../../examples/DynaWaltz/Nordic/Nordic.xiidm" parFile="../../examples/DynaWaltz/Nordic/Network.par" parId="Network"/>
             <dyn:dynModels dydFile="../../examples/DynaWaltz/Nordic/Nordic.dyd"/>
