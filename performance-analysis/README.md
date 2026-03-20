@@ -432,7 +432,7 @@ mkdir -p results/nordic
 export DYNAWO_PROFILE_OUTPUT=results/nordic/profile.csv
 ./myEnvDynawo.sh jobs examples/DynaWaltz/Nordic/Nordic.jobs
 
-# 4. View the summary (printed to stdout during execution)
+# 4. View the summary in the Dynawo log file (outputs/logs/dynawo.log)
 ```
 
 ### Nordic Test System
@@ -723,7 +723,7 @@ export DYNAWO_PROFILE_OUTPUT=results/nordic/profile.json
 
 ### 4. Examine Results
 
-The profiler prints a summary table to stdout during execution:
+The profiler writes a summary table to the Dynawo log file (`outputs/logs/dynawo.log` inside the job's output directory). The CSV export via `DYNAWO_PROFILE_OUTPUT` is the primary data source for the Python analysis tools. The log file summary looks like:
 
 ```
 ===============================================================
