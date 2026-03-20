@@ -170,6 +170,18 @@ The solver currently forces a full symbolic factorization (`klu_analyze` + `klu_
 
 ---
 
+# Code Analysis: Jacobian Pipeline & Solver Scope
+
+Detailed code analysis of the upstream Dynawo codebase validates our profiling results and refines several roadmap items:
+
+**Jacobian assembly (P3):** The original hypothesis (row-major→CSC transposition overhead) is incorrect. Dynawo uses a deliberate CSR/transpose trick: models produce Jt in CSC-structured arrays; SUNDIALS/KLU reads them as CSR, implicitly transposing. **No explicit transposition occurs.** The real inefficiency is in the Modelica path: `ModelManager::evalJtAdept` computes a full dense O(n²) Jacobian via Adept AD, then iterates all entries to extract the sparse structure — on every evaluation.
+
+**N_Vector copies (P6):** The FixedTimeStep solver (SolverSIM) uses `std::vector<double>` with `.assign()` for save/restore — not N_Vector copies. `sundialsVectorY_` is a zero-copy wrapper via `N_VMake_Serial`. **P6 is IDA-specific and out of scope for the TRAISIM FixedTimeStep target.**
+
+**A7 event severity:** The FixedTimeStep solver already fully supports event severity through shared infrastructure with IDA. Only model-layer changes are needed.
+
+---
+
 <!-- _class: section-divider -->
 
 # Optimization Roadmap
@@ -274,6 +286,7 @@ Phases 1–3 target Model 3 feasibility and provide headroom for even larger sys
 | Flat vector derivatives (upstream by G. Bureau) | Done |
 | Detailed optimization roadmap with 16 items | Done |
 | Developer feedback integration (TRAISIM discussion) | Done |
+| Code analysis: A7 event severity, P3 Jacobian layout, P6 N_Vector scope | Done |
 
 All tools and documentation are available in the `performance-analysis/` directory of the [SPS-L/dynawo](https://github.com/SPS-L/dynawo/tree/performance-analysis-framework/performance-analysis) fork.
 

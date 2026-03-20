@@ -173,73 +173,75 @@ void ModelMulti::evalG(double t, const double* y, const double* yp, double* g) {
 ### P3. Cache-Optimized Sparse Matrix Layout
 
 **Expected Speedup:** 2-3%
-**Implementation Effort:** Medium
+**Implementation Effort:** Medium (reframed — see code analysis below)
 **Risk Level:** Low
 
-#### Description
+> **Code Analysis (March 2026).** Upstream code analysis reveals that the original framing of this item (row-major intermediates transposed before KLU) is **incorrect** — Dynawo already avoids explicit transposition through a deliberate CSR/transpose trick. However, the analysis uncovered real inefficiencies in the Jacobian assembly pipeline that this item should target instead. See the Code Analysis section below.
 
-Sparse matrices in Dynawo are stored for use with the KLU direct solver from SuiteSparse. KLU operates on Compressed Sparse Column (CSC) format, which stores non-zero entries column by column. However, many operations during Jacobian assembly naturally produce data in row-major order, leading to an intermediate representation that must be transposed before KLU can use it.
+#### Description (Original — Superseded)
 
-By aligning the internal Jacobian assembly to directly produce CSC format -- or by using Compressed Sparse Row (CSR) format where row-major access patterns dominate and converting to CSC only at the KLU interface -- we can reduce cache misses during both assembly and solve phases. The key insight is that Jacobian assembly typically fills the matrix row by row (each equation contributes a row), while KLU needs column-by-column storage.
+~~Sparse matrices in Dynawo are stored for use with the KLU direct solver from SuiteSparse. KLU operates on Compressed Sparse Column (CSC) format, which stores non-zero entries column by column. However, many operations during Jacobian assembly naturally produce data in row-major order, leading to an intermediate representation that must be transposed before KLU can use it.~~
 
-A detailed analysis of access patterns in the current code is needed to determine the optimal layout. For medium-sized systems (1000-5000 equations), the assembly phase may benefit from CSR storage with a single transpose, while for larger systems, direct CSC assembly with column-oriented accumulation buffers may be better.
+#### Code Analysis: Actual Jacobian Assembly Pipeline
 
-#### Implementation Sketch
+The `SparseMatrix` class (`DYNSparseMatrix.h`) uses `Ap_` (column pointers), `Ai_` (row indices), `Ax_` (values) — structurally a CSC format. Models fill it column-by-column via `changeCol()` + `addTerm(row, val)`.
+
+**The CSR/transpose trick:** What models produce is `Jt` (the *transpose* of the Jacobian), not J itself. Both KINSOL (`SolverKINCommon.cpp:138`) and IDA (`DYNSolverIDA.cpp:257`) create the SUNMatrix with `CSR_MAT` instead of `CSC_MAT`:
 
 ```cpp
-// Direct CSC assembly with per-column accumulation
-class DirectCSCAssembler {
-  // Column pointers, row indices, values (standard CSC)
-  std::vector<int> colPtr_;
-  std::vector<int> rowIdx_;
-  std::vector<double> values_;
+// Passing CSR_MAT indicates that we solve A'x = B
+// - linear system using the matrix transpose -
+// and not Ax = B (see sunlinsol_klu.c:149)
+sundialsMatrix_ = SUNSparseMatrix(numF_, numF_, nnz, CSR_MAT, sundialsContext_);
+```
 
-  // Per-column temporary lists for assembly
-  struct ColEntry {
-    int row;
-    double val;
-  };
-  std::vector<std::vector<ColEntry>> colAccum_;
+When SUNDIALS/KLU sees `CSR_MAT`, it interprets the same `(Ap, Ai, Ax)` arrays as CSR rather than CSC — which is mathematically equivalent to transposing the matrix. So the net effect is: models produce Jt in CSC-structured arrays → KLU reads the same arrays as CSR → KLU effectively solves with J (the un-transposed Jacobian). **No explicit transposition step occurs.** The data flows as one contiguous memcpy from `SparseMatrix` to `SUNMatrix` via `copySparseToKINSOL()`.
 
-public:
-  void beginAssembly(int nCols) {
-    colAccum_.resize(nCols);
-    for (auto& col : colAccum_) col.clear();
+**Two assembly paths exist:**
+
+1. **Native C++ models** (e.g., `ModelBus`, `ModelLine`): Fill the `SparseMatrix` directly and sparsely — only non-zero terms are added. This is already efficient.
+
+2. **Modelica-generated models** (via `ModelManager::evalJtAdept`): Adept AD computes a **dense** Jacobian (`stack.jacobian(&jac[0])` into a `vector<double>` of size `(2 × sizeY) × sizeY`), then iterates over all `sizeF × sizeY` entries to fill the sparse `Jt`, relying on `addTerm()`'s `doubleIsZero()` filter to skip zeros. This is an `O(n²)` dense→sparse conversion on every Jacobian evaluation.
+
+**This path applies identically to both FixedTimeStep (SolverSIM) and IDA** — both use the same `SparseMatrix` → `copySparseToKINSOL()` → `SUNMatrix` pipeline.
+
+#### Reframed Optimization Targets
+
+Given the code analysis, this item should target three concrete inefficiencies:
+
+1. **Adept dense→sparse conversion (highest impact):** The `evalJtAdept` path produces a full dense Jacobian and iterates all `O(n²)` entries. Adept supports sparse Jacobian computation (`stack.jacobian_forward/reverse` with sparsity patterns), which could skip the dense intermediate entirely.
+
+2. **`copySparseToKINSOL` element-by-element copy:** Every Jacobian evaluation copies all `Ap`, `Ai`, `Ax` arrays from `SparseMatrix` → `SUNMatrix` via loops. If the `SparseMatrix` could directly use the SUNMatrix's memory (or a compatible layout), this copy could be eliminated.
+
+3. **Repeated `SparseMatrix` allocation:** In both `evalJ_KIN` (SolverKINEuler) and `evalJ` (SolverIDA), a new `SparseMatrix smj` is created on the stack every call, with dynamic `std::vector` allocations (`Ai_`, `Ax_` grow in 1024-element blocks via `increaseReserve()`). Reusing a pre-allocated matrix would avoid repeated heap allocations.
+
+#### Implementation Sketch (Reframed)
+
+```cpp
+// Target 1: Sparse Adept Jacobian (replaces dense O(n²) path)
+// In ModelManager::evalJtAdept, replace:
+//   stack.jacobian(&jac[0]);  // dense n×n
+// With sparse Jacobian using pre-computed sparsity pattern:
+if (!sparsityPatternComputed_) {
+  // One-time: compute and cache the sparsity pattern
+  stack.jacobian(&jac[0]);  // dense, just once
+  for (int i = 0; i < sizeF; ++i)
+    for (int j = 0; j < sizeY; ++j)
+      if (!doubleIsZero(jac[i + j * sizeY]))
+        sparsityPattern_.push_back({i, j});
+  sparsityPatternComputed_ = true;
+}
+// Subsequent calls: sparse Jacobian using cached pattern
+stack.jacobian_reverse_with_pattern(sparsityPattern_, &sparseJac[0]);
+
+// Target 3: Pre-allocated SparseMatrix (avoids per-call heap alloc)
+class SolverKINEuler {
+  SparseMatrix smj_;  // Reuse across evalJ_KIN calls
+  // ...
+  void initJacobianMatrix(int size) {
+    smj_.init(size, size);
+    // Pre-reserve based on expected nnz from first evaluation
   }
-
-  // Called during Jacobian evaluation (can be from any row order)
-  void addEntry(int row, int col, double val) {
-    colAccum_[col].push_back({row, val});
-  }
-
-  // Convert accumulated entries to CSC format for KLU
-  void finalize() {
-    int nCols = static_cast<int>(colAccum_.size());
-    colPtr_.resize(nCols + 1);
-    rowIdx_.clear();
-    values_.clear();
-
-    int nnz = 0;
-    for (int j = 0; j < nCols; ++j) {
-      colPtr_[j] = nnz;
-      // Sort by row for cache-friendly access during solve
-      std::sort(colAccum_[j].begin(), colAccum_[j].end(),
-                [](const ColEntry& a, const ColEntry& b) {
-                  return a.row < b.row;
-                });
-      for (const auto& e : colAccum_[j]) {
-        rowIdx_.push_back(e.row);
-        values_.push_back(e.val);
-      }
-      nnz += static_cast<int>(colAccum_[j].size());
-    }
-    colPtr_[nCols] = nnz;
-  }
-
-  // Provide CSC data to KLU
-  int* colPtrData() { return colPtr_.data(); }
-  int* rowIdxData() { return rowIdx_.data(); }
-  double* valuesData() { return values_.data(); }
 };
 ```
 
@@ -391,9 +393,12 @@ void SolverIDA::step() {
 
 ### P6. Reduce SUNDIALS N_Vector Copies
 
-**Expected Speedup:** 1-3%
+**Expected Speedup:** 1-3% (IDA variable-step solver only)
 **Implementation Effort:** Low
 **Risk Level:** Low
+**Scope:** IDA (variable-step) solver only — not applicable to FixedTimeStep (SolverSIM/SolverTRAP)
+
+> **Code Analysis (March 2026).** Upstream code analysis confirms this optimization is **IDA-specific**. The FixedTimeStep solver does not use the N_Vector copy paths that P6 targets. See the Code Analysis section below.
 
 #### Description
 
@@ -402,6 +407,23 @@ The SUNDIALS IDA solver interface uses `N_Vector` objects to pass state vectors,
 Many of these copies can be eliminated by wrapping Dynawo's existing vectors as `N_Vector`s using SUNDIALS' custom vector operations interface, or by directly using `NV_DATA_S()` to access the `N_Vector` data pointer and passing it to Dynawo functions without intermediate copies. The SUNDIALS serial `N_Vector` stores its data as a contiguous `double*` array, so direct pointer access is safe and efficient.
 
 This optimization has the lowest risk of any proposed change because it only affects the SUNDIALS interface layer, not the solver logic or model evaluation code. The main caution is ensuring that the `N_Vector` data is not reallocated or freed while Dynawo holds a pointer to it.
+
+#### Code Analysis: FixedTimeStep vs IDA N_Vector Usage
+
+**FixedTimeStep (SolverSIM/SolverTRAP):** Uses `std::vector<double>` (`vectorY_`, `vectorYp_`, `vectorYSave_`) with `.assign()` for all save/restore operations — not N_Vector copy operations. The `sundialsVectorY_` is created via `N_VMake_Serial` wrapping `vectorY_.data()` (zero-copy wrapper in `Solver::Impl::init()` at `DYNSolverImpl.cpp:129-137`). KINSOL algebraic solvers share `sundialsVectorY_` by reference (`SolverKINCommon.cpp:93`) or create their own zero-copy wrapper (`SolverKINAlgRestoration.cpp:179`). **No N_Vector copy operations occur in the FixedTimeStep pipeline.**
+
+**IDA (variable-step):** Passes `sundialsVectorY_`/`sundialsVectorYp_` to IDA API calls (`IDASolve`, `IDAReInit`, `IDAGetConsistentIC`). IDA callbacks (`evalF`, `evalG`, `evalJ`) receive N_Vectors from SUNDIALS and extract raw pointers via `NV_DATA_S()`. The `copyContinuousVariables()` calls at lines 358, 420, 629, 657, 676 copy data from N_Vector raw pointers into `ModelMulti::yLocal_`/`ypLocal_` via `std::vector::assign()`. These are the copy operations P6 could eliminate.
+
+**`copyContinuousVariables` in ModelMulti (`DYNModelMulti.cpp:332`):**
+```cpp
+void ModelMulti::copyContinuousVariables(const double* y, const double* yp) {
+  yLocal_.assign(y, y + sizeY());
+  ypLocal_.assign(yp, yp + sizeY());
+}
+```
+This is a simple `std::assign` from `double*` to `std::vector<double>` — the same pattern in both solver paths. However, in FixedTimeStep, these are called from `std::vector` sources (no N_Vector involvement), while in IDA, they are called with N_Vector-extracted pointers.
+
+**Conclusion:** P6 is relevant only when using the IDA variable-step solver. For the TRAISIM target (FixedTimeStep/SolverSIM for real-time simulation), this optimization provides no benefit.
 
 #### Implementation Sketch
 
