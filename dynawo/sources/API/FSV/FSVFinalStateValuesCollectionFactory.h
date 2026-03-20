@@ -21,6 +21,8 @@
 #define API_FSV_FSVFINALSTATEVALUESCOLLECTIONFACTORY_H_
 
 #include "FSVFinalStateValuesCollection.h"
+#include <memory>
+#include <string>
 
 
 namespace finalStateValues {

@@ -30,6 +30,7 @@
 #include "DYNModelNetwork.h"
 #include "DYNSparseMatrix.h"
 #include "TLTimelineFactory.h"
+#include <memory>
 
 using boost::shared_ptr;
 

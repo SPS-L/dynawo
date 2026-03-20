@@ -17,6 +17,7 @@
 #include "DYNMacrosMessage.h"
 
 #include <cmath>
+#include <string>
 
 
 namespace DYN {

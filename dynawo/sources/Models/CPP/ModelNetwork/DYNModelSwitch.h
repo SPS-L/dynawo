@@ -23,6 +23,8 @@
 #include <boost/shared_ptr.hpp>
 #include "DYNNetworkComponent.h"
 #include "DYNModelBus.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 class SwitchInterface;

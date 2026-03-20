@@ -18,6 +18,7 @@
 #include <functional>
 #include <iostream>
 #include <atomic>
+#include <memory>
 
 namespace DYN {
 

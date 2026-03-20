@@ -20,6 +20,7 @@
 #define MODELER_COMMON_DYNPARAMETERMODELER_HPP_
 
 #include "DYNMacrosMessage.h"
+#include <string>
 
 namespace DYN {
 

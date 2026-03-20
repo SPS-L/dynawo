@@ -26,6 +26,7 @@
 #include "DYNThreeWTransformerInterface.h"
 #include "DYNHvdcLineInterface.h"
 #include "DYNVoltageLevelInterface.h"
+#include <memory>
 
 using boost::shared_ptr;
 using std::vector;

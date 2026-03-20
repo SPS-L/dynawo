@@ -25,6 +25,8 @@
 #include <powsybl/iidm/Network.hpp>
 
 #include <vector>
+#include <memory>
+#include <string>
 
 
 namespace DYN {

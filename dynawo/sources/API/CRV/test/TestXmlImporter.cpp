@@ -21,6 +21,7 @@
 #include "make_unique.hpp"
 
 #include "CRVXmlImporter.h"
+#include <memory>
 
 INIT_XML_DYNAWO;
 

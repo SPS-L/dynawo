@@ -26,6 +26,8 @@ target_link_libraries(dynawo_SolverKINCommon
     Sundials::Sundials_KINSOL
     Sundials::Sundials_NVECSERIAL
     Sundials::Sundials_SUNLINSOLKLU
+  PRIVATE
+    dynawo_SolverCommon
   )
 
 add_library(dynawo_SolverKINSubModel SHARED DYNSolverKINSubModel.cpp)

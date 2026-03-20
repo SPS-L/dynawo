@@ -122,6 +122,7 @@ __fill_model_destructor__
 #define __fill_model_name___h
 #include "DYNModelManager.h"
 #include "DYNSubModelFactory.h"
+#include <memory>
 
 namespace DYN {
 
@@ -321,6 +322,7 @@ class ModelWriter(ModelWriterBase):
     # @param self : object pointer
     # @return
     def getHead(self):
+        self.file_content.append("#include <array>\n")
         self.file_content.append("#include <limits>\n")
         self.file_content.append("#include <cassert>\n")
         self.file_content.append("#include <set>\n")

@@ -18,6 +18,7 @@
  */
 
 #include "JOBLocalInitEntry.h"
+#include <string>
 
 namespace job {
 

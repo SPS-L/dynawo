@@ -27,6 +27,8 @@
 
 #include "DYNNetworkComponent.h"
 #include "DYNHvdcLineInterface.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 class ModelBus;

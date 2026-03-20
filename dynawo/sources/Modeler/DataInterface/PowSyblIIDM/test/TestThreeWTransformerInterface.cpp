@@ -24,6 +24,8 @@
 #include "DYNBusInterfaceIIDM.h"
 #include "DYNCurrentLimitInterfaceIIDM.h"
 #include "DYNVoltageLevelInterfaceIIDM.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 

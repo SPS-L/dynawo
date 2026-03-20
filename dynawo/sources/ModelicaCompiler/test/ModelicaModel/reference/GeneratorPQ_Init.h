@@ -11,6 +11,8 @@
 #include "DYNParameter.h"
 #ifdef _ADEPT_
 #include "adept.h"
+#include <memory>
+#include <string>
 #endif
 
 namespace DYN {

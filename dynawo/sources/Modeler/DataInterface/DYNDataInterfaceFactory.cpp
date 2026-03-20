@@ -21,6 +21,7 @@
 
 #include "DYNDataInterfaceFactory.h"
 #include "DYNDataInterfaceIIDM.h"
+#include <string>
 
 using std::string;
 using boost::shared_ptr;

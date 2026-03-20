@@ -24,6 +24,7 @@
 #include "DYNMessageTimeline.h"
 #include "DYNIoDico.h"
 #include "DYNMacrosMessage.h"
+#include <string>
 
 using std::string;
 

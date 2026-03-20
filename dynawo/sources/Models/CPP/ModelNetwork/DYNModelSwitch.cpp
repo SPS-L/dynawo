@@ -32,6 +32,8 @@
 #include "DYNBusInterface.h"
 #include "DYNModelNetwork.h"
 #include "DYNMessageTimeline.h"
+#include <memory>
+#include <string>
 
 using std::vector;
 using std::map;

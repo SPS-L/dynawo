@@ -21,6 +21,8 @@
 #define API_TL_TLTIMELINEFACTORY_H_
 
 #include "TLTimeline.h"
+#include <memory>
+#include <string>
 
 
 namespace timeline {

@@ -39,6 +39,7 @@
 #include "DYNDataInterface.h"
 #include "DYNSolverFactory.h"
 #include "DYNModeler.h"
+#include <string>
 
 namespace timeline {
 class Timeline;

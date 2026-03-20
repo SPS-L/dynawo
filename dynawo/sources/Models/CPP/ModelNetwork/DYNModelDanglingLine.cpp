@@ -38,6 +38,8 @@
 #include "DYNSparseMatrix.h"
 #include "DYNModelNetwork.h"
 #include "DYNModelVoltageLevel.h"
+#include <memory>
+#include <string>
 
 using parameters::ParametersSet;
 

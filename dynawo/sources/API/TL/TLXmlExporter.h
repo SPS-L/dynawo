@@ -20,6 +20,7 @@
 #define API_TL_TLXMLEXPORTER_H_
 
 #include "TLExporter.h"
+#include <string>
 
 namespace timeline {
 

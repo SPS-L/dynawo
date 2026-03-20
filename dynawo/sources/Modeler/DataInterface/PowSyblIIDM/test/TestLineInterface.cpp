@@ -27,6 +27,9 @@
 #include <powsybl/iidm/Substation.hpp>
 
 #include <limits.h>
+#include <memory>
+#include <limits>
+#include <string>
 
 namespace powsybl {
 namespace iidm {

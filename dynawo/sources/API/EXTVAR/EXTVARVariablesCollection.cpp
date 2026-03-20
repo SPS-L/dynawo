@@ -21,6 +21,8 @@
 
 #include "EXTVARVariablesCollection.h"
 #include "EXTVARVariable.h"
+#include <memory>
+#include <string>
 
 using std::map;
 using std::string;

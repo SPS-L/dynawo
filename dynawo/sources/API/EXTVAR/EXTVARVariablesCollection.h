@@ -24,6 +24,7 @@
 #include <memory>
 
 #include "EXTVARVariable.h"
+#include <string>
 
 
 namespace externalVariables {

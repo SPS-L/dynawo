@@ -38,6 +38,8 @@
 #include "DYNVariableForModel.h"
 #include "DYNParameter.h"
 #include "DYNBusInterface.h"
+#include <memory>
+#include <string>
 
 
 using std::vector;

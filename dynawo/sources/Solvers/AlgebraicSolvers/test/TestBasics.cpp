@@ -44,6 +44,8 @@
 #include "DYNDynamicData.h"
 #include "DYNExecUtils.h"
 #include "TLTimelineFactory.h"
+#include <memory>
+#include <string>
 
 INIT_XML_DYNAWO;
 

@@ -19,6 +19,9 @@
 #include "CRTCriteriaParamsVoltageLevel.h"
 
 #include "make_unique.hpp"
+#include <memory>
+#include <algorithm>
+#include <string>
 
 namespace DYN {
 

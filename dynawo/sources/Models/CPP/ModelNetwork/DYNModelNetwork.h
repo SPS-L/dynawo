@@ -28,6 +28,8 @@
 
 #include "DYNModelCPP.h"
 #include "DYNSubModelFactory.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 class ModelBusContainer;

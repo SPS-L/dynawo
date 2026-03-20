@@ -1660,5 +1660,6 @@ class SubModel {
 }  // namespace DYN
 
 #include "DYNSubModel.hpp"
+#include <memory>
 
 #endif  // MODELER_COMMON_DYNSUBMODEL_H_

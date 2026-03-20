@@ -38,6 +38,7 @@
 #include <powsybl/iidm/ShuntCompensator.hpp>
 #include <powsybl/iidm/ShuntCompensatorAdder.hpp>
 #include <powsybl/iidm/GeneratorAdder.hpp>
+#include <memory>
 
 using powsybl::iidm::Network;
 using powsybl::iidm::Substation;

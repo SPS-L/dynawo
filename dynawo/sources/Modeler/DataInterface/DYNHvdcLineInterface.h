@@ -24,6 +24,8 @@
 
 #include "DYNComponentInterface.hpp"
 #include <boost/optional.hpp>
+#include <memory>
+#include <string>
 
 namespace DYN {
 class BusInterface;

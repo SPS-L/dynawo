@@ -26,6 +26,8 @@
 #include <boost/shared_ptr.hpp>
 #include "DYDModelicaModel.h"
 #include "DYNActionBuffer.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 

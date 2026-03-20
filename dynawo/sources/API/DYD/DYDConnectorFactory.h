@@ -23,6 +23,7 @@
 #include "DYDConnector.h"
 
 #include <memory>
+#include <string>
 
 
 namespace dynamicdata {

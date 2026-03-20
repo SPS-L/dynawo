@@ -33,6 +33,8 @@
 
 #include <boost/shared_ptr.hpp>
 #include "DYNNetworkComponent.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 class ModelBus;

@@ -21,6 +21,8 @@
 #include "DYNTrace.h"
 #include "DYNMacrosMessage.h"
 #include "DYNFileSystemUtils.h"
+#include <algorithm>
+#include <string>
 
 using std::string;
 using std::list;

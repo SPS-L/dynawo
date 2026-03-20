@@ -12,6 +12,7 @@
 #include "Test_Dyn.h"
 #include "Test_Dyn_definition.h"
 #include "Test_Dyn_literal.h"
+#include <memory>
 
 
 namespace DYN {

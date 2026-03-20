@@ -18,6 +18,7 @@
  */
 
 #include "JOBFinalStateValuesEntry.h"
+#include <string>
 
 namespace job {
 

@@ -1,0 +1,10 @@
+--- a/src/iidm/util/LimitViolationUtils.cpp
++++ b/src/iidm/util/LimitViolationUtils.cpp
+@@ -10,6 +10,7 @@
+  */
+ 
+ #include <powsybl/iidm/util/LimitViolationUtils.hpp>
++#include <cmath>
+ 
+ #include <powsybl/iidm/Branch.hpp>
+ #include <powsybl/iidm/CurrentLimits.hpp>

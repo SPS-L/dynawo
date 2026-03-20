@@ -29,6 +29,7 @@
 #include <sstream>
 #include <xml/sax/formatter/AttributeList.h>
 #include <xml/sax/formatter/Formatter.h>
+#include <string>
 
 using std::fstream;
 using std::ostream;

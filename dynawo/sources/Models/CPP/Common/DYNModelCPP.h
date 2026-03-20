@@ -357,5 +357,6 @@ class ModelCPP : public SubModel {
 }  // namespace DYN
 
 #include "DYNModelCPP.hpp"
+#include <string>
 
 #endif  // MODELS_CPP_COMMON_DYNMODELCPP_H_

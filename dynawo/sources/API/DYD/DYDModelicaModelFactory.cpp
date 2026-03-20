@@ -19,6 +19,8 @@
 
 #include "DYDModelicaModelFactory.h"
 #include "DYDModelicaModel.h"
+#include <memory>
+#include <string>
 
 
 namespace dynamicdata {

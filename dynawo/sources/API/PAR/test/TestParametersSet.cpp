@@ -28,6 +28,8 @@
 #include "PARParametersSet.h"
 #include "PARParametersSetFactory.h"
 #include "PARMacroParSet.h"
+#include <memory>
+#include <string>
 
 using std::string;
 using std::vector;

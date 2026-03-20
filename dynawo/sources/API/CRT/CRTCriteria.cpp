@@ -12,6 +12,8 @@
 //
 
 #include "CRTCriteria.h"
+#include <memory>
+#include <string>
 
 namespace criteria {
 

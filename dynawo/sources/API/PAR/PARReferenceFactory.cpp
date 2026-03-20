@@ -19,6 +19,8 @@
 
 #include "PARReferenceFactory.h"
 #include "PARReference.h"
+#include <memory>
+#include <string>
 
 using std::string;
 

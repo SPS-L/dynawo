@@ -20,6 +20,7 @@
 #define SOLVERS_COMMON_DYNPARAMETERSOLVER_HPP_
 
 #include "DYNMacrosMessage.h"
+#include <string>
 
 namespace DYN {
 

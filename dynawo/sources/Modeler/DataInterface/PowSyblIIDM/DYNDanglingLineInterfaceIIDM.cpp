@@ -26,6 +26,8 @@
 #include <powsybl/iidm/DanglingLine.hpp>
 
 #include "DYNCommon.h"
+#include <memory>
+#include <string>
 
 using std::string;
 using std::shared_ptr;

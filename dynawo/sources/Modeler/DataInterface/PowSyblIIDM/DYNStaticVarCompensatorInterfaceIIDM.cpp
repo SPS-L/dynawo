@@ -27,6 +27,8 @@
 #include "DYNFileSystemUtils.h"
 #include "DYNIIDMExtensions.hpp"
 #include <iostream>
+#include <memory>
+#include <string>
 
 using powsybl::iidm::StaticVarCompensator;
 using std::string;

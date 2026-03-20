@@ -26,6 +26,7 @@
 #include "DYNCommon.h"
 #include "TLJsonExporter.h"
 #include "TLTimeline.h"
+#include <string>
 
 using std::fstream;
 using std::ostream;

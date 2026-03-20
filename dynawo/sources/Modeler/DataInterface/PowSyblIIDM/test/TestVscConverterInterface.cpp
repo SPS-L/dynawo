@@ -25,6 +25,7 @@
 #include <powsybl/iidm/VscConverterStationAdder.hpp>
 
 #include "gtest_dynawo.h"
+#include <memory>
 
 namespace powsybl {
 namespace iidm {

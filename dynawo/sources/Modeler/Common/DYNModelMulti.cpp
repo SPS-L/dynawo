@@ -41,6 +41,7 @@
 #include "DYNConnectorCalculatedVariable.h"
 #include "DYNCommon.h"
 #include "DYNVariableAlias.h"
+#include <memory>
 
 using std::min;
 using std::max;

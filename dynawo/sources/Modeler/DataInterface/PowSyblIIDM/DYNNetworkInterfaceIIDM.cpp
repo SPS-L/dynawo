@@ -25,6 +25,9 @@
 #include "DYNVoltageLevelInterface.h"
 #include "DYNVoltageLevelInterfaceIIDM.h"
 #include "DYNHvdcLineInterface.h"
+#include <memory>
+#include <algorithm>
+#include <string>
 
 using std::string;
 using std::vector;

@@ -36,6 +36,9 @@
 #include "DYNSolverProfiler.h"
 #include "DYNTrace.h"
 #include "DYNModel.h"
+#include <memory>
+#include <algorithm>
+#include <string>
 
 using std::make_pair;
 

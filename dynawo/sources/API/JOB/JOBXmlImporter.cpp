@@ -27,6 +27,8 @@
 #include "JOBXmlImporter.h"
 #include "JOBXmlHandler.h"
 #include "DYNExecUtils.h"
+#include <memory>
+#include <string>
 
 using std::string;
 namespace parser = xml::sax::parser;

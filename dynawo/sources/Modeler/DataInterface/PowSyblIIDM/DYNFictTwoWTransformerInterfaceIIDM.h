@@ -24,6 +24,8 @@
 #include "DYNCurrentLimitInterface.h"
 
 #include <powsybl/iidm/ThreeWindingsTransformer.hpp>
+#include <memory>
+#include <string>
 
 
 namespace DYN {

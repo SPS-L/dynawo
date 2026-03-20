@@ -25,6 +25,8 @@
 #include "DYNParameter.h"
 #include "DYNThreeWTransformerInterface.h"
 #include "DYNBusInterface.h"
+#include <memory>
+#include <string>
 
 
 using std::vector;

@@ -30,6 +30,7 @@
 #include "DYNSparseMatrix.h"
 #include "DYNEnumUtils.h"
 #include "DYNTimer.h"
+#include <string>
 
 namespace DYN {
 

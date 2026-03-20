@@ -18,6 +18,7 @@
  */
 
 #include "DYDStaticRef.h"
+#include <string>
 
 namespace dynamicdata {
 

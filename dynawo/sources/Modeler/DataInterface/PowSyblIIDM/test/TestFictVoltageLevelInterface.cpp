@@ -45,6 +45,8 @@
 #include <powsybl/iidm/GeneratorAdder.hpp>
 #include <powsybl/iidm/StaticVarCompensator.hpp>
 #include <powsybl/iidm/StaticVarCompensatorAdder.hpp>
+#include <memory>
+#include <string>
 
 using powsybl::iidm::Network;
 using powsybl::iidm::Substation;

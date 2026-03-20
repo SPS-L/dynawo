@@ -25,6 +25,8 @@
 #include "DYNCommon.h"
 
 #include <powsybl/iidm/Load.hpp>
+#include <memory>
+#include <string>
 
 using powsybl::iidm::Load;
 

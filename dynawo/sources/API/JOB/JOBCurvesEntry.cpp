@@ -18,6 +18,7 @@
  */
 
 #include "JOBCurvesEntry.h"
+#include <string>
 
 namespace job {
 

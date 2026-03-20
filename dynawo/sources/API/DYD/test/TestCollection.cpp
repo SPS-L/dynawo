@@ -34,6 +34,7 @@
 #include "DYDStaticRef.h"
 #include "DYDMacroStaticRef.h"
 #include "DYDMacroStaticRefFactory.h"
+#include <memory>
 
 
 namespace dynamicdata {

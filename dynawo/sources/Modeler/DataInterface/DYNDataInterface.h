@@ -28,6 +28,7 @@
 #include "LEQLostEquipmentsCollection.h"
 #include "DYNServiceManagerInterface.h"
 #include "TLTimeline.h"
+#include <memory>
 
 namespace DYN {
 class NetworkInterface;

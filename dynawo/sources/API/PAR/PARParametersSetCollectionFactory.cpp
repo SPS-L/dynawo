@@ -19,6 +19,7 @@
 
 #include "PARParametersSetCollectionFactory.h"
 #include "PARParametersSetCollection.h"
+#include <memory>
 
 
 namespace parameters {

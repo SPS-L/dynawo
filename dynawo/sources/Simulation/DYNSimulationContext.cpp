@@ -19,6 +19,7 @@
  */
 
 #include "DYNSimulationContext.h"
+#include <string>
 
 namespace DYN {
 

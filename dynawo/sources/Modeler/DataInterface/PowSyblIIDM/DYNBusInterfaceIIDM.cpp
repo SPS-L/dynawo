@@ -28,6 +28,7 @@
 #include "DYNStateVariable.h"
 #include "DYNTrace.h"
 #include "DYNCommon.h"
+#include <string>
 using boost::shared_ptr;
 using powsybl::iidm::Bus;
 using std::string;

@@ -32,6 +32,7 @@
 #include <memory>
 #include <set>
 #include <sstream>
+#include <string>
 
 
 using std::shared_ptr;

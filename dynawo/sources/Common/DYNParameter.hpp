@@ -20,6 +20,7 @@
 #define COMMON_DYNPARAMETER_HPP_
 
 #include "DYNMacrosMessage.h"
+#include <string>
 
 namespace DYN {
 

@@ -29,6 +29,8 @@
 #include "DYNNetworkComponent.h"
 #include "DYNVoltageLevelInterface.h"
 #include "DYNGraph.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 class VoltageLevelInterface;

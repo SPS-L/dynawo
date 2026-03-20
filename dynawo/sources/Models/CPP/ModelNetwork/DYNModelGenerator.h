@@ -25,6 +25,8 @@
 #include <boost/archive/binary_oarchive.hpp>
 
 #include "DYNNetworkComponent.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 class ModelBus;
@@ -385,7 +387,7 @@ class ModelGenerator : public NetworkComponent {
   double P0_;  ///< initial active power
   double Q0_;  ///< initial reactive power
   double u0_;  ///< initial voltage
-  double U0Pu_square_; ///< squared norm of initial voltage
+  double U0Pu_square_;  ///< squared norm of initial voltage
   double ir0_;  ///< initial current real part
   double ii0_;  ///< initial current imaginary part
   double alpha_;  ///< active power exponential sensitivity to voltage

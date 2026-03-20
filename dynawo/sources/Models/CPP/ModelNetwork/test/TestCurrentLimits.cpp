@@ -20,6 +20,9 @@
 #include "CSTRConstraint.h"
 #include "DYNModelNetwork.h"
 #include "gtest_dynawo.h"
+#include <memory>
+#include <limits>
+#include <string>
 
 namespace DYN {
 

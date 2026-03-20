@@ -30,6 +30,7 @@
 #include "DYNFileSystemUtils.h"
 #include "DYDMacroConnect.h"
 #include "EXTVARVariablesCollection.h"
+#include <memory>
 
 namespace dynamicdata {
 class BlackBoxModel;

@@ -32,6 +32,8 @@
 #include "DYNElement.h"
 #include "DYNCommonModeler.h"
 #include "DYNTrace.h"
+#include <algorithm>
+#include <string>
 
 using std::vector;
 using std::string;

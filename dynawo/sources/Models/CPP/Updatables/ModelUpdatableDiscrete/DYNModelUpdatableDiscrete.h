@@ -26,6 +26,7 @@
 #include "DYNModelConstants.h"
 #include "DYNSubModelFactory.h"
 #include "PARParametersSet.h"
+#include <string>
 
 namespace DYN {
 class DataInterface;

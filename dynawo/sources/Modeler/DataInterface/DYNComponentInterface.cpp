@@ -22,6 +22,7 @@
 #include "DYNSubModel.h"
 #include "DYNVariable.h"
 #include "DYNTrace.h"
+#include <string>
 
 using boost::shared_ptr;
 using std::string;

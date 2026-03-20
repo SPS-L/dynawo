@@ -36,6 +36,8 @@
 #include "DYNSolverProfiler.h"
 #include "DYNTrace.h"
 #include "DYNModel.h"
+#include <memory>
+#include <string>
 
 
 /**

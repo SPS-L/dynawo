@@ -31,6 +31,7 @@
 #include <zmq.hpp>
 #include <atomic>
 #include <thread>
+#include <memory>
 
 namespace DYN {
 

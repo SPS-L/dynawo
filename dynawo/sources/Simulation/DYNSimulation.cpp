@@ -121,6 +121,10 @@
 #include "DYNBitMask.h"
 
 #include "make_unique.hpp"
+#include <memory>
+#include <algorithm>
+#include <limits>
+#include <string>
 
 using std::ofstream;
 using std::fstream;

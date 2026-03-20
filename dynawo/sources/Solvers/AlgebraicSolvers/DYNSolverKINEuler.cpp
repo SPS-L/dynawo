@@ -37,6 +37,7 @@
 #include "DYNTimer.h"
 #include "DYNSolverCommon.h"
 #include "DYNSolver.h"
+#include <memory>
 
 using std::vector;
 

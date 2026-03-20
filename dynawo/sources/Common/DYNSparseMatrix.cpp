@@ -35,6 +35,7 @@
 #include "DYNSparseMatrix.h"
 #include "DYNTrace.h"
 #include "DYNFileSystemUtils.h"
+#include <algorithm>
 
 using std::map;
 using std::set;

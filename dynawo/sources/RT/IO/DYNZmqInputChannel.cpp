@@ -26,6 +26,8 @@
 #include "DYNMacrosMessage.h"
 
 #include <signal.h>
+#include <memory>
+#include <string>
 
 namespace DYN {
 

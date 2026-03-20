@@ -32,6 +32,9 @@
 
 #include "PARParametersSet.h"
 #include "TLTimeline.h"
+#include <memory>
+#include <algorithm>
+#include <string>
 
 using std::endl;
 using std::make_pair;

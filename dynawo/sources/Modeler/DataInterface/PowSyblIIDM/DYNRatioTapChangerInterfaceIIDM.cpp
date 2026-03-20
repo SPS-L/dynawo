@@ -23,6 +23,9 @@
 #include "DYNStepInterfaceIIDM.h"
 
 #include "make_unique.hpp"
+#include <memory>
+#include <cmath>
+#include <string>
 
 using boost::shared_ptr;
 

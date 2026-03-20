@@ -23,6 +23,7 @@
 #include "DYDMacroConnection.h"
 
 #include <memory>
+#include <string>
 
 namespace dynamicdata {
 

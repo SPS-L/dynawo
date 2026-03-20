@@ -12,6 +12,7 @@
 //
 
 #include "CRTCriteriaCollection.h"
+#include <memory>
 
 using std::shared_ptr;
 

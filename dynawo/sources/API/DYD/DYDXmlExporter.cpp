@@ -37,6 +37,8 @@
 #include "DYDModelTemplateExpansion.h"
 #include "DYDModelTemplate.h"
 #include "DYDModelicaModel.h"
+#include <memory>
+#include <string>
 
 using std::fstream;
 using std::map;

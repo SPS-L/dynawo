@@ -129,5 +129,6 @@ class MessageTimeline : public Message {
 }  // namespace DYN
 
 #include "DYNMessageTimeline.hpp"
+#include <string>
 
 #endif  // COMMON_DYNMESSAGETIMELINE_H_

@@ -69,6 +69,8 @@
 #endif
 
 #include "make_unique.hpp"
+#include <memory>
+#include <string>
 
 using std::ofstream;
 using std::fstream;

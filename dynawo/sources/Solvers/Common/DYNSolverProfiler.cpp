@@ -30,6 +30,7 @@
 
 #ifdef __linux__
 #include <cstdio>
+#include <string>
 #endif
 
 namespace DYN {

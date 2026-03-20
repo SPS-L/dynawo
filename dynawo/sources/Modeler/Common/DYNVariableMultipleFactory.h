@@ -22,6 +22,7 @@
 #include <boost/shared_ptr.hpp>
 
 #include "DYNEnumUtils.h"
+#include <string>
 
 namespace DYN {
 class VariableMultiple;

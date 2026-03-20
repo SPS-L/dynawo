@@ -33,6 +33,8 @@
 #include "DYNModelNetwork.h"
 #include "DYNMessageTimeline.h"
 #include "DYNModelVoltageLevel.h"
+#include <memory>
+#include <string>
 
 using boost::shared_ptr;
 

@@ -18,6 +18,7 @@
  */
 
 #include "JOBDynModelsEntry.h"
+#include <string>
 
 namespace job {
 

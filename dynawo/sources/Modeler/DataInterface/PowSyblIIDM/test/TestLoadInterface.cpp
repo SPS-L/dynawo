@@ -25,6 +25,8 @@
 
 #include "make_unique.hpp"
 #include "gtest_dynawo.h"
+#include <memory>
+#include <string>
 
 namespace powsybl {
 namespace iidm {

@@ -19,6 +19,8 @@
 
 #include "DYDStaticRefFactory.h"
 #include "DYDStaticRef.h"
+#include <memory>
+#include <string>
 
 using std::string;
 

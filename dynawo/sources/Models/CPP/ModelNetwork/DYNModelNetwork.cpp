@@ -75,6 +75,9 @@
 #include "DYNTimer.h"
 #include "DYNElement.h"
 #include "DYNSolverKINSubModel.h"
+#include <memory>
+#include <algorithm>
+#include <string>
 
 
 using boost::shared_ptr;

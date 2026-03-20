@@ -19,6 +19,8 @@
 
 #include "EXTVARVariableFactory.h"
 #include "EXTVARVariable.h"
+#include <memory>
+#include <string>
 
 using std::string;
 

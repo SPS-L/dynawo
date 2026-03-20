@@ -31,6 +31,8 @@
 #include <boost/phoenix/core.hpp>
 #include <boost/phoenix/operator/self.hpp>
 #include <xml/sax/parser/Attributes.h>
+#include <memory>
+#include <string>
 
 
 using std::map;

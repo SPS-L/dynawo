@@ -20,6 +20,7 @@
 
 #include "TLEventFactory.h"
 #include "TLEvent.h"
+#include <memory>
 
 namespace timeline {
 

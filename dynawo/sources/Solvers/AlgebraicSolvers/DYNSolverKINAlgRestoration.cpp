@@ -34,6 +34,7 @@
 #include "DYNSolverProfiler.h"
 #include "DYNTrace.h"
 #include "DYNMacrosMessage.h"
+#include <memory>
 
 using std::vector;
 using std::string;

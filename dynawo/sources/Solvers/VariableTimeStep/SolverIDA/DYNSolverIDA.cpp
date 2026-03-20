@@ -41,6 +41,9 @@
 #include "DYNTrace.h"
 #include "DYNTimer.h"
 #include "DYNSolverCommon.h"
+#include <memory>
+#include <algorithm>
+#include <string>
 
 using std::make_pair;
 using std::setw;

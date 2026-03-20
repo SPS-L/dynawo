@@ -23,6 +23,9 @@
 
 #include <map>
 #include <unordered_set>
+#include <memory>
+#include <cmath>
+#include <string>
 
 namespace DYN {
 

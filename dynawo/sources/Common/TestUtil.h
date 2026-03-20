@@ -22,6 +22,7 @@
 
 
 #include <boost/iostreams/device/mapped_file.hpp>
+#include <string>
 
 /**
  * @brief operator to compare 2 files

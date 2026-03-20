@@ -17,6 +17,7 @@
 
 #include "DYNTrace.h"
 #include "DYNMacrosMessage.h"
+#include <string>
 
 namespace DYN {
 

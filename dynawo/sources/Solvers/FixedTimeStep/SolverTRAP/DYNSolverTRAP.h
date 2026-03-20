@@ -29,6 +29,8 @@
 #include "DYNSolverImpl.h"
 #include "DYNEnumUtils.h"
 #include "DYNSolverCommonFixedTimeStep.h"
+#include <memory>
+#include <string>
 
 namespace parameters {
 class ParametersSet;

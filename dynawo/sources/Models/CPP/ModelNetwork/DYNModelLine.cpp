@@ -44,6 +44,10 @@
 #include "DYNModelNetwork.h"
 #include "DYNModelVoltageLevel.h"
 #include "DYNSparseMatrix.h"
+#include <memory>
+#include <algorithm>
+#include <limits>
+#include <string>
 
 using parameters::ParametersSet;
 

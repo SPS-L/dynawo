@@ -22,6 +22,7 @@
 #include "DYNTrace.h"
 #include "DYNMacrosMessage.h"
 #include "DYNParameterModeler.h"
+#include <string>
 
 namespace DYN {
 

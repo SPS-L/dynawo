@@ -28,6 +28,8 @@
 
 #include "DYNNetworkComponent.h"
 #include "DYNBitMask.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 class SubNetwork;  ///< AC-connected network

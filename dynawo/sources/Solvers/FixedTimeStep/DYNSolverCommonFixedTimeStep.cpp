@@ -26,6 +26,8 @@
 #include <cmath>
 #include <iostream>
 #include <iomanip>
+#include <map>
+#include <set>
 #include <vector>
 
 #include <boost/shared_ptr.hpp>
@@ -39,6 +41,9 @@
 #include "DYNSolverProfiler.h"
 #include "DYNTrace.h"
 #include "DYNModel.h"
+#include <memory>
+#include <algorithm>
+#include <string>
 
 using boost::shared_ptr;
 using std::endl;

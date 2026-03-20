@@ -20,6 +20,8 @@
 #include "FSVFinalStateValuesCollection.h"
 
 #include "FSVFinalStateValue.h"
+#include <memory>
+#include <string>
 
 using std::string;
 using std::vector;

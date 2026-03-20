@@ -23,6 +23,7 @@
 #include <string>
 
 #include "CRVCurvesCollection.h"
+#include <memory>
 
 namespace curves {
 

@@ -24,6 +24,7 @@
 #include "CSTRConstraintFactory.h"
 #include "CSTRXmlExporter.h"
 #include "CSTRJsonExporter.h"
+#include <memory>
 
 namespace constraints {
 

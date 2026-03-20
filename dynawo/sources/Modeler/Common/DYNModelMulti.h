@@ -29,6 +29,7 @@
 #include "DYNVariable.h"
 #include "DYNBitMask.h"
 #include "DYNActionBuffer.h"
+#include <memory>
 
 namespace DYN {
 class SubModel;

@@ -13,6 +13,7 @@
 
 #include "JOBFinalStateEntryFactory.h"
 #include "JOBFinalStateEntry.h"
+#include <memory>
 
 namespace job {
 

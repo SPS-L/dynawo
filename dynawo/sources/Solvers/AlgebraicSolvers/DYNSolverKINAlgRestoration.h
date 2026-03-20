@@ -30,6 +30,7 @@
 
 #include "DYNSolverKINCommon.h"
 #include "DYNSparseMatrix.h"
+#include <memory>
 
 namespace DYN {
 class Model;

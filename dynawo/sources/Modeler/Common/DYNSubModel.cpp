@@ -46,6 +46,9 @@
 #include "DYNFileSystemUtils.h"
 #include "DYNTimer.h"
 #include "DYNDataInterface.h"
+#include <memory>
+#include <cmath>
+#include <string>
 
 using std::stringstream;
 using std::vector;

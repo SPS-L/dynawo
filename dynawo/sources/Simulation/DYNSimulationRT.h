@@ -34,6 +34,7 @@
 #include "DYNActionBuffer.h"
 #include "DYNInputDispatcherAsync.h"
 #include "DYNOutputDispatcher.h"
+#include <memory>
 
 namespace timeline {
 class Timeline;

@@ -20,6 +20,8 @@
 #include "PARMacroParameterSet.h"
 #include "PARReference.h"
 #include "DYNMacrosMessage.h"
+#include <memory>
+#include <string>
 
 using std::shared_ptr;
 using std::string;

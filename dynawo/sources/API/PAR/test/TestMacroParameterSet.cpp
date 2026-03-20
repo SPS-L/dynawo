@@ -23,6 +23,7 @@
 #include "PARReferenceFactory.h"
 #include "PARParameter.h"
 #include "PARParameterFactory.h"
+#include <memory>
 
 
 namespace parameters {

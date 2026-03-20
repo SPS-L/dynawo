@@ -24,6 +24,7 @@
 #include "PARParametersSet.h"
 
 #include <memory>
+#include <string>
 
 
 namespace parameters {

@@ -37,6 +37,9 @@
 #include "DYNDerivative.h"
 
 #include <boost/serialization/vector.hpp>
+#include <memory>
+#include <limits>
+#include <string>
 
 using std::vector;
 using boost::shared_ptr;

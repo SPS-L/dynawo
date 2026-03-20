@@ -23,6 +23,8 @@
 #include "DYNModelNetwork.h"
 #include "DYNMacrosMessage.h"
 #include "DYNModelConstants.h"
+#include <cmath>
+#include <string>
 
 using std::string;
 

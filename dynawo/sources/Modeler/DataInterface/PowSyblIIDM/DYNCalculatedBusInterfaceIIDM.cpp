@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <sstream>
 #include <cmath>
+#include <string>
 
 using boost::shared_ptr;
 using std::string;

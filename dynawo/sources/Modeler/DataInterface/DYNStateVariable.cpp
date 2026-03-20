@@ -25,6 +25,7 @@
 #include "DYNVariable.h"
 #ifdef _DEBUG_
 #include "DYNTrace.h"
+#include <string>
 #endif
 using std::string;
 

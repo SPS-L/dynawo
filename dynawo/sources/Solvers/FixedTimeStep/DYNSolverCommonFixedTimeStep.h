@@ -27,6 +27,7 @@
 #include "DYNSolverFactory.h"
 #include "DYNSolverImpl.h"
 #include "DYNEnumUtils.h"
+#include <memory>
 
 namespace parameters {
 class ParametersSet;

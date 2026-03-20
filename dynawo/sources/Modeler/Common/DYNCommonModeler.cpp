@@ -20,6 +20,7 @@
 
 #include "DYNCommonModeler.h"
 #include "DYNMacrosMessage.h"
+#include <string>
 
 using std::string;
 using std::vector;

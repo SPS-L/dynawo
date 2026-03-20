@@ -20,6 +20,7 @@
 #include "PARReference.h"
 
 #include "DYNMacrosMessage.h"
+#include <string>
 
 using DYN::Error;
 

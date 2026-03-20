@@ -25,6 +25,7 @@
 #include "DYNMacrosMessage.h"
 
 #include <unordered_map>
+#include <string>
 
 
 namespace DYN {

@@ -27,6 +27,8 @@
 #include "DYNInjectorInterfaceIIDM.h"
 
 #include <powsybl/iidm/VscConverterStation.hpp>
+#include <memory>
+#include <string>
 
 
 namespace DYN {

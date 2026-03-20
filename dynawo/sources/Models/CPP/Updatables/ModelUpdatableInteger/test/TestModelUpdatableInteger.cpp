@@ -30,6 +30,8 @@
 #include "PARParametersSetFactory.h"
 
 #include "gtest_dynawo.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 
@@ -52,7 +54,8 @@ static boost::shared_ptr<SubModel> initModelModelUpdatableInteger() {
 }
 
 TEST(ModelsModelModelUpdatableInteger, ModelModelUpdatableIntegerDefineMethods) {
-  boost::shared_ptr<SubModel> modelModelUpdatableInteger = SubModelFactory::createSubModelFromLib("../DYNModelUpdatableInteger" + std::string(sharedLibraryExtension()));
+  boost::shared_ptr<SubModel> modelModelUpdatableInteger =
+      SubModelFactory::createSubModelFromLib("../DYNModelUpdatableInteger" + std::string(sharedLibraryExtension()));
 
   std::vector<ParameterModeler> parameters;
   modelModelUpdatableInteger->defineParameters(parameters);

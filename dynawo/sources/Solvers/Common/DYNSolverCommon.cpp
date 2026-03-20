@@ -28,6 +28,7 @@
 #include "DYNSolverProfiler.h"
 #include "DYNSparseMatrix.h"
 #include "DYNTrace.h"
+#include <algorithm>
 
 namespace DYN {
 

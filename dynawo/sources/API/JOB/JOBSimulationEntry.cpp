@@ -20,10 +20,17 @@
 #include "JOBSimulationEntry.h"
 
 #include <limits>
+#include <string>
 
 namespace job {
 
-SimulationEntry::SimulationEntry() : startTime_(0), stopTime_(0), criteriaStep_(10), precision_(1e-6), timeout_(std::numeric_limits<double>::max()), enableRealTimeTracking_(false) {}
+SimulationEntry::SimulationEntry()
+    : startTime_(0),
+      stopTime_(0),
+      criteriaStep_(10),
+      precision_(1e-6),
+      timeout_(std::numeric_limits<double>::max()),
+      enableRealTimeTracking_(false) {}
 
 void
 SimulationEntry::setStartTime(double startTime) {

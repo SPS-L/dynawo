@@ -24,6 +24,7 @@
 #include "CRVCurve.h"
 
 #include <string>
+#include <memory>
 
 namespace curves {
 
