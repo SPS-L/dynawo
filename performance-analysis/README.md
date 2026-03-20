@@ -117,9 +117,218 @@ Located at `dynawo/sources/Solvers/Common/`:
 
 ### Python Analysis Tools
 
-Located in `performance-analysis/`:
+Located in `performance-analysis/`. Install dependencies first:
 
-- **`requirements.txt`:** Python package dependencies (matplotlib, pandas, numpy, jinja2).
+```bash
+cd /path/to/dynawo/performance-analysis
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt   # matplotlib, pandas, numpy, jinja2
+```
+
+#### `analyze_profile.py` — Profile Visualization
+
+Parses a profiler CSV export and generates charts plus a console summary table.
+
+**Usage:**
+
+```bash
+python analyze_profile.py <profile.csv> [--output-dir <dir>]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `profile.csv` | Path to the profiler CSV export (positional, required) |
+| `--output-dir` | Directory for output charts (default: current directory) |
+
+**Output files:**
+
+| File | Description |
+|------|-------------|
+| `time_breakdown_pie.png` | Pie chart showing time distribution across solver phases |
+| `hotspot_bar.png` | Bar chart ranking phases by total time (top hotspots) |
+| `step_duration_ts.png` | Time-series plot of per-timestep solver duration |
+| `memory_usage_ts.png` | Time-series plot of memory (RSS) over simulation time |
+
+Also prints a summary table to stdout with per-phase statistics.
+
+**Example:**
+
+```bash
+python analyze_profile.py results/nordic/profile.csv --output-dir results/nordic/charts
+```
+
+#### `compare_runs.py` — Run Comparison & HTML Report
+
+Compares two profiling runs (baseline vs. optimised), computes per-phase speedup
+ratios, flags regressions, and generates a self-contained HTML report.
+
+**Usage:**
+
+```bash
+python compare_runs.py <baseline.csv> <optimized.csv> [--output <report.html>]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `baseline.csv` | Path to the baseline profiler CSV (positional, required) |
+| `optimized.csv` | Path to the optimised profiler CSV (positional, required) |
+| `--output` | Output HTML report path (default: `comparison_report.html`) |
+
+**Output:**
+- Console table with per-phase timing comparison and speedup
+- HTML report with colour-coded regression/improvement table, timestep summaries,
+  and a regressions section
+
+**Example:**
+
+```bash
+# Compare baseline vs. optimised run
+python compare_runs.py results/nordic/profile_baseline.csv \
+                       results/nordic/profile_optimized.csv \
+                       --output results/nordic/comparison.html
+```
+
+#### `benchmark_solvers.py` — Multi-Configuration Benchmarking
+
+Automates running the same simulation case under multiple solver configurations
+(IDA, SIM, TRAP with various tolerances), collects profiling data, and produces
+a comparison table. Optionally runs parameter sensitivity sweeps.
+
+**Usage:**
+
+```bash
+python benchmark_solvers.py --dynawo-bin <path> --case <case_dir> \
+    [--output-dir <dir>] [--configs <name> ...] [--sensitivity]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `--dynawo-bin` | Path to the Dynawo binary or launcher script (required) |
+| `--case` | Path to the Dynawo case directory containing a `.jobs` file (required) |
+| `--output-dir` | Directory for benchmark outputs (default: `benchmark_output`) |
+| `--configs` | Names of configurations to run (default: all). Available: `IDA_default`, `IDA_tight_tol`, `IDA_loose_tol`, `SIM_default`, `SIM_small_step`, `TRAP_default`, `IDA_high_order` |
+| `--sensitivity` | Also run parameter sensitivity sweeps (absAccuracy, maxStep, hMax) |
+
+**Output:**
+- Per-configuration profile CSV files in `<output-dir>/<config_name>/`
+- Console comparison table (phase timings across all configurations)
+- `benchmark_results.json` with raw results for further processing
+
+**Example:**
+
+```bash
+# Run all solver configurations on the Nordic case
+python benchmark_solvers.py \
+    --dynawo-bin /path/to/dynawo.sh \
+    --case examples/DynaWaltz/Nordic \
+    --output-dir results/benchmark
+
+# Run only IDA configs with sensitivity analysis
+python benchmark_solvers.py \
+    --dynawo-bin /path/to/dynawo.sh \
+    --case examples/DynaWaltz/Nordic \
+    --configs IDA_default IDA_tight_tol IDA_loose_tol \
+    --sensitivity
+```
+
+#### `bottleneck_detector.py` — Automatic Bottleneck Identification
+
+Applies heuristic rules to a profiling CSV to automatically identify performance
+bottlenecks and produce prioritised recommendations with severity levels.
+
+**Checks performed:**
+1. Dominant hotspots — phases consuming >10% of total time
+2. Excessive Jacobian rebuilds relative to solver steps
+3. Linear solver efficiency — factorisation-to-solve ratio
+4. Convergence issues — too many KINSOL solves per solver step
+5. Re-initialisation frequency
+6. Timestep variability and outlier detection
+7. I/O overhead
+
+**Severity levels:** `CRITICAL` (primary performance limiter), `WARNING` (notable
+issue), `INFO` (observation that may help with tuning).
+
+**Usage:**
+
+```bash
+python bottleneck_detector.py <profile.csv>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `profile.csv` | Path to the profiler CSV export (positional, required) |
+
+**Example:**
+
+```bash
+python bottleneck_detector.py results/nordic/profile.csv
+```
+
+Sample output:
+
+```
+==============================================================================
+BOTTLENECK ANALYSIS REPORT
+==============================================================================
+
+--- CRITICAL ---
+
+  [1] Hotspot (JacobianEval)
+      Phase 'JacobianEval' consumes 42.3% of total time (4.5670s / 10.8000s).
+      Recommendation: Consider increasing the Jacobian reuse count ...
+
+--- WARNING ---
+
+  [2] Jacobian Rebuilds (JacobianEval)
+      Jacobian evaluated 850 times for 200 solver steps (ratio 4.25). ...
+
+==============================================================================
+Total findings: 3 (1 CRITICAL, 1 WARNING, 1 INFO)
+==============================================================================
+```
+
+#### `memory_analyzer.py` — Memory Analysis & Leak Detection
+
+Analyses memory usage patterns: peak memory per phase, leak detection via linear
+regression on the timestep memory time-series, and optional Jacobian matrix memory
+footprint estimation.
+
+**Usage:**
+
+```bash
+python memory_analyzer.py <profile.csv> [--output-dir <dir>] \
+    [--problem-size <n>] [--nnz <n>]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `profile.csv` | Path to the profiler CSV export (positional, required) |
+| `--output-dir` | Directory for output charts (default: current directory) |
+| `--problem-size` | Number of state variables, for Jacobian memory estimation |
+| `--nnz` | Number of non-zeros in Jacobian, for sparse memory estimation |
+
+**Output files:**
+
+| File | Description |
+|------|-------------|
+| `memory_timeline.png` | Memory usage timeline with peak annotation and mean line |
+| `memory_leak_detection.png` | Memory time-series with linear regression overlay |
+
+Also prints a peak memory per-phase table and leak detection report to stdout.
+
+**Example:**
+
+```bash
+# Basic memory analysis
+python memory_analyzer.py results/nordic/profile.csv \
+    --output-dir results/nordic/memory
+
+# With Jacobian footprint estimation (e.g., 500 state variables, 5000 non-zeros)
+python memory_analyzer.py results/nordic/profile.csv \
+    --output-dir results/nordic/memory \
+    --problem-size 500 --nnz 5000
+```
 
 ### Benchmark Infrastructure
 
@@ -535,22 +744,54 @@ LinearSolve               3.210      850      3.7765      1.5600     12.3400    
 ===============================================================
 ```
 
-### 5. Analyze and Optimize
+### 5. Visualize the Profile
 
-Based on the output:
+```bash
+cd /path/to/dynawo/performance-analysis
+source venv/bin/activate
+
+# Generate charts and console summary
+python analyze_profile.py $DYNAWO_HOME/results/nordic/profile.csv \
+    --output-dir $DYNAWO_HOME/results/nordic/charts
+```
+
+This produces `time_breakdown_pie.png`, `hotspot_bar.png`, `step_duration_ts.png`,
+and `memory_usage_ts.png` in the output directory.
+
+### 6. Detect Bottlenecks
+
+```bash
+python bottleneck_detector.py $DYNAWO_HOME/results/nordic/profile.csv
+```
+
+Review the severity-ranked findings. Based on the output:
 - If JacobianEval dominates (>30%), focus on Jacobian evaluation optimizations (see OPTIMIZATION_ROADMAP.md).
 - If LinearSolve dominates (>25%), focus on KLU and sparse matrix optimizations.
 - If ResidualEval has a very high call count relative to time steps, the Newton solver may need tuning.
-- Compare results across different solver configurations using the benchmark infrastructure.
 
-### 6. Iterate
-
-Make optimizations, rebuild, re-run the same test case, and compare the profiling data to verify improvements:
+### 7. Check Memory Usage
 
 ```bash
-# After optimization
-export DYNAWO_PROFILE_OUTPUT=results/nordic/profile_optimized.json
+python memory_analyzer.py $DYNAWO_HOME/results/nordic/profile.csv \
+    --output-dir $DYNAWO_HOME/results/nordic/memory
+```
+
+Look for potential memory leaks (growing regression slope) and high peak memory phases.
+
+### 8. Optimize and Compare
+
+Make optimizations, rebuild, re-run the same test case, and compare:
+
+```bash
+# Re-run after optimization
+export DYNAWO_PROFILE_OUTPUT=results/nordic/profile_optimized.csv
 ./myEnvDynawo.sh jobs examples/DynaWaltz/Nordic/Nordic.jobs
 
-# Compare the two JSON files to see improvements
+# Compare baseline vs. optimised
+python compare_runs.py results/nordic/profile.csv \
+                       results/nordic/profile_optimized.csv \
+                       --output results/nordic/comparison.html
 ```
+
+Open `comparison.html` in a browser to review per-phase speedups and any
+regressions. Repeat the cycle until the target performance is reached.
