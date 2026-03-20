@@ -259,27 +259,42 @@ log_info "Step 4: Running Python analysis scripts..."
 
 ANALYSIS_SCRIPTS_DIR="${DYNAWO_HOME}/performance-analysis"
 
-if [ -f "${ANALYSIS_SCRIPTS_DIR}/analyze_performance.py" ]; then
-    python3 "${ANALYSIS_SCRIPTS_DIR}/analyze_performance.py" \
-        --input "${RUN_DIR}/profiling_data" \
-        --output "${RUN_DIR}/reports" \
-        2>&1 | tee "${RUN_DIR}/analysis_output.log" || {
-            log_error "  Analysis script failed. Check ${RUN_DIR}/analysis_output.log"
-        }
-else
-    log_info "  No analyze_performance.py found at ${ANALYSIS_SCRIPTS_DIR}. Skipping."
-fi
+for case_dir in "${RUN_DIR}"/profiling_data/*/; do
+    case_name="$(basename "${case_dir}")"
+    profile_csv="${case_dir}/profile.csv"
 
-if [ -f "${ANALYSIS_SCRIPTS_DIR}/solver_comparison.py" ]; then
-    python3 "${ANALYSIS_SCRIPTS_DIR}/solver_comparison.py" \
-        --input "${RUN_DIR}/profiling_data" \
-        --output "${RUN_DIR}/reports" \
-        2>&1 | tee "${RUN_DIR}/solver_comparison_output.log" || {
-            log_error "  Solver comparison script failed."
+    if [ ! -f "${profile_csv}" ]; then
+        log_info "  No profile.csv for ${case_name}, skipping analysis."
+        continue
+    fi
+
+    report_dir="${RUN_DIR}/reports/${case_name}"
+    mkdir -p "${report_dir}"
+
+    # Visualize profile (charts + console summary)
+    log_info "  Analyzing profile for ${case_name}..."
+    python3 "${ANALYSIS_SCRIPTS_DIR}/analyze_profile.py" \
+        "${profile_csv}" \
+        --output-dir "${report_dir}" \
+        2>&1 | tee "${report_dir}/analyze_profile.log" || {
+            log_error "    analyze_profile.py failed for ${case_name}"
         }
-else
-    log_info "  No solver_comparison.py found at ${ANALYSIS_SCRIPTS_DIR}. Skipping."
-fi
+
+    # Detect bottlenecks
+    python3 "${ANALYSIS_SCRIPTS_DIR}/bottleneck_detector.py" \
+        "${profile_csv}" \
+        2>&1 | tee "${report_dir}/bottleneck_detector.log" || {
+            log_error "    bottleneck_detector.py failed for ${case_name}"
+        }
+
+    # Memory analysis
+    python3 "${ANALYSIS_SCRIPTS_DIR}/memory_analyzer.py" \
+        "${profile_csv}" \
+        --output-dir "${report_dir}" \
+        2>&1 | tee "${report_dir}/memory_analyzer.log" || {
+            log_error "    memory_analyzer.py failed for ${case_name}"
+        }
+done
 
 log_info "Step 4: Analysis complete."
 
@@ -301,46 +316,26 @@ if [ ${#previous_runs[@]} -gt 0 ]; then
     latest_previous="${previous_runs[-1]}"
     log_info "  Comparing against: $(basename "${latest_previous}")"
 
-    comparison_file="${RUN_DIR}/reports/comparison_report.txt"
-    {
-        echo "=============================================="
-        echo "Benchmark Comparison Report"
-        echo "=============================================="
-        echo "Current run:  run_${TIMESTAMP}"
-        echo "Previous run: $(basename "${latest_previous}")"
-        echo "Date:         $(date)"
-        echo "=============================================="
-        echo ""
+    # Compare each case that has profile CSVs in both runs
+    for case_dir in "${RUN_DIR}"/profiling_data/*/; do
+        case_name="$(basename "${case_dir}")"
+        current_csv="${case_dir}/profile.csv"
+        previous_csv="${latest_previous}/profiling_data/${case_name}/profile.csv"
 
-        # Compare profiling summaries if they exist
-        current_summary="${RUN_DIR}/profiling_data/profiling_summary.csv"
-        previous_summary="${latest_previous}/profiling_data/profiling_summary.csv"
-
-        if [ -f "${current_summary}" ] && [ -f "${previous_summary}" ]; then
-            echo "--- Profiling Data Comparison ---"
-            echo "Current:"
-            cat "${current_summary}"
-            echo ""
-            echo "Previous:"
-            cat "${previous_summary}"
-            echo ""
+        if [ -f "${current_csv}" ] && [ -f "${previous_csv}" ]; then
+            log_info "  Comparing ${case_name}: current vs previous"
+            report_html="${RUN_DIR}/reports/${case_name}/comparison.html"
+            python3 "${ANALYSIS_SCRIPTS_DIR}/compare_runs.py" \
+                "${previous_csv}" \
+                "${current_csv}" \
+                --output "${report_html}" \
+                2>&1 | tee "${RUN_DIR}/reports/${case_name}/compare_runs.log" || {
+                    log_error "    compare_runs.py failed for ${case_name}"
+                }
         else
-            echo "Profiling summary data not available for comparison."
+            log_info "  No matching profile CSVs for ${case_name}, skipping comparison."
         fi
-    } > "${comparison_file}"
-
-    log_info "  Comparison report written to: ${comparison_file}"
-
-    # Run Python comparison script if available
-    if [ -f "${ANALYSIS_SCRIPTS_DIR}/compare_runs.py" ]; then
-        python3 "${ANALYSIS_SCRIPTS_DIR}/compare_runs.py" \
-            --current "${RUN_DIR}" \
-            --previous "${latest_previous}" \
-            --output "${RUN_DIR}/reports" \
-            2>&1 | tee "${RUN_DIR}/comparison_output.log" || {
-                log_error "  Comparison script failed."
-            }
-    fi
+    done
 else
     log_info "  No previous runs found. Skipping comparison."
 fi

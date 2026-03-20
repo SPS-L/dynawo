@@ -6,9 +6,14 @@ tolerance settings), launches simulations, collects profiling data,
 and compares the results to identify optimal configurations and
 parameter sensitivity.
 
-Because the Dynawo binary may not be available in every environment,
-the script validates the binary path first and prints clear
-instructions when it is not found.
+The script invokes Dynawo via its standard CLI:
+    <dynawo-bin> jobs <path-to-jobs-file>
+
+Profiling output is captured via the DYNAWO_PROFILE_OUTPUT environment
+variable.  A solver .par file is generated for each configuration, but
+the .jobs XML must reference it for the parameters to take effect.
+For fully automated parameter sweeps, the .jobs file should be
+templated or modified before each run.
 
 CSV format expected from each run:
     Phase summary section:
@@ -231,8 +236,24 @@ def generate_solver_par(config, output_path):
         fh.write("\n".join(lines) + "\n")
 
 
+def _find_jobs_file(case_dir):
+    """Find the .jobs file inside a case directory.
+
+    Returns the path to the first .jobs file found, or None.
+    """
+    import glob as _glob
+    matches = _glob.glob(os.path.join(case_dir, "*.jobs"))
+    if matches:
+        return matches[0]
+    return None
+
+
 def run_single_benchmark(dynawo_bin, case_dir, config, output_dir):
     """Run a single Dynawo simulation with a given solver configuration.
+
+    The solver parameter file is generated and placed in the case directory
+    so that the .jobs XML can reference it.  Profiling output is controlled
+    via the DYNAWO_PROFILE_OUTPUT environment variable.
 
     Returns the path to the generated profile CSV, or None on failure.
     """
@@ -243,23 +264,36 @@ def run_single_benchmark(dynawo_bin, case_dir, config, output_dir):
     par_path = os.path.join(run_dir, "solver.par")
     generate_solver_par(config, par_path)
 
-    # Build the command.  The exact CLI depends on the Dynawo version;
-    # this is the typical invocation pattern.
-    cmd = [
-        dynawo_bin,
-        "jobs",
-        os.path.join(case_dir, "*.jobs"),
-        "--solver-par", par_path,
-        "--output", run_dir,
-    ]
+    # Find the .jobs file inside the case directory
+    jobs_file = _find_jobs_file(case_dir)
+    if jobs_file is None:
+        print(f"    ERROR: no .jobs file found in {case_dir}", file=sys.stderr)
+        return None
+
+    # Profile output path for this run
+    profile_csv = os.path.join(run_dir, "profile.csv")
+
+    # Build the command.  Dynawo's CLI is:
+    #   myEnvDynawo.sh jobs <path-to-jobs-file>
+    # Profiling output is controlled by DYNAWO_PROFILE_OUTPUT env var.
+    # NOTE: The solver .par file generated above must be referenced from
+    # the .jobs XML to take effect.  For automated parameter sweeps,
+    # the .jobs file should be modified or templated before each run.
+    cmd = [dynawo_bin, "jobs", jobs_file]
+
+    env = os.environ.copy()
+    env["DYNAWO_PROFILE_OUTPUT"] = profile_csv
 
     print(f"  Running config '{config['name']}' ...")
+    print(f"    Jobs file: {jobs_file}")
+    print(f"    Solver .par: {par_path}")
+    print(f"    Profile output: {profile_csv}")
     print(f"    Command: {' '.join(cmd)}")
 
     start = time.time()
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=3600,
+            cmd, capture_output=True, text=True, timeout=3600, env=env,
         )
         elapsed = time.time() - start
         print(f"    Finished in {elapsed:.1f}s (exit code {result.returncode})")
@@ -275,18 +309,11 @@ def run_single_benchmark(dynawo_bin, case_dir, config, output_dir):
         print(f"    ERROR: simulation timed out after 3600s", file=sys.stderr)
         return None
 
-    # Look for profile CSV in the output directory
-    profile_csv = os.path.join(run_dir, "profile.csv")
+    # Check for profile CSV
     if os.path.isfile(profile_csv):
         return profile_csv
 
-    # Try alternative locations
-    for candidate in ("timeline/profile.csv", "outputs/profile.csv"):
-        alt = os.path.join(run_dir, candidate)
-        if os.path.isfile(alt):
-            return alt
-
-    print(f"    WARNING: no profile.csv found in {run_dir}")
+    print(f"    WARNING: no profile.csv found at {profile_csv}")
     return None
 
 
