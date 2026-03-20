@@ -210,8 +210,7 @@ for jobs_file in "${SIMULATION_CASES[@]}"; do
         continue
     fi
 
-    # Set up profiling output
-    export DYNAWO_PROFILING=1
+    # Set up profiling output path (profiling is enabled at build time)
     export DYNAWO_PROFILE_OUTPUT="${case_dir}/profile.csv"
 
     # Run using myEnvDynawo.sh (the standard Dynawo CLI)

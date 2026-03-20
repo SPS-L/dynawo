@@ -423,7 +423,6 @@ The timestep time-series section (per-step durations and memory) is only recorde
 
 ```bash
 # 1. Set up the environment
-export DYNAWO_PROFILING=1
 cd $DYNAWO_HOME
 
 # 2. Create results directory
@@ -714,7 +713,6 @@ pip install -r requirements.txt
 ### 3. Run a Profiled Simulation
 
 ```bash
-export DYNAWO_PROFILING=1
 cd $DYNAWO_HOME
 
 mkdir -p results/nordic

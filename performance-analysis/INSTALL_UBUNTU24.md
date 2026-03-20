@@ -229,12 +229,9 @@ the build did not pick up `DYNAWO_PROFILING=ON`.
 
 ## Run a Profiled Simulation
 
-Set the runtime environment variables and run:
+Set the output path and run:
 
 ```bash
-# Enable the profiler at runtime
-export DYNAWO_PROFILING=1
-
 # Where to write the profiling data (CSV or JSON based on extension)
 mkdir -p results/nordic
 export DYNAWO_PROFILE_OUTPUT=$(pwd)/results/nordic/profile.csv
@@ -301,7 +298,6 @@ Compare the default SIM (fixed-step) solver with the IDA (variable-step)
 solver on the same Nordic system:
 
 ```bash
-export DYNAWO_PROFILING=1
 mkdir -p results/nordic
 
 # SIM solver (default Nordic configuration)
@@ -392,8 +388,8 @@ sudo apt install -y qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools
 
 ### Profiling Data Not Exported
 
-1. Ensure both the build-time flag (`-DDYNAWO_PROFILING=ON`) and the
-   runtime variable (`export DYNAWO_PROFILING=1`) are set.
+1. Ensure the build-time flag (`-DDYNAWO_PROFILING=ON`) was set when
+   building Dynawo (profiling is always active in profiling builds).
 2. Ensure the output directory exists: `mkdir -p $(dirname $DYNAWO_PROFILE_OUTPUT)`
 3. The profiler writes data in its destructor at process exit.  A `kill -9`
    will prevent export — use `Ctrl+C` or let the simulation complete
