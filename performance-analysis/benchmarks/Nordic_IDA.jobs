@@ -15,9 +15,9 @@
     <dyn:job name="Nordic Test System with IDA solver (for SIM vs IDA comparison)">
         <dyn:solver lib="dynawo_SolverIDA" parFile="../../benchmarks/solver_configs/ida_nordic.par" parId="Solver"/>
         <dyn:modeler compileDir="outputs/compilation">
-            <dyn:network iidmFile="../../../../examples/DynaWaltz/Nordic/Nordic.xiidm" parFile="../../../../examples/DynaWaltz/Nordic/Network.par" parId="Network"/>
-            <dyn:dynModels dydFile="../../../../examples/DynaWaltz/Nordic/Nordic.dyd"/>
-            <dyn:dynModels dydFile="../../../../examples/DynaWaltz/Nordic/Events.dyd"/>
+            <dyn:network iidmFile="../../examples/DynaWaltz/Nordic/Nordic.xiidm" parFile="../../examples/DynaWaltz/Nordic/Network.par" parId="Network"/>
+            <dyn:dynModels dydFile="../../examples/DynaWaltz/Nordic/Nordic.dyd"/>
+            <dyn:dynModels dydFile="../../examples/DynaWaltz/Nordic/Events.dyd"/>
             <dyn:precompiledModels useStandardModels="true"/>
             <dyn:modelicaModels useStandardModels="false"/>
         </dyn:modeler>
@@ -25,7 +25,7 @@
         <dyn:outputs directory="outputs">
             <dyn:timeline exportMode="XML"/>
             <dyn:finalState exportIIDMFile="true" exportDumpFile="false"/>
-            <dyn:curves inputFile="../../../../examples/DynaWaltz/Nordic/Nordic.crv" exportMode="CSV"/>
+            <dyn:curves inputFile="../../examples/DynaWaltz/Nordic/Nordic.crv" exportMode="CSV"/>
             <dyn:logs>
                 <dyn:appender tag="" file="dynawaltz.log" lvlFilter="INFO"/>
             </dyn:logs>
