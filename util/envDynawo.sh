@@ -1764,7 +1764,7 @@ deploy_dynawo() {
   echo "deploying libiidm libraries"
   cp -P $DYNAWO_LIBIIDM_HOME/lib/*.* lib/
   if [ -d "$DYNAWO_LIBIIDM_HOME/bin" ]; then
-    cp -n -R -P $DYNAWO_LIBIIDM_HOME/bin/* bin/
+    cp --update=none -R -P $DYNAWO_LIBIIDM_HOME/bin/* bin/
   fi
   if [ "$DYNAWO_BUILD_TYPE" = "Debug" ]; then
     if [ $DYNAWO_GTEST_HOME_DEFAULT != true ]; then
@@ -1781,27 +1781,27 @@ deploy_dynawo() {
 
   mkdir -p include
   echo "deploying Sundials include folder"
-  cp -n -R -P $DYNAWO_SUNDIALS_INSTALL_DIR/include/* include/
+  cp --update=none -R -P $DYNAWO_SUNDIALS_INSTALL_DIR/include/* include/
   echo "deploying Adept include folder"
-  cp -n -R $DYNAWO_ADEPT_INSTALL_DIR/include/* include/
+  cp --update=none -R $DYNAWO_ADEPT_INSTALL_DIR/include/* include/
   echo "deploying SuiteSparse include folder"
-  cp -n -P $DYNAWO_SUITESPARSE_INSTALL_DIR/include/*.* include/
+  cp --update=none -P $DYNAWO_SUITESPARSE_INSTALL_DIR/include/*.* include/
   echo "deploying libzip include folder"
-  cp -n -R -P $DYNAWO_LIBZIP_HOME/include/libzip include/
+  cp --update=none -R -P $DYNAWO_LIBZIP_HOME/include/libzip include/
   echo "deploying libxml include folder"
-  cp -n -R -P $DYNAWO_LIBXML_HOME/include/xml include/
+  cp --update=none -R -P $DYNAWO_LIBXML_HOME/include/xml include/
   echo "deploying libiidm include folder"
   if [ -d "$DYNAWO_LIBIIDM_HOME/include/IIDM" ]; then
-    cp -n -R -P $DYNAWO_LIBIIDM_HOME/include/IIDM include/
+    cp --update=none -R -P $DYNAWO_LIBIIDM_HOME/include/IIDM include/
   fi
   if [ -d "$DYNAWO_LIBIIDM_HOME/include/powsybl" ]; then
-    cp -n -R -P $DYNAWO_LIBIIDM_HOME/include/powsybl include/
+    cp --update=none -R -P $DYNAWO_LIBIIDM_HOME/include/powsybl include/
   fi
   echo "deploying gtest include folder"
   if [ "$DYNAWO_BUILD_TYPE" = "Debug" ]; then
     if [ $DYNAWO_GTEST_HOME_DEFAULT != true ]; then
       echo "deploying gtest libraries"
-      cp -n -R -P $DYNAWO_GTEST_HOME/include/* include/
+      cp --update=none -R -P $DYNAWO_GTEST_HOME/include/* include/
     fi
   fi
 
@@ -1893,46 +1893,46 @@ deploy_dynawo() {
   if [ -f "$boost_system_folder/libboost_date_time.$LIBRARY_SUFFIX" ]; then
     cp -P $boost_system_folder/libboost_date_time*.$LIBRARY_SUFFIX* lib/
   fi
-  cp -n -P -R $boost_system_folder_include/boost include/
+  cp --update=none -P -R $boost_system_folder_include/boost include/
 
   # XERCESC
   echo "deploying XercesC"
   if [ -d "$DYNAWO_XERCESC_INSTALL_DIR" ]; then
     cp -P $DYNAWO_XERCESC_INSTALL_DIR/lib/libxerces-c*.* lib/
-    cp -n -r $DYNAWO_XERCESC_INSTALL_DIR/include/* include/
+    cp --update=none -r $DYNAWO_XERCESC_INSTALL_DIR/include/* include/
   else
     xerces_system_folder=$(find_lib_system_path xerces) || error_exit "Path for xerces could not be found for deploy."
     cp -P $xerces_system_folder/libxerces-c*.* lib/
     xerces_system_folder_include=$(find_include_system_path XercesC_INCLUDE_DIR) || error_exit "Path for xerces include could not be found for deploy."
-    cp -n -r $xerces_system_folder_include/xercesc include/
+    cp --update=none -r $xerces_system_folder_include/xercesc include/
   fi
 
   # ZLIB
   echo "deploying zlib"
   if [ $DYNAWO_ZLIB_HOME_DEFAULT != true ]; then
     cp -P $DYNAWO_ZLIB_HOME/lib/libz.$LIBRARY_SUFFIX* lib/
-    cp -n $DYNAWO_ZLIB_HOME/include/zconf.h include/
-    cp -n $DYNAWO_ZLIB_HOME/include/zlib.h include/
+    cp --update=none $DYNAWO_ZLIB_HOME/include/zconf.h include/
+    cp --update=none $DYNAWO_ZLIB_HOME/include/zlib.h include/
   else
     zlib_system_folder=$(find_lib_system_path z[.]) || error_exit "Path for zlib could not be found for deploy."
     cp -P ${zlib_system_folder}/libz.$LIBRARY_SUFFIX* lib/
     zlib_system_folder_include=$(find_include_system_path ZLIB_INCLUDE_DIR) || error_exit "Path for zlib include could not be found for deploy."
-    cp -n $zlib_system_folder_include/zconf.h include/
-    cp -n $zlib_system_folder_include/zlib.h include/
+    cp --update=none $zlib_system_folder_include/zconf.h include/
+    cp --update=none $zlib_system_folder_include/zlib.h include/
   fi
 
   # LIBARCHIVE
   echo "deploying libArchive"
   if [ $DYNAWO_LIBARCHIVE_HOME_DEFAULT != true ]; then
     cp -P $DYNAWO_LIBARCHIVE_HOME/lib/libarchive*.$LIBRARY_SUFFIX* lib/
-    cp -n $DYNAWO_LIBARCHIVE_HOME/include/archive_entry.h include/
-    cp -n $DYNAWO_LIBARCHIVE_HOME/include/archive.h include/
+    cp --update=none $DYNAWO_LIBARCHIVE_HOME/include/archive_entry.h include/
+    cp --update=none $DYNAWO_LIBARCHIVE_HOME/include/archive.h include/
   else
     libarchive_system_folder=$(find_lib_system_path archive) || error_exit "Path for libarchive could not be found for deploy."
     cp -P ${libarchive_system_folder}/libarchive*.$LIBRARY_SUFFIX* lib/
     libarchive_system_folder_include=$(find_include_system_path LibArchive_INCLUDE_DIR) || error_exit "Path for libarchive include could not be found for deploy."
-    cp -n $libarchive_system_folder_include/archive_entry.h include/
-    cp -n $libarchive_system_folder_include/archive.h include/
+    cp --update=none $libarchive_system_folder_include/archive_entry.h include/
+    cp --update=none $libarchive_system_folder_include/archive.h include/
     if [ "`uname`" = "Linux" ]; then
       for lib in {crypto,lzma,bz2,xml2,lzo2}; do
         if [ ! -z "$(ldd ${libarchive_system_folder}/libarchive.$LIBRARY_SUFFIX | grep $lib | cut -d '>' -f 2 | cut -d ' ' -f 2)" ]; then
@@ -1946,12 +1946,12 @@ deploy_dynawo() {
    echo "deploying libxml2"
    if [ $DYNAWO_LIBXML2_HOME_DEFAULT != true ]; then
      cp -P $DYNAWO_LIBXML2_HOME/lib/libxml2*.$LIBRARY_SUFFIX* lib/
-     cp -n -R $DYNAWO_LIBXML2_HOME/include/libxml2 include/
+     cp --update=none -R $DYNAWO_LIBXML2_HOME/include/libxml2 include/
    else
      libxml2_system_folder=$(find_lib_system_path xml2) || error_exit "Path for libxml2 could not be found for deploy."
      cp -P ${libxml2_system_folder}/libxml2*.$LIBRARY_SUFFIX* lib/
      libxml2_system_folder_include=$(find_include_system_path LIBXML2_INCLUDE_DIR) || error_exit "Path for libxml2 include could not be found for deploy."
-     cp -n -P -R ${libxml2_system_folder_include} include/
+     cp --update=none -P -R ${libxml2_system_folder_include} include/
    fi
 
   # DYNAWO
@@ -1960,7 +1960,7 @@ deploy_dynawo() {
   mkdir -p bin
   cp -r $DYNAWO_INSTALL_DIR/bin/* bin/
   cp -r $DYNAWO_INSTALL_DIR/lib/* lib/
-  cp -n -r $DYNAWO_INSTALL_DIR/include/* include/
+  cp --update=none -r $DYNAWO_INSTALL_DIR/include/* include/
   cp -r $DYNAWO_INSTALL_DIR/share/* share/
   cp -r $DYNAWO_INSTALL_DIR/ddb .
 
