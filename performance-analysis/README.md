@@ -12,7 +12,8 @@ A comprehensive profiling and benchmarking framework for the Dynawo power system
 6. [Running Benchmarks](#running-benchmarks)
 7. [Interpreting Results](#interpreting-results)
 8. [Adding New Instrumentation Points](#adding-new-instrumentation-points)
-9. [Example Workflow](#example-workflow)
+9. [Sub-Symbol Profiling with perf](#sub-symbol-profiling-with-perf)
+10. [Example Workflow](#example-workflow)
 
 ---
 
@@ -673,6 +674,145 @@ void ModelMulti::evalJt(/* ... */) {
   }
 }
 ```
+
+---
+
+## Sub-Symbol Profiling with perf
+
+The `DYNSolverProfiler` framework instruments Dynawo-level phases but does not
+break down what happens *inside* `KINSOLSolve` — in particular, it cannot
+distinguish `klu_analyze` (symbolic factorization), `klu_factor` (numeric
+factorization), and `klu_solve` (triangular solve). These three sub-functions
+have very different optimization strategies, so measuring their individual
+contributions with `perf` is essential before committing to roadmap items such
+as A3 (numerical-only refactorization) or A7 (event severity classification).
+
+### Prerequisites
+
+The build must include debug symbols. Ensure `myEnvDynawo.sh` contains:
+
+```bash
+export DYNAWO_RELEASE_WITH_DEBUG=true   # RelWithDebInfo: optimised + symbols
+```
+
+Install `perf` and unlock user-space sampling:
+
+```bash
+sudo apt install linux-tools-common linux-tools-$(uname -r) linux-tools-generic
+sudo sh -c 'echo 1 > /proc/sys/kernel/perf_event_paranoid'
+sudo sh -c 'echo 0 > /proc/sys/kernel/kptr_restrict'
+```
+
+> **Note on frame pointers:** GCC `-O2`/`-O3` omits frame pointers by default,
+> which breaks `--call-graph fp`. Use `--call-graph dwarf` (DWARF stack
+> unwinding) as shown below, or add `-fno-omit-frame-pointer` to
+> `DYNAWO_CMAKE_OPTIONAL` and switch to the faster `--call-graph fp`.
+
+### Step 1 — Record
+
+```bash
+mkdir -p results/perf
+
+perf record \
+    -F 999 \
+    --call-graph dwarf,65536 \
+    -o results/perf/perf.data \
+    -- \
+    ./myEnvDynawo.sh jobs <path/to/case.jobs>
+```
+
+| Flag | Purpose |
+|------|---------|
+| `-F 999` | ~1 kHz sampling rate (stay below the 1000 Hz NMI watchdog threshold) |
+| `--call-graph dwarf,65536` | DWARF-based stack unwinding with 64 KB stack snapshot; works without `-fno-omit-frame-pointer` |
+| `-o results/perf/perf.data` | Output file |
+
+### Step 2 — Flat report filtered to KLU symbols
+
+```bash
+perf report \
+    -i results/perf/perf.data \
+    --stdio \
+    --sort comm,dso,symbol \
+    --no-children \
+    | grep -E 'klu_l_analyze|klu_l_factor|klu_l_refactor|klu_l_solve|btf_l_maxtrans|btf_l_strongcomp' \
+    | tee results/perf/klu_hotspots.txt
+```
+
+Each output line shows `% overhead  symbol  DSO`. The `klu_l_analyze` row gives
+the directly measured fraction of total CPU cycles spent in symbolic
+factorization for this specific testcase and model size — not an estimate
+extrapolated from a different run.
+
+Key symbols to watch:
+
+| Symbol | Meaning |
+|--------|---------|
+| `klu_l_analyze` | Full symbolic analysis (BTF + AMD/COLAMD ordering + column counts) |
+| `btf_l_maxtrans` / `btf_l_strongcomp` | Block Triangular Form phases inside `klu_l_analyze` |
+| `klu_l_factor` | Numeric LU factorization (given the symbolic pattern) |
+| `klu_l_refactor` | Numeric-only re-factorization (cheaper; skips symbolic) |
+| `klu_l_solve` / `klu_l_tsolve` | Forward/backward triangular solves |
+
+### Step 3 — Confirm call origin with call-graph
+
+Verify each KLU symbol is called from `KINSOLSolve` (event reinitializations)
+rather than `CalculateIC` (startup only):
+
+```bash
+perf report \
+    -i results/perf/perf.data \
+    --stdio \
+    --call-graph graph,0.5 \
+    | grep -A 20 'klu_l_analyze'
+```
+
+### Step 4 — Flame graph (optional)
+
+A flame graph makes the relative widths of `klu_analyze` vs. `klu_factor` vs.
+`klu_solve` visually obvious:
+
+```bash
+git clone https://github.com/brendangregg/FlameGraph ~/FlameGraph
+
+perf script -i results/perf/perf.data \
+    | ~/FlameGraph/stackcollapse-perf.pl \
+    | ~/FlameGraph/flamegraph.pl \
+        --title "Dynawo — KLU sub-symbol breakdown" \
+        --width 1600 \
+    > results/perf/flamegraph.svg
+```
+
+Open `flamegraph.svg` in a browser; click any KLU frame to zoom in.
+
+### Step 5 — Make the measurement permanent
+
+Once `perf` has confirmed that `klu_l_analyze` is a significant cost, add a
+dedicated phase to the `DYNSolverProfiler` so the measurement appears in every
+future CSV export without needing `perf`. Add `PHASE_KLU_ANALYZE` to the enum
+and wrap the `klu_l_analyze` call (located in
+`dynawo/sources/Solvers/SolverKINCommon/DYNSolverKINCommon.cpp` or the
+equivalent file in the SIM/TRAP solver path):
+
+```cpp
+// DYNSolverProfiler.h — add to ProfilePhase enum (before PHASE_COUNT):
+PHASE_KLU_ANALYZE,
+
+// DYNSolverProfiler.cpp — add to phaseToString():
+case PHASE_KLU_ANALYZE: return "KLUAnalyze";
+
+// DYNSolverKINCommon.cpp (or equivalent) — wrap the call:
+#include "DYNSolverProfiler.h"
+
+{
+  DYN_PROFILE_PHASE(PHASE_KLU_ANALYZE);
+  symbolic_ = klu_l_analyze(size, Ap, Ai, &common_);
+}
+```
+
+Rebuild with `./myEnvDynawo.sh clean-build-dynawo`. The `profile.csv` will now
+contain a `KLUAnalyze` row with exact call counts and total seconds, directly
+comparable across testcases and model sizes without any `perf` post-processing.
 
 ---
 
