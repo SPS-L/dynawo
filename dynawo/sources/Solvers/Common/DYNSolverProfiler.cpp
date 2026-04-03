@@ -53,7 +53,7 @@ const char* phaseToString(ProfilePhase phase) {
     case PHASE_REINIT:          return "Reinit";
     case PHASE_IO:              return "IO";
     case PHASE_KLU_SYMBOLIC:    return "KLUSymbolic";
-    case PHASE_KLU_FACTOR:      return "KLUFactor";
+    case PHASE_KLU_SETUP:       return "KLUSetup";
     default:                    return "Unknown";
   }
 }

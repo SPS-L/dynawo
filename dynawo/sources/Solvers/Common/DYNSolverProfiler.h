@@ -51,7 +51,7 @@ enum ProfilePhase {
   PHASE_REINIT,
   PHASE_IO,
   PHASE_KLU_SYMBOLIC,  ///< KLU symbolic factorization (klu_analyze), triggered on sparsity-structure change
-  PHASE_KLU_FACTOR,    ///< KLU numeric factorization (klu_factor), intercepted via ops-patching on solver init
+  PHASE_KLU_SETUP,     ///< SUNLinSolSetup (klu_refactor / klu_factor), intercepted via per-instance ops-patching
   PHASE_COUNT  ///< Total number of phases (must be last)
 };
 
