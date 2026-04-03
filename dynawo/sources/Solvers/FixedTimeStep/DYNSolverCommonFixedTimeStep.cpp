@@ -181,6 +181,7 @@ SolverCommonFixedTimeStep::initCommon(const std::shared_ptr<Model> &model, const
 }
 
 void SolverCommonFixedTimeStep::solveStepCommon(double /*tAim*/, double& tNxt) {
+  DYN_PROFILE_PHASE(PHASE_SOLVER_STEP);  // B1: instrument per-step wall-clock cost for fixed-step solvers
   int counter = 0;
   bool redoStep = false;
 
@@ -246,6 +247,7 @@ void SolverCommonFixedTimeStep::solveStepCommon(double /*tAim*/, double& tNxt) {
 
 void
 SolverCommonFixedTimeStep::calculateICCommon() {
+  DYN_PROFILE_PHASE_MEM(PHASE_CALCULATE_IC);  // B2: instrument IC calculation cost + peak RSS (symmetric with SolverIDA)
   Trace::debug() << DYNLog(CalculateIC) << Trace::endline;
   // Root evaluation before the initialization
   // --------------------------------
