@@ -1045,7 +1045,7 @@ Simulation::simulate() {
 
       const bool isCheckCriteriaIter = data_ && activateCriteria_ && currentIterNb % criteriaStep_ == 0;
 
-      // Start timing measurement for this timestep
+      // Start timing measurement for this timestep (used by both real-time tracking and profiler)
       auto stepStartTime = std::chrono::high_resolution_clock::now();
 
       solver_->solve(tStop_, tCurrent_);
@@ -1099,7 +1099,7 @@ Simulation::simulate() {
 
       model_->notifyTimeStep();
 
-      // End timing measurement and store data if enabled
+      // End timing measurement and store data if real-time tracking is enabled
       if (enableRealTimeTracking_) {
         auto stepEndTime = std::chrono::high_resolution_clock::now();
         auto stepDuration = std::chrono::duration_cast<std::chrono::microseconds>(stepEndTime - stepStartTime);
@@ -1110,10 +1110,18 @@ Simulation::simulate() {
         double accumulatedTimeS = accumulatedDuration.count() / 1000000.0;  // Convert to seconds
 
         timingData_.emplace_back(tCurrent_, stepTimeMs, accumulatedTimeS);
-#ifdef DYNAWO_PROFILING
-        DYN_PROFILE_RECORD_TIMESTEP(tCurrent_, stepTimeMs, DYN::SolverProfiler::getCurrentMemoryKB());
-#endif
       }
+
+#ifdef DYNAWO_PROFILING
+      // B4: Record per-timestep entry for the profiler independently of enableRealTimeTracking_.
+      // stepStartTime is declared unconditionally above, so no hoisting required.
+      {
+        auto stepEndTime = std::chrono::high_resolution_clock::now();
+        auto stepDuration = std::chrono::duration_cast<std::chrono::microseconds>(stepEndTime - stepStartTime);
+        double stepTimeMs = stepDuration.count() / 1000.0;
+        DYN_PROFILE_RECORD_TIMESTEP(tCurrent_, stepTimeMs, DYN::SolverProfiler::getCurrentMemoryKB());
+      }
+#endif
 
       if (hasIntermediateStateToDump() && !isCheckCriteriaIter) {
         // In case it was not already done beause of check criteria and intermediate state dump will be done at least one for current
@@ -1257,6 +1265,9 @@ Simulation::updateCurves(const bool updateCalculatedVariable) const {
 #endif
   if (exportCurvesMode_ == EXPORT_CURVES_NONE && exportFinalStateValuesMode_ == EXPORT_FINAL_STATE_VALUES_NONE)
     return;
+  // B3b: instrument mid-simulation curve buffer flushes; placed after the early-return
+  // guard so no overhead is incurred when no curves are configured.
+  DYN_PROFILE_PHASE(PHASE_CURVES_UPDATE);
 
   if (updateCalculatedVariable)
     model_->updateCalculatedVarForCurves();
