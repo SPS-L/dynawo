@@ -54,6 +54,7 @@ const char* phaseToString(ProfilePhase phase) {
     case PHASE_IO:              return "IO";
     case PHASE_KLU_SYMBOLIC:    return "KLUSymbolic";
     case PHASE_KLU_SETUP:       return "KLUSetup";
+    case PHASE_CURVES_UPDATE:   return "CurvesUpdate";
     default:                    return "Unknown";
   }
 }
@@ -178,6 +179,7 @@ void SolverProfiler::printReport() const {
       << std::setw(12) << "Max(ms)"
       << std::setw(10) << "Pct(%)"
       << "\n";
+  oss << "  NOTE: times are INCLUSIVE (nested phases accumulate in parent)\n";
   oss << "---------------------------------------------------------------\n";
 
   double totalSim = stats_[PHASE_SIMULATION_LOOP].totalTime;
@@ -200,6 +202,60 @@ void SolverProfiler::printReport() const {
         << std::setw(10) << std::setprecision(1) << pct
         << "\n";
   }
+
+  oss << "---------------------------------------------------------------\n";
+
+  // --- Exclusive time breakdown ---
+  // Exclusive time = phase total - sum of its direct children.
+  // Parent-child relationships (phases that are instrumented as nested sub-scopes):
+  //   SimulationLoop -> SolverSolve, CurvesUpdate, IO
+  //   SolverSolve    -> SolverStep, NRSolve, DiscreteEval, ModeEval, Reinit
+  //   SolverStep     -> ResidualEval, JacobianEval, RootEval
+  //   JacobianEval   -> MatrixCopy, KLUSymbolic, KLUSetup
+  //   NRSolve        -> KINSOLSolve
+  //   KINSOLSolve    -> ResidualEval, JacobianEval
+  // Note: sub-children that appear under multiple parents (ResidualEval, JacobianEval, RootEval)
+  //       are subtracted only from their immediate parent.
+  auto excl = [&](ProfilePhase parent, std::initializer_list<ProfilePhase> children) -> double {
+    double t = stats_[parent].totalTime;
+    for (ProfilePhase c : children)
+      t -= stats_[c].totalTime;
+    return t < 0.0 ? 0.0 : t;  // clamp: clock skew can give tiny negatives
+  };
+
+  double exclSimLoop  = excl(PHASE_SIMULATION_LOOP,
+      {PHASE_SOLVER_SOLVE, PHASE_CURVES_UPDATE, PHASE_IO});
+  double exclSolve    = excl(PHASE_SOLVER_SOLVE,
+      {PHASE_SOLVER_STEP, PHASE_NR_SOLVE, PHASE_DISCRETE_EVAL, PHASE_MODE_EVAL, PHASE_REINIT});
+  double exclStep     = excl(PHASE_SOLVER_STEP,
+      {PHASE_RESIDUAL_EVAL, PHASE_JACOBIAN_EVAL, PHASE_ROOT_EVAL});
+  double exclJac      = excl(PHASE_JACOBIAN_EVAL,
+      {PHASE_MATRIX_COPY, PHASE_KLU_SYMBOLIC, PHASE_KLU_SETUP});
+  double exclNR       = excl(PHASE_NR_SOLVE,   {PHASE_KINSOL_SOLVE});
+  double exclKINSOL   = excl(PHASE_KINSOL_SOLVE, {PHASE_RESIDUAL_EVAL, PHASE_JACOBIAN_EVAL});
+
+  oss << "\n  Exclusive times (phase cost minus direct children):\n";
+  oss << "---------------------------------------------------------------\n";
+  oss << std::left << std::setw(24) << "Phase"
+      << std::right << std::setw(12) << "Excl(s)"
+      << std::setw(10) << "Pct(%)\n";
+  oss << "---------------------------------------------------------------\n";
+
+  auto printExcl = [&](const char* name, double t) {
+    if (t <= 0.0) return;
+    oss << std::left << std::setw(24) << name
+        << std::right << std::fixed << std::setprecision(3)
+        << std::setw(12) << t
+        << std::setw(10) << std::setprecision(1) << (t / totalSim * 100.0)
+        << "\n";
+  };
+
+  printExcl("SimulationLoop",  exclSimLoop);
+  printExcl("SolverSolve",     exclSolve);
+  printExcl("SolverStep",      exclStep);
+  printExcl("JacobianEval",    exclJac);
+  printExcl("NRSolve",         exclNR);
+  printExcl("KINSOLSolve",     exclKINSOL);
 
   oss << "---------------------------------------------------------------\n";
   oss << "Timesteps recorded: " << timestepRecords_.size() << "\n";
