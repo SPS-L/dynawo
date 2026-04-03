@@ -52,6 +52,8 @@ const char* phaseToString(ProfilePhase phase) {
     case PHASE_KINSOL_SOLVE:    return "KINSOLSolve";
     case PHASE_REINIT:          return "Reinit";
     case PHASE_IO:              return "IO";
+    case PHASE_KLU_SYMBOLIC:    return "KLUSymbolic";
+    case PHASE_KLU_FACTOR:      return "KLUFactor";
     default:                    return "Unknown";
   }
 }

@@ -236,6 +236,7 @@ SolverKINAlgRestoration::updateKINSOLSettings(const double fnormtol, const doubl
 
 int
 SolverKINAlgRestoration::evalF_KIN(N_Vector yy, N_Vector rr, void *data) {
+  DYN_PROFILE_PHASE(PHASE_RESIDUAL_EVAL);
   SolverKINAlgRestoration* solver = reinterpret_cast<SolverKINAlgRestoration*>(data);
   Model& model = solver->getModel();
 
@@ -317,6 +318,7 @@ SolverKINAlgRestoration::checkJacobian(const SparseMatrix& smj, Model& model) {
 int
 SolverKINAlgRestoration::evalJ_KIN(N_Vector /*yy*/, N_Vector /*rr*/,
          SUNMatrix JJ, void* data, N_Vector /*tmp1*/, N_Vector /*tmp2*/) {
+  DYN_PROFILE_PHASE(PHASE_JACOBIAN_EVAL);
   SolverKINAlgRestoration* solver = reinterpret_cast<SolverKINAlgRestoration*> (data);
   Model& model = solver->getModel();
 
@@ -343,6 +345,7 @@ SolverKINAlgRestoration::evalJ_KIN(N_Vector /*yy*/, N_Vector /*rr*/,
 int
 SolverKINAlgRestoration::evalJPrim_KIN(N_Vector /*yy*/, N_Vector /*rr*/,
         SUNMatrix JJ, void* data, N_Vector /*tmp1*/, N_Vector /*tmp2*/) {
+  DYN_PROFILE_PHASE(PHASE_JACOBIAN_EVAL);
   SolverKINAlgRestoration* solver = reinterpret_cast<SolverKINAlgRestoration*> (data);
   Model& model = solver->getModel();
 

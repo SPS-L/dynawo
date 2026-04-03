@@ -30,6 +30,21 @@
 #include "DYNTrace.h"
 #include <algorithm>
 
+#ifdef DYNAWO_PROFILING
+// Static storage for the original KLU setup (numeric-factorization) function pointer.
+// Set once by the first installKLUProfiler() call; safe because all KLU instances
+// share the same underlying SUNLinSolSetup_KLU implementation.
+static int (*s_origKLUSetup)(SUNLinearSolver, SUNMatrix) = NULL;
+
+// Profiling wrapper: times klu_factor (the numeric factorization) as PHASE_KLU_FACTOR
+// and delegates to the original SUNDIALS SUNLinSolSetup_KLU.
+static int profiledKLUSetup(SUNLinearSolver S, SUNMatrix A) {
+  DYN::PhaseTimer dynProfileTimer_PHASE_KLU_FACTOR(DYN::PHASE_KLU_FACTOR);
+  int ret = s_origKLUSetup(S, A);
+  return ret;
+}
+#endif  // DYNAWO_PROFILING
+
 namespace DYN {
 
 bool
@@ -74,7 +89,10 @@ void SolverCommon::propagateMatrixStructureChangeToKINSOL(const SparseMatrix& sm
   bool matrixStructChange = copySparseToKINSOL(smj, JJ, size, *lastRowVals);
 
   if (matrixStructChange) {
-    SUNLinSol_KLUReInit(LS, JJ, SM_NNZ_S(JJ), 2);  // reinit symbolic factorisation
+    {
+      DYN_PROFILE_PHASE(PHASE_KLU_SYMBOLIC);
+      SUNLinSol_KLUReInit(LS, JJ, SM_NNZ_S(JJ), 2);  // reinit symbolic factorisation (klu_analyze)
+    }
     if (*lastRowVals != NULL) {
       free(*lastRowVals);
     }
@@ -83,6 +101,17 @@ void SolverCommon::propagateMatrixStructureChangeToKINSOL(const SparseMatrix& sm
     if (log)
       Trace::debug() << DYNLog(MatrixStructureChange) << Trace::endline;
   }
+}
+
+void SolverCommon::installKLUProfiler(SUNLinearSolver& LS) {
+#ifdef DYNAWO_PROFILING
+  if (s_origKLUSetup == NULL) {
+    s_origKLUSetup = LS->ops->setup;
+  }
+  LS->ops->setup = profiledKLUSetup;
+#else
+  (void)LS;
+#endif
 }
 
 void

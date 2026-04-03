@@ -114,6 +114,17 @@ class SolverCommon {
    *
    */
   static double weightedL2Norm(const std::vector<double>& vec, const std::vector<int>& vec_index, const std::vector<double>& weights);
+
+  /**
+   * @brief Install profiling wrapper for KLU numeric factorization (klu_factor)
+   *
+   * Patches the SUNLinearSolver ops->setup function pointer so that every
+   * subsequent KLU numeric-factorization call is timed as PHASE_KLU_FACTOR.
+   * Must be called once per solver instance, right after SUNLinSol_KLU().
+   * No-op when DYNAWO_PROFILING is not defined at build time.
+   * @param LS the KLU linear solver instance to wrap
+   */
+  static void installKLUProfiler(SUNLinearSolver& LS);
 };
 
 }  // end of namespace DYN

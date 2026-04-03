@@ -993,7 +993,6 @@ Simulation::calculateIC() {
 void
 Simulation::simulate() {
   Timer timer("Simulation::simulate()");
-  DYN_PROFILE_PHASE_MEM(PHASE_SIMULATION_LOOP);
   printSolverHeader();
 
   // Printing out the initial solution
@@ -1007,6 +1006,8 @@ Simulation::simulate() {
 
   bool criteriaChecked = true;
   try {
+    {  // inner scope: PHASE_SIMULATION_LOOP timer must stop before DYN_PROFILE_PRINT_REPORT()
+    DYN_PROFILE_PHASE_MEM(PHASE_SIMULATION_LOOP);
     // update state variable only if the IIDM final state is exported, or criteria is checked, or lost equipments are exported
     if (data_ && (finalState_.iidmFile_ || activateCriteria_ || isLostEquipmentsExported())) {
       data_->getStateVariableReference();   // Each state variable in DataInterface has a mapped reference variable in dynamic model,
@@ -1157,6 +1158,7 @@ Simulation::simulate() {
     }
     if (!timetableOutputFile_.empty())
         remove(timetableOutputFile_);
+    }  // end inner scope: PHASE_SIMULATION_LOOP PhaseTimer destructor fires here
 #ifdef DYNAWO_PROFILING
     DYN_PROFILE_PRINT_REPORT();
     // Export is handled automatically by the SolverProfiler destructor
