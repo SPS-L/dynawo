@@ -11,14 +11,17 @@ Generated outputs:
     - memory_usage_ts.png      : Memory usage over simulation time
     - Console summary with call-count statistics table
 
-CSV format expected:
-    Phase summary section (header row then data rows):
-        phase,total_seconds,call_count,avg_ms,min_ms,max_ms,peak_memory_kb
+CSV format expected (new format with explicit section markers):
+    # PHASES
+    phase,total_seconds,call_count,avg_ms,min_ms,max_ms,peak_memory_kb
+    ...
 
-    Blank line separator
+    # TIMESTEPS
+    sim_time,step_duration_ms,memory_kb
+    ...
 
-    Timestep time-series section (header row then data rows):
-        sim_time,step_duration_ms,memory_kb
+Legacy format (blank-line separator, no section markers) is also supported
+for backward compatibility.
 
 Usage:
     python analyze_profile.py <profile.csv> [--output-dir <dir>]
@@ -42,6 +45,12 @@ import pandas as pd
 def parse_profile_csv(filepath):
     """Parse a Dynawo profiler CSV export.
 
+    Supports two formats:
+      - New format: sections delimited by ``# PHASES`` and ``# TIMESTEPS``
+        comment lines (B-CSV-PARSE fix).
+      - Legacy format: two tables separated by a single blank line with no
+        section markers (kept for backward compatibility).
+
     Returns
     -------
     phase_df : pd.DataFrame or None
@@ -52,35 +61,74 @@ def parse_profile_csv(filepath):
     with open(filepath, "r") as fh:
         raw = fh.read()
 
-    # Split on the first blank line to separate the two sections.
+    # ------------------------------------------------------------------
+    # New format: look for explicit "# PHASES" / "# TIMESTEPS" markers.
+    # ------------------------------------------------------------------
+    has_phase_marker = "# PHASES" in raw
+    has_ts_marker = "# TIMESTEPS" in raw
+
+    if has_phase_marker or has_ts_marker:
+        return _parse_with_markers(raw)
+
+    # ------------------------------------------------------------------
+    # Legacy format: split on the first blank line.
+    # ------------------------------------------------------------------
+    return _parse_legacy(raw)
+
+
+def _strip_comment_lines(text):
+    """Remove lines starting with '#' and return cleaned text."""
+    lines = [ln for ln in text.splitlines() if not ln.strip().startswith("#")]
+    return "\n".join(lines)
+
+
+def _df_from_text(text, section_name):
+    """Parse a CSV block into a DataFrame, normalising column names."""
+    cleaned = _strip_comment_lines(text).strip()
+    if not cleaned:
+        return None
+    from io import StringIO
+    try:
+        df = pd.read_csv(StringIO(cleaned))
+        df.columns = [c.strip().lower() for c in df.columns]
+        return df
+    except Exception as exc:
+        print(f"Warning: could not parse {section_name} section: {exc}",
+              file=sys.stderr)
+        return None
+
+
+def _parse_with_markers(raw):
+    """Parse new-format CSV that contains '# PHASES' / '# TIMESTEPS' markers."""
+    phase_text = ""
+    ts_text = ""
+
+    # Locate the two marker positions.
+    phase_pos = raw.find("# PHASES")
+    ts_pos = raw.find("# TIMESTEPS")
+
+    if phase_pos != -1:
+        if ts_pos != -1:
+            phase_text = raw[phase_pos:ts_pos]
+        else:
+            phase_text = raw[phase_pos:]
+
+    if ts_pos != -1:
+        ts_text = raw[ts_pos:]
+
+    phase_df = _df_from_text(phase_text, "phase summary") if phase_text else None
+    timestep_df = _df_from_text(ts_text, "timestep time-series") if ts_text else None
+    return phase_df, timestep_df
+
+
+def _parse_legacy(raw):
+    """Parse legacy-format CSV with a blank-line separator between sections."""
     sections = raw.split("\n\n", 1)
 
-    phase_df = None
+    phase_df = _df_from_text(sections[0], "phase summary") if sections else None
     timestep_df = None
-
-    # --- Phase summary section ---
-    phase_text = sections[0].strip()
-    if phase_text:
-        from io import StringIO
-        try:
-            phase_df = pd.read_csv(StringIO(phase_text))
-            # Normalise column names (strip whitespace, lowercase)
-            phase_df.columns = [c.strip().lower() for c in phase_df.columns]
-        except Exception as exc:
-            print(f"Warning: could not parse phase summary section: {exc}",
-                  file=sys.stderr)
-
-    # --- Timestep time-series section ---
     if len(sections) > 1:
-        ts_text = sections[1].strip()
-        if ts_text:
-            from io import StringIO
-            try:
-                timestep_df = pd.read_csv(StringIO(ts_text))
-                timestep_df.columns = [c.strip().lower() for c in timestep_df.columns]
-            except Exception as exc:
-                print(f"Warning: could not parse timestep section: {exc}",
-                      file=sys.stderr)
+        timestep_df = _df_from_text(sections[1], "timestep time-series")
 
     return phase_df, timestep_df
 

@@ -214,8 +214,9 @@ void SolverProfiler::printReport() const {
   //   JacobianEval   -> MatrixCopy, KLUSymbolic, KLUSetup
   //   NRSolve        -> KINSOLSolve
   //   KINSOLSolve    -> ResidualEval, JacobianEval
-  // Note: sub-children that appear under multiple parents (ResidualEval, JacobianEval, RootEval)
-  //       are subtracted only from their immediate parent.
+  // NOTE: Exclusive times assume single-parent nesting; shared phases
+  //       (ResidualEval, JacobianEval) may be double-counted under mixed
+  //       IDA+KINSOL runs — interpret SolverStep exclusive time with caution.
   auto excl = [&](ProfilePhase parent, std::initializer_list<ProfilePhase> children) -> double {
     double t = stats_[parent].totalTime;
     for (ProfilePhase c : children)
@@ -260,24 +261,23 @@ void SolverProfiler::printReport() const {
   oss << "---------------------------------------------------------------\n";
   oss << "Timesteps recorded: " << timestepRecords_.size() << "\n";
 
-  // Memory summary
-  // Prefer timestep memory (recorded every integration step) as the peak RSS source.
-  // Phase-level memory is only sampled for MEM-instrumented scopes and can be sparse.
-  uint64_t peakMemFromTimestepsKB = 0;
+  // Memory summary: prefer peak from timestep series (populated every step)
+  // over PhaseStats::peakMemoryKB (only set for PHASE_SIMULATION_LOOP).
+  uint64_t peakMem = 0;
   for (size_t i = 0; i < timestepRecords_.size(); ++i) {
-    if (timestepRecords_[i].memoryKB > peakMemFromTimestepsKB)
-      peakMemFromTimestepsKB = timestepRecords_[i].memoryKB;
+    if (timestepRecords_[i].memoryKB > peakMem)
+      peakMem = timestepRecords_[i].memoryKB;
   }
-
-  uint64_t peakMemFromPhasesKB = 0;
-  for (int i = 0; i < PHASE_COUNT; ++i) {
-    if (stats_[i].peakMemoryKB > peakMemFromPhasesKB)
-      peakMemFromPhasesKB = stats_[i].peakMemoryKB;
+  if (peakMem == 0) {
+    // Fall back to PhaseStats if no timestep records (e.g., profiling build
+    // without DYN_PROFILE_RECORD_TIMESTEP calls).
+    for (int i = 0; i < PHASE_COUNT; ++i) {
+      if (stats_[i].peakMemoryKB > peakMem)
+        peakMem = stats_[i].peakMemoryKB;
+    }
   }
-
-  uint64_t peakMemKB = (peakMemFromTimestepsKB > 0) ? peakMemFromTimestepsKB : peakMemFromPhasesKB;
-  if (peakMemKB > 0)
-    oss << "Peak RSS: " << std::fixed << std::setprecision(2) << (static_cast<double>(peakMemKB) / 1024.0) << " MB\n";
+  if (peakMem > 0)
+    oss << "Peak RSS: " << std::fixed << std::setprecision(2) << (static_cast<double>(peakMem) / 1024.0) << " MB\n";
 
   oss << "===============================================================\n";
 
@@ -292,7 +292,10 @@ void SolverProfiler::exportCSV(const std::string& filename) const {
   if (!ofs.is_open())
     return;
 
-  // Phase summary
+  // Fix B-CSV-PARSE: add explicit section-header comment lines so that
+  // standard CSV parsers (pandas, Excel) can detect section boundaries.
+  // The analyze_profile.py companion script uses these markers.
+  ofs << "# PHASES\n";
   ofs << "phase,total_seconds,call_count,avg_ms,min_ms,max_ms,peak_memory_kb\n";
   for (int i = 0; i < PHASE_COUNT; ++i) {
     const PhaseStats& s = stats_[i];
@@ -311,6 +314,7 @@ void SolverProfiler::exportCSV(const std::string& filename) const {
   // Timestep time series
   if (!timestepRecords_.empty()) {
     ofs << "\n";
+    ofs << "# TIMESTEPS\n";
     ofs << "sim_time,step_duration_ms,memory_kb\n";
     for (size_t i = 0; i < timestepRecords_.size(); ++i) {
       const TimestepRecord& r = timestepRecords_[i];
