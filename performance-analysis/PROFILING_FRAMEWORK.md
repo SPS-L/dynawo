@@ -139,7 +139,7 @@ SIMULATION_LOOP  (memory-tracked, RAII scope in simulate())
 └── IO                 (terminate() — file export, final state dump)
 ```
 
-> **Note on shared children**: `RESIDUAL_EVAL`, `JACOBIAN_EVAL`, and `ROOT_EVAL` each appear at multiple call sites and under multiple logical parents. The exclusive-time `excl()` lambda subtracts their **global** accumulated time (across all call sites) from their declared parent — which can produce deflated exclusive times for the parent phase. See §8 (W-SHARED-PHASE-DOUBLE-COUNT) for full details and affected solver types.
+> **Note on shared children**: `RESIDUAL_EVAL`, `JACOBIAN_EVAL`, and `ROOT_EVAL` appear at multiple call sites and under multiple logical parents. Exclusive-time reporting uses runtime parent-child attribution (not global child totals), so shared-phase time is subtracted only from the parent scope where it was observed.
 
 ### Phase Reference Table
 
@@ -291,7 +291,7 @@ void SolverCommonFixedTimeStep::solveStepCommon(...) {
 }
 ```
 
-> **⚠ See §8 W-SHARED-PHASE-DOUBLE-COUNT** for the consequence of `PHASE_ROOT_EVAL` accumulating across both `CALCULATE_IC` and `SOLVER_STEP` scopes in the fixed-step solver.
+> **Note**: `PHASE_ROOT_EVAL` appears under multiple parents in fixed-step paths (`CALCULATE_IC`, `SOLVER_STEP`, `REINIT`). This is handled by contextual parent-child attribution in the profiler.
 
 #### `DYNSolverCommon.cpp` — shared solver base
 
@@ -483,193 +483,30 @@ Second audit pass 2026-04-04 against `DYNSolverCommonFixedTimeStep.cpp`.
 
 ## 8. Audit — Known Issues and Limitations
 
-### 🟢 RESOLVED — B-CSV-PARSE: Two-section CSV now uses `# PHASES` / `# TIMESTEPS` markers
-
-**Location**: `SolverProfiler::exportCSV()` in `DYNSolverProfiler.cpp`
-
-**Status**: **Fixed.** The `exportCSV()` implementation now writes explicit `# PHASES` and `# TIMESTEPS` comment lines before each section header. Standard CSV parsers that support comment skipping (e.g., `pd.read_csv(..., comment='#')`) can parse either section cleanly. The blank line between sections is still present as an additional visual separator.
-
-**Actual output format** (as implemented):
-```
-# PHASES
-phase,total_seconds,call_count,avg_ms,min_ms,max_ms,peak_memory_kb
-SimulationLoop,...
-
-# TIMESTEPS
-sim_time,step_duration_ms,memory_kb
-0.000000,...
-```
-
----
-
-### 🟢 RESOLVED — B-EXCL-CALC_IC: `CALCULATE_IC` now subtracted from `SimulationLoop` exclusive time
-
-**Location**: `SolverProfiler::printReport()`, `excl()` lambda in `DYNSolverProfiler.cpp`
-
-**Status**: **Fixed** in commit `bf4376b`.
-
-**Description**: `PHASE_CALCULATE_IC` is instrumented in both `SolverIDA::calculateIC()` and `SolverCommonFixedTimeStep::calculateICCommon()`, called from `Simulation::calculateIC()` → `Simulation::init()`, **before** the main simulation loop but **within** the `PHASE_SIMULATION_LOOP` RAII scope. Previously the exclusive-time lambda was:
-
-```cpp
-double exclSimLoop = excl(PHASE_SIMULATION_LOOP,
-    {PHASE_SOLVER_SOLVE, PHASE_CURVES_UPDATE, PHASE_IO});
-```
-
-`PHASE_CALCULATE_IC` was absent from this child list, so IC-solve time was attributed to `SimulationLoop` exclusive time — appearing as "loop dispatch overhead" rather than initial-condition cost. For simulations with stiff initial transients or large t=0 KINSOL solves this overstated `SimulationLoop` exclusive time significantly.
-
-**Fix applied**:
-
-```cpp
-// DYNSolverProfiler.cpp — printReport(), excl() section
-double exclSimLoop = excl(PHASE_SIMULATION_LOOP,
-    {PHASE_CALCULATE_IC, PHASE_SOLVER_SOLVE, PHASE_CURVES_UPDATE, PHASE_IO});
-//   ^^^^^^^^^^^^^^^^^^^ added
-```
-
-The parent→children comment block above the `excl()` lambda was also updated to list `CalculateIC` as a direct child of `SimulationLoop`.
-
----
-
-### 🟢 CLOSED — W-CALC_IC-IDA-ONLY: False positive — `PHASE_CALCULATE_IC` is instrumented in all solvers
-
-**Status**: **Closed as false positive** (second audit pass, 2026-04-04).
-
-**Previous concern**: That `PHASE_CALCULATE_IC` was only instrumented in the IDA solver, leaving DynaWaltz fixed-step runs with `callCount = 0`.
-
-**Finding**: Code inspection of `DYNSolverCommonFixedTimeStep.cpp` confirms `DYN_PROFILE_PHASE_MEM(PHASE_CALCULATE_IC)` is present at the top of `calculateICCommon()`, which is inherited by both SolverSIM and SolverTRAP. The phase is correctly instrumented for all solver types. No code change required.
-
----
-
-### 🟡 WARNING — W-SHARED-PHASE-DOUBLE-COUNT: `ROOT_EVAL`/`ResidualEval`/`JacobianEval` global accumulation deflates exclusive times
-
-**Location**: `SolverProfiler::printReport()` exclusive-time lambda; `DYNSolverCommonFixedTimeStep.cpp`
-
-**Affects**: All solver types — DynaWaltz (fixed-step, event-heavy runs) and DynaSwing (IDA+KINSOL mixed runs).
-
-**Description**: Phase counters are global singletons — `PHASE_ROOT_EVAL` accumulates time from **every** call site regardless of which logical parent was active at the time. In `DYNSolverCommonFixedTimeStep.cpp`, `PHASE_ROOT_EVAL` fires at three distinct sites:
-
-1. Inside `calculateICCommon()` — logically a child of `CALCULATE_IC`
-2. Inside `updateZAndMode()` — logically a child of `SOLVER_STEP`
-3. Inside `reinit()` (×2) — logically a child of `REINIT`
-
-The `excl()` lambda subtracts the **total** `ROOT_EVAL` time from `SOLVER_STEP`, which includes time that was actually spent in `CALCULATE_IC` and `REINIT`. The practical consequence:
-
-| Scenario | Effect on `SolverStep` exclusive time |
-|---|---|
-| Short simulation, complex IC or many mode changes | Under-reported — potentially clamped to 0 |
-| Long simulation, trivial IC, few events | Negligible — IC ROOT_EVAL ≪ simulation ROOT_EVAL |
-| Event-heavy DynaWaltz run (many `reinit()` calls) | Progressively deflated as events accumulate |
-| Mixed IDA+KINSOL DynaSwing run | `RESIDUAL_EVAL`/`JACOBIAN_EVAL` also double-subtracted (from `SOLVER_STEP` and `KINSOL_SOLVE`) |
-
-**Simulation correctness is unaffected.** Only the profiler time-breakdown report is wrong. Total (inclusive) times are always correct.
-
-The `printReport()` output already includes a warning comment:
-> *"Exclusive times assume single-parent nesting; shared phases (ResidualEval, JacobianEval, RootEval) may be double-counted under mixed runs — interpret SolverStep exclusive time with caution."*
-
-**Recommended fix** (long-term): Use a per-call-site accumulator or split shared phases into solver-specific variants (e.g., `PHASE_IDA_ROOT_EVAL`, `PHASE_FTS_ROOT_EVAL_IC`, `PHASE_FTS_ROOT_EVAL_STEP`). Short-term: the existing warning is adequate; interpret exclusive times for `SolverStep` as a lower bound.
-
----
-
-### 🟡 LIMITATION — B-EXCL-1: Exclusive-time under-counts when KINSOL is active
-
-**Location**: `SolverProfiler::printReport()` exclusive-time lambda
-
-**Description**: `RESIDUAL_EVAL` and `JACOBIAN_EVAL` are subtracted from both `SOLVER_STEP` and `KINSOL_SOLVE` via separate `excl()` calls. However, these two phases may be entered from both contexts in the same simulation run. The exclusive calculation assumes a strict single-parent model and does not apportion time proportionally.
-
-**Consequence**: In DynaSwing simulations using KINSOL for algebraic initialisation, `SolverStep` exclusive time may appear slightly negative or misleadingly small. The `printReport()` code clamps negative exclusive times to `0.0`.
-
-The `printReport()` output already includes a warning comment:
-> *"Exclusive times assume single-parent nesting; shared phases (ResidualEval, JacobianEval) may be double-counted under mixed IDA+KINSOL runs — interpret SolverStep exclusive time with caution."*
-
----
-
-### 🟡 LIMITATION — B-THREAD-1: Singleton not thread-safe
-
-**Location**: `SolverProfiler::instance()` and all `record*()` methods
-
-**Description**: `SolverProfiler` is documented as *"not thread-safe; designed for single-threaded solver execution."* This is intentional given Dynaωo's current single-threaded solver architecture. However, future parallelisation work (OpenMP Jacobian assembly, parallel model evaluation) could trigger data races on `stats_[phase]` and `timestepRecords_`.
-
-**Recommendation**: When OpenMP instrumentation is added in future, wrap `record()` with `#pragma omp atomic` for the `totalTime` and `callCount` fields, or use `std::atomic<double>` / per-thread accumulators with reduction.
-
----
-
-### 🟡 LIMITATION — B-STEPTIME-DOUBLE: `stepEndTime` computed twice when both features active
-
-**Location**: `Simulation::simulate()`, after `solver_->solve()`
-
-**Description**: When both `enableRealTimeTracking_ = true` AND `DYNAWO_PROFILING` is defined, two separate `chrono::high_resolution_clock::now()` calls are made per timestep — one inside `if (enableRealTimeTracking_)` and one inside `#ifdef DYNAWO_PROFILING`. The two timestamps are microseconds apart and will slightly overstate both durations.
-
-**Recommended fix**: Capture a single `stepEndTime` unconditionally (mirroring `stepStartTime`), then share it across both blocks:
-```cpp
-// After solver_->solve() and all step work:
-auto stepEndTime = std::chrono::high_resolution_clock::now();
-if (enableRealTimeTracking_) {
-  auto dur = std::chrono::duration_cast<std::chrono::microseconds>(stepEndTime - stepStartTime);
-  double stepTimeMs = dur.count() / 1000.0;
-  auto accDur = std::chrono::duration_cast<std::chrono::microseconds>(stepEndTime - simulationStartTime_);
-  double accTimeS = accDur.count() / 1000000.0;
-  timingData_.emplace_back(tCurrent_, stepTimeMs, accTimeS);
-}
-#ifdef DYNAWO_PROFILING
-{
-  auto dur = std::chrono::duration_cast<std::chrono::microseconds>(stepEndTime - stepStartTime);
-  DYN_PROFILE_RECORD_TIMESTEP(tCurrent_, dur.count() / 1000.0,
-                              DYN::SolverProfiler::getCurrentMemoryKB());
-}
-#endif
-```
-
----
-
-### 🟡 LIMITATION — B-MEMOTRACK-1: Memory only tracked on `PHASE_SIMULATION_LOOP`
-
-**Description**: `DYN_PROFILE_PHASE_MEM(PHASE_SIMULATION_LOOP)` uses `trackMemory = true`, which calls `getCurrentMemoryKB()` once at the end of the loop. Only `peakMemoryKB` for `PHASE_SIMULATION_LOOP` is populated via this path. Sub-phases (`PHASE_KLU_SETUP`, etc.) never populate `peakMemoryKB` unless `recordWithMemory()` is called explicitly.
-
-**Consequence**: The *"Peak RSS"* scan in `printReport()` prioritises the timestep series (`timestepRecords_[i].memoryKB`) which is populated by `DYN_PROFILE_RECORD_TIMESTEP` on every step. The `PhaseStats::peakMemoryKB` fallback scan is only reached when no timestep records exist — at which point only `PHASE_SIMULATION_LOOP` will have a non-zero value, making the scan redundant.
-
-**Recommendation**: The current two-stage fallback (timestep series → PhaseStats scan) is correct and adequate. No code change needed; the `PhaseStats` fallback is a safety net for profiling builds that omit `DYN_PROFILE_RECORD_TIMESTEP`.
-
----
-
-### 🟢 NOTE — B-MINTIME-INIT: `minTime` guard is correct and not reachable as a bug
-
-**Location**: `PhaseStats::reset()` initialises `minTime = std::numeric_limits<double>::max()`.
-
-**Analysis**: The original concern was that `callCount > 0` could occur while `minTime` remains `+∞` if `PhaseTimer::~PhaseTimer()` is invoked without completing `record()`. In practice this cannot happen:
-
-1. `PhaseTimer::~PhaseTimer()` always calls `record()` or `recordWithMemory()`.
-2. `PhaseTimer::elapsed()` uses `std::chrono::duration<double>::count()` which is `noexcept` — it cannot throw.
-3. The first `record()` call always satisfies `elapsedSeconds < std::numeric_limits<double>::max()`, so `minTime` is updated on the first entry.
-
-The defensive guard in `exportCSV()`, `exportJSON()`, and `printReport()`:
-```cpp
-double minMs = (s.minTime < std::numeric_limits<double>::max()) ? s.minTime * 1000.0 : 0.0;
-```
-protects only against the zero-call case (`callCount == 0`, `minTime` unreset). This is correct and complete. No code change needed.
-
----
-
-### 🟢 NOTE — B-PROCFS-COST: `/proc/self/status` read in `getCurrentMemoryKB()`
-
-**Description**: `DYN_PROFILE_RECORD_TIMESTEP` calls `SolverProfiler::getCurrentMemoryKB()` per timestep, which opens and scans `/proc/self/status`. On Linux this is a virtual file backed by the kernel's task structure — typically ~2–5 µs per call. For a 10-second simulation with 1 ms average timestep (~10,000 steps), this adds ~20–50 ms to total runtime (~0.2–0.5% overhead). Acceptable for profiling builds.
-
-**Recommendation**: None required. Acceptable overhead for a profiling build.
-
----
-
-### 🟢 NOTE — B-REINIT-SCOPE: `PHASE_REINIT` placement not confirmed from `simulate()` alone
-
-**Description**: `PHASE_REINIT` appears in the enum and `phaseToString()`. In `Simulation::simulate()`, `solver_->reinit()` is called when `solverState.getFlags(ModeChange)` is true, but this call is not wrapped with `DYN_PROFILE_PHASE(PHASE_REINIT)` at the simulation layer. The instrumentation is expected to be inside the solver's `reinit()` implementation in `DYNSolverCommon.cpp`. If it is absent there, `callCount` will be zero and the phase will not appear in reports — which is silently correct behaviour but creates confusion.
-
-**Recommendation**: Verify that `DYN_PROFILE_PHASE(PHASE_REINIT)` is present at the entry of the solver's `reinit()` implementation in `DYNSolverCommon.cpp`.
-
----
-
-### 🟢 NOTE — B-KINSOL-PLACEMENT: `PHASE_KINSOL_SOLVE` and `PHASE_NR_SOLVE` exclusive correctness
-
-**Description**: The exclusive-time breakdown subtracts `KINSOL_SOLVE` from `NR_SOLVE`. This is correct for DynaWaltz (long-term stability) where KINSOL is used inside the NR fixed-step algebraic solve. For DynaSwing (IDA-based), `PHASE_NR_SOLVE` should have zero calls and the subtraction is a no-op. Confirmed safe.
-
----
+### Open Issues (Prioritized)
+
+1. **B-STEPTIME-DOUBLE (medium)**
+: `stepEndTime` is captured twice per timestep when both real-time tracking and profiler timestep recording are enabled, slightly inflating both metrics.
+: Location: `Simulation::simulate()` in `DYNSimulation.cpp`.
+: Recommendation: capture one `stepEndTime` and reuse it for both output paths.
+
+2. **B-THREAD-1 (medium, future-facing)**
+: `SolverProfiler` is not thread-safe; this is acceptable today for single-threaded solver execution but will become risky if parallel solver/model evaluation is introduced.
+: Location: profiler singleton state and all `record*()` paths.
+: Recommendation: introduce per-thread accumulators (preferred) or atomic updates when multi-threading is introduced.
+
+3. **B-MEMOTRACK-1 (low)**
+: `PhaseStats::peakMemoryKB` is mainly populated for `PHASE_SIMULATION_LOOP`; fine-grained per-phase peak memory is incomplete unless explicit memory-tracked timing is added.
+: Location: `DYN_PROFILE_PHASE_MEM` usage patterns and `recordWithMemory*()` call coverage.
+: Recommendation: keep current behavior for low overhead, optionally add targeted memory tracking for a small set of hotspot phases.
+
+### Recently Resolved (kept for traceability)
+
+- `W-SHARED-PHASE-DOUBLE-COUNT`: fixed via runtime parent-child attribution in profiler timing core.
+- `B-EXCL-REINIT-PARENT-MISMATCH`: fixed by contextual subtraction (not global child subtraction).
+- `B-EXCL-CALC_IC`: fixed by correct SimulationLoop child mapping.
+- `W-CALC_IC-IDA-ONLY`: closed as false positive after fixed-step verification.
+- `B-CSV-PARSE`: fixed with explicit `# PHASES` / `# TIMESTEPS` section markers.
 
 ## 9. Usage Cookbook
 
@@ -744,4 +581,4 @@ Then also set `DYNAWO_PROFILE_OUTPUT`. Both outputs will be generated independen
 
 ---
 
-*Last updated: 2026-04-04 — second audit pass against branch HEAD (`DYNSolverCommonFixedTimeStep.cpp`). Closes W-CALC_IC-IDA-ONLY as false positive; broadens W-SHARED-PHASE-DOUBLE-COUNT to cover fixed-step (DynaWaltz) event-heavy runs. Reflects commits `1dce6fd`…`bf4376b` plus documentation corrections.*
+*Last updated: 2026-04-04 — implemented context-aware parent-child attribution in `DYNSolverProfiler` to resolve W-SHARED-PHASE-DOUBLE-COUNT (and related SolverSolve/Reinit attribution bias) for fixed-step DynaWaltz reporting.*

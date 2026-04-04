@@ -117,12 +117,47 @@ class SolverProfiler {
   void record(ProfilePhase phase, double elapsedSeconds);
 
   /**
+   * @brief Record a timing measurement for a phase under a specific parent context
+   * @param phase the phase that was measured
+   * @param parentPhase parent phase active when this phase started, or PHASE_COUNT if none
+   * @param elapsedSeconds time elapsed in seconds
+   */
+  void recordWithParent(ProfilePhase phase, ProfilePhase parentPhase, double elapsedSeconds);
+
+  /**
    * @brief Record a timing measurement with memory snapshot
    * @param phase the phase that was measured
    * @param elapsedSeconds time elapsed in seconds
    * @param memoryKB current RSS in kilobytes
    */
   void recordWithMemory(ProfilePhase phase, double elapsedSeconds, uint64_t memoryKB);
+
+  /**
+   * @brief Record a timing measurement with memory snapshot and parent context
+   * @param phase the phase that was measured
+   * @param parentPhase parent phase active when this phase started, or PHASE_COUNT if none
+   * @param elapsedSeconds time elapsed in seconds
+   * @param memoryKB current RSS in kilobytes
+   */
+  void recordWithMemoryAndParent(ProfilePhase phase, ProfilePhase parentPhase, double elapsedSeconds, uint64_t memoryKB);
+
+  /**
+   * @brief Notify profiler that a phase scope was entered
+   * @param phase entered phase
+   */
+  void enterPhase(ProfilePhase phase);
+
+  /**
+   * @brief Notify profiler that a phase scope was exited
+   * @param phase exited phase
+   */
+  void exitPhase(ProfilePhase phase);
+
+  /**
+   * @brief Get current active phase from stack
+   * @return active phase or PHASE_COUNT if stack is empty
+   */
+  ProfilePhase currentPhase() const;
 
   /**
    * @brief Record a timestep entry for time-series analysis
@@ -188,6 +223,8 @@ class SolverProfiler {
     uint64_t memoryKB;
   };
   std::vector<TimestepRecord> timestepRecords_;
+  double parentChildTime_[PHASE_COUNT][PHASE_COUNT];
+  std::vector<ProfilePhase> phaseStack_;
 };
 
 /**
@@ -218,7 +255,9 @@ class PhaseTimer {
 
  private:
   ProfilePhase phase_;
+  ProfilePhase parentPhase_;
   bool trackMemory_;
+  bool active_;
   std::chrono::high_resolution_clock::time_point start_;
 };
 

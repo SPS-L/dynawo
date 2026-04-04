@@ -120,11 +120,19 @@ void SolverProfiler::setEnabled(bool enabled) {
 void SolverProfiler::reset() {
   for (int i = 0; i < PHASE_COUNT; ++i) {
     stats_[i].reset();
+    for (int j = 0; j < PHASE_COUNT; ++j) {
+      parentChildTime_[i][j] = 0.0;
+    }
   }
   timestepRecords_.clear();
+  phaseStack_.clear();
 }
 
 void SolverProfiler::record(ProfilePhase phase, double elapsedSeconds) {
+  recordWithParent(phase, PHASE_COUNT, elapsedSeconds);
+}
+
+void SolverProfiler::recordWithParent(ProfilePhase phase, ProfilePhase parentPhase, double elapsedSeconds) {
   if (!enabled_)
     return;
   PhaseStats& s = stats_[phase];
@@ -134,14 +142,43 @@ void SolverProfiler::record(ProfilePhase phase, double elapsedSeconds) {
     s.minTime = elapsedSeconds;
   if (elapsedSeconds > s.maxTime)
     s.maxTime = elapsedSeconds;
+  if (parentPhase >= PHASE_SIMULATION_LOOP && parentPhase < PHASE_COUNT)
+    parentChildTime_[parentPhase][phase] += elapsedSeconds;
 }
 
 void SolverProfiler::recordWithMemory(ProfilePhase phase, double elapsedSeconds, uint64_t memoryKB) {
+  recordWithMemoryAndParent(phase, PHASE_COUNT, elapsedSeconds, memoryKB);
+}
+
+void SolverProfiler::recordWithMemoryAndParent(ProfilePhase phase, ProfilePhase parentPhase, double elapsedSeconds, uint64_t memoryKB) {
   if (!enabled_)
     return;
-  record(phase, elapsedSeconds);
+  recordWithParent(phase, parentPhase, elapsedSeconds);
   if (memoryKB > stats_[phase].peakMemoryKB)
     stats_[phase].peakMemoryKB = memoryKB;
+}
+
+void SolverProfiler::enterPhase(ProfilePhase phase) {
+  if (!enabled_)
+    return;
+  phaseStack_.push_back(phase);
+}
+
+void SolverProfiler::exitPhase(ProfilePhase phase) {
+  if (!enabled_)
+    return;
+  if (!phaseStack_.empty() && phaseStack_.back() == phase) {
+    phaseStack_.pop_back();
+  } else {
+    // Fallback safety to avoid stale context on unexpected stack mismatch.
+    phaseStack_.clear();
+  }
+}
+
+ProfilePhase SolverProfiler::currentPhase() const {
+  if (!enabled_ || phaseStack_.empty())
+    return PHASE_COUNT;
+  return phaseStack_.back();
 }
 
 void SolverProfiler::recordTimestep(double simTime, double stepDurationMs, uint64_t memoryKB) {
@@ -206,28 +243,17 @@ void SolverProfiler::printReport() const {
   oss << "---------------------------------------------------------------\n";
 
   // --- Exclusive time breakdown ---
-  // Exclusive time = phase total - sum of its direct children.
-  // Parent-child relationships (phases that are instrumented as nested sub-scopes):
-  //   SimulationLoop -> CalculateIC, SolverSolve, CurvesUpdate, IO
-  //   SolverSolve    -> SolverStep, NRSolve, DiscreteEval, ModeEval, Reinit
-  //   SolverStep     -> ResidualEval, JacobianEval, RootEval
-  //   JacobianEval   -> MatrixCopy, KLUSymbolic, KLUSetup
-  //   NRSolve        -> KINSOLSolve
-  //   KINSOLSolve    -> ResidualEval, JacobianEval
-  // NOTE: Exclusive times assume single-parent nesting; shared phases
-  //       (ResidualEval, JacobianEval) may be double-counted under mixed
-  //       IDA+KINSOL runs — interpret SolverStep exclusive time with caution.
+  // Exclusive time = phase total - sum of direct child time observed under that phase context.
+  // Parent-child relationships are inferred from runtime nesting and stored in parentChildTime_.
   auto excl = [&](ProfilePhase parent, std::initializer_list<ProfilePhase> children) -> double {
     double t = stats_[parent].totalTime;
     for (ProfilePhase c : children)
-      t -= stats_[c].totalTime;
+      t -= parentChildTime_[parent][c];
     return t < 0.0 ? 0.0 : t;  // clamp: clock skew can give tiny negatives
   };
 
-  // Fix B-EXCL-CALC_IC: PHASE_CALCULATE_IC runs inside the PHASE_SIMULATION_LOOP
-  // RAII scope (via Simulation::init() -> calculateICCommon()) and must be
-  // subtracted from SimulationLoop's exclusive time so that IC solve cost is
-  // not misattributed as loop-dispatch overhead.
+  // Context-aware subtraction fixes shared-phase double-count issues by removing
+  // only child time that was actually nested under each parent.
   double exclSimLoop  = excl(PHASE_SIMULATION_LOOP,
       {PHASE_CALCULATE_IC, PHASE_SOLVER_SOLVE, PHASE_CURVES_UPDATE, PHASE_IO});
   double exclSolve    = excl(PHASE_SOLVER_SOLVE,
@@ -403,17 +429,31 @@ uint64_t SolverProfiler::getCurrentMemoryKB() {
 
 PhaseTimer::PhaseTimer(ProfilePhase phase, bool trackMemory) :
   phase_(phase),
+  parentPhase_(PHASE_COUNT),
   trackMemory_(trackMemory),
+  active_(false),
   start_(std::chrono::high_resolution_clock::now()) {
+  SolverProfiler& profiler = SolverProfiler::instance();
+  active_ = profiler.isEnabled();
+  if (active_) {
+    parentPhase_ = profiler.currentPhase();
+    profiler.enterPhase(phase_);
+  }
 }
 
 PhaseTimer::~PhaseTimer() {
+  if (!active_)
+    return;
+
   double elapsedSec = elapsed();
+  SolverProfiler& profiler = SolverProfiler::instance();
+  profiler.exitPhase(phase_);
+
   if (trackMemory_) {
     uint64_t memKB = SolverProfiler::getCurrentMemoryKB();
-    SolverProfiler::instance().recordWithMemory(phase_, elapsedSec, memKB);
+    profiler.recordWithMemoryAndParent(phase_, parentPhase_, elapsedSec, memKB);
   } else {
-    SolverProfiler::instance().record(phase_, elapsedSec);
+    profiler.recordWithParent(phase_, parentPhase_, elapsedSec);
   }
 }
 
