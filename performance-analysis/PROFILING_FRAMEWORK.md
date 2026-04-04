@@ -33,19 +33,22 @@ The profiling framework is a lightweight, zero-overhead-when-disabled system bui
 │  └─ DYN_PROFILE_PHASE(PHASE_IO)                   [terminate()]      │
 ├──────────────────────────────────────────────────────────────────────┤
 │                        Solver layer                                  │
+│  DYNSolverIDA.cpp                                                    │
+│  ├─ DYN_PROFILE_PHASE_MEM(PHASE_CALCULATE_IC)  [SolverIDA::calculateIC()]  │
+│  ├─ DYN_PROFILE_PHASE(PHASE_RESIDUAL_EVAL)     [evalF() callback]    │
+│  ├─ DYN_PROFILE_PHASE(PHASE_JACOBIAN_EVAL)     [evalJ() callback]    │
+│  ├─ DYN_PROFILE_PHASE(PHASE_ROOT_EVAL)         [evalG() callback]    │
+│  └─ DYN_PROFILE_PHASE(PHASE_SOLVER_STEP)       [solveStep()]         │
 │  DYNSolverCommon.cpp                                                 │
 │  ├─ DYN_PROFILE_PHASE(PHASE_SOLVER_SOLVE)                            │
-│  ├─ DYN_PROFILE_PHASE(PHASE_CALCULATE_IC)                            │
-│  ├─ DYN_PROFILE_PHASE(PHASE_SOLVER_STEP)                             │
-│  ├─ DYN_PROFILE_PHASE(PHASE_JACOBIAN_EVAL)                           │
-│  ├─ DYN_PROFILE_PHASE(PHASE_RESIDUAL_EVAL)                           │
-│  ├─ DYN_PROFILE_PHASE(PHASE_ROOT_EVAL)                               │
 │  ├─ DYN_PROFILE_PHASE(PHASE_MODE_EVAL)                               │
 │  ├─ DYN_PROFILE_PHASE(PHASE_DISCRETE_EVAL)                           │
 │  ├─ DYN_PROFILE_PHASE(PHASE_NR_SOLVE)                                │
 │  ├─ DYN_PROFILE_PHASE(PHASE_MATRIX_COPY)                             │
 │  ├─ DYN_PROFILE_PHASE(PHASE_KINSOL_SOLVE)                            │
 │  └─ DYN_PROFILE_PHASE(PHASE_REINIT)                                  │
+│  DYNSolverKINEULER.cpp (fixed-step solver — see W-CALC_IC-IDA-ONLY)  │
+│  └─ DYN_PROFILE_PHASE(PHASE_CALCULATE_IC)  [MISSING — see §8]        │
 ├──────────────────────────────────────────────────────────────────────┤
 │                        KLU linear-algebra layer                      │
 │  DYNSolverKINEULERCommon.cpp / DYNSolverIDA* (ops-patching)          │
@@ -131,7 +134,7 @@ SIMULATION_LOOP  (memory-tracked, RAII scope in simulate())
 └── IO                 (terminate() — file export, final state dump)
 ```
 
-> **Note on shared children**: `RESIDUAL_EVAL` and `JACOBIAN_EVAL` appear under both `SOLVER_STEP` and `KINSOL_SOLVE`. The exclusive-time calculation in `printReport()` subtracts them only from their **immediate parent** as declared in the `excl()` lambda, which is the correct attribution — see §8 (B-EXCL-1) for a known limitation.
+> **Note on shared children**: `RESIDUAL_EVAL` and `JACOBIAN_EVAL` appear under both `SOLVER_STEP` and `KINSOL_SOLVE`. The exclusive-time calculation in `printReport()` subtracts them only from their **immediate parent** as declared in the `excl()` lambda, which is the correct attribution — see §8 (W-SHARED-PHASE-DOUBLE-COUNT) for a known limitation.
 
 ### Phase Reference Table
 
@@ -139,11 +142,11 @@ SIMULATION_LOOP  (memory-tracked, RAII scope in simulate())
 |---|---|---|---|
 | `PHASE_SIMULATION_LOOP` | `SimulationLoop` | `DYNSimulation.cpp` | Outer `simulate()` loop — memory-tracked |
 | `PHASE_SOLVER_SOLVE` | `SolverSolve` | `DYNSolverCommon.cpp` | `solveStepCommon()` entry |
-| `PHASE_CALCULATE_IC` | `CalculateIC` | `DYNSolverCommon.cpp` | `calculateICCommon()` entry |
+| `PHASE_CALCULATE_IC` | `CalculateIC` | `DYNSolverIDA.cpp` (IDA) · missing in fixed-step solver — see §8 W-CALC_IC-IDA-ONLY | `SolverIDA::calculateIC()` entry |
 | `PHASE_SOLVER_STEP` | `SolverStep` | `DYNSolverCommon.cpp` | Per IDA/Euler step |
-| `PHASE_JACOBIAN_EVAL` | `JacobianEval` | `DYNSolverCommon.cpp` | Jacobian callback |
-| `PHASE_RESIDUAL_EVAL` | `ResidualEval` | `DYNSolverCommon.cpp` | Residual callback |
-| `PHASE_ROOT_EVAL` | `RootEval` | `DYNSolverCommon.cpp` | Zero-crossing callback |
+| `PHASE_JACOBIAN_EVAL` | `JacobianEval` | `DYNSolverIDA.cpp` (`evalJ` callback) | Jacobian callback |
+| `PHASE_RESIDUAL_EVAL` | `ResidualEval` | `DYNSolverIDA.cpp` (`evalF` callback) | Residual callback |
+| `PHASE_ROOT_EVAL` | `RootEval` | `DYNSolverIDA.cpp` (`evalG` callback) | Zero-crossing callback |
 | `PHASE_MODE_EVAL` | `ModeEval` | `DYNSolverCommon.cpp` | Mode detection |
 | `PHASE_DISCRETE_EVAL` | `DiscreteEval` | `DYNSolverCommon.cpp` | Discrete variable update |
 | `PHASE_NR_SOLVE` | `NRSolve` | `DYNSolverCommon.cpp` | Fixed-step algebraic solve |
@@ -151,8 +154,8 @@ SIMULATION_LOOP  (memory-tracked, RAII scope in simulate())
 | `PHASE_KINSOL_SOLVE` | `KINSOLSolve` | `DYNSolverCommon.cpp` | KINSOL inner solve |
 | `PHASE_REINIT` | `Reinit` | `DYNSolverCommon.cpp` | Post-mode-change solver reinit |
 | `PHASE_IO` | `IO` | `DYNSimulation.cpp` | `Simulation::terminate()` |
-| `PHASE_KLU_SYMBOLIC` | `KLUSymbolic` | KLU ops-patch | `klu_analyze` (new sparsity structure) |
-| `PHASE_KLU_SETUP` | `KLUSetup` | KLU ops-patch | `SUNLinSolSetup` → `klu_refactor` |
+| `PHASE_KLU_SYMBOLIC` | `KLUSymbolic` | KLU ops-patch (`DYNSolverCommon.cpp`) | `klu_analyze` (new sparsity structure) |
+| `PHASE_KLU_SETUP` | `KLUSetup` | KLU ops-patch (`DYNSolverCommon.cpp`) | `SUNLinSolSetup` → `klu_refactor` |
 | `PHASE_CURVES_UPDATE` | `CurvesUpdate` | `DYNSimulation.cpp` | `updateCurves()` after early-return guard |
 
 ---
@@ -218,23 +221,58 @@ void Simulation::terminate() {
 }
 ```
 
-### 4.2 Solver Layer (`DYNSolverCommon.cpp`)
+### 4.2 Solver Layer
 
-The common solver base class instruments all callbacks that SUNDIALS IDA and the fixed-step Backward Euler solver invoke:
+#### `DYNSolverIDA.cpp` — IDA (variable-step BDF) solver
+
+`PHASE_CALCULATE_IC` is instrumented **directly in `SolverIDA::calculateIC()`**, not in a shared common base method. Code inspection of `DYNSolverCommon.cpp` confirms there is no `calculateICCommon()` function — the IDA solver owns this call site entirely:
+
+```cpp
+// DYNSolverIDA.cpp
+void SolverIDA::calculateIC(const double /*tEnd*/) {
+  DYN_PROFILE_PHASE_MEM(PHASE_CALCULATE_IC);   // ← IDA-specific call site
+  // ... KINSOL algebraic restoration + IDACalcIC loop ...
+}
+```
+
+The inner IDA callbacks are also instrumented in this file:
+
+```cpp
+int SolverIDA::evalF(...) {
+  DYN_PROFILE_PHASE(PHASE_RESIDUAL_EVAL);
+  // ...
+}
+
+int SolverIDA::evalJ(...) {
+  DYN_PROFILE_PHASE(PHASE_JACOBIAN_EVAL);
+  // ...
+}
+
+int SolverIDA::evalG(...) {
+  DYN_PROFILE_PHASE(PHASE_ROOT_EVAL);
+  // ...
+}
+
+void SolverIDA::solveStep(...) {
+  DYN_PROFILE_PHASE(PHASE_SOLVER_STEP);
+  // ...
+}
+```
+
+> **⚠ Warning (W-CALC_IC-IDA-ONLY)**: `PHASE_CALCULATE_IC` is **only instrumented in the IDA solver**. If the fixed-step Backward Euler solver (`DYNSolverKINEULER`) has its own `calculateIC()` override and it is not wrapped with `DYN_PROFILE_PHASE(PHASE_CALCULATE_IC)`, the phase will have `callCount = 0` and `totalTime = 0` in DynaWaltz (long-term stability) runs that use the fixed-step solver. See §8 W-CALC_IC-IDA-ONLY.
+
+#### `DYNSolverCommon.cpp` — shared solver base
+
+The common solver base class instruments phases that apply to both IDA and fixed-step paths:
 
 ```cpp
 void SolverCommon::solveStepCommon(...) {
   DYN_PROFILE_PHASE(PHASE_SOLVER_SOLVE);
   // ...delegates to IDA or Euler step...
 }
-
-void SolverCommon::calculateICCommon(...) {
-  DYN_PROFILE_PHASE(PHASE_CALCULATE_IC);
-  // ...
-}
 ```
 
-Inner callbacks (residual, Jacobian, root, discrete, mode) are wrapped with `DYN_PROFILE_PHASE(...)` at their respective entry points in the SUNDIALS callback functions registered via `IDASetUserData` / `IDASetJacFn` etc.
+Matrix operations and KLU patching are also performed here (see §4.3).
 
 ### 4.3 KLU Layer (ops-patching)
 
@@ -375,7 +413,7 @@ Added `PHASE_CURVES_UPDATE` as enum value 16 in `ProfilePhase`, with a Doxygen c
 
 ### Commit 6 — `f1b8800` — *fix(profiler): instrument solveStepCommon (B1) and calculateICCommon (B2) with profiler phases*
 
-Added `DYN_PROFILE_PHASE(PHASE_SOLVER_SOLVE)` at the entry of `SolverCommon::solveStepCommon()` and `DYN_PROFILE_PHASE(PHASE_CALCULATE_IC)` at the entry of `SolverCommon::calculateICCommon()`. These are the two most important coarse-grained instrumentation points for separating initialization cost from simulation loop cost.
+Added `DYN_PROFILE_PHASE(PHASE_SOLVER_SOLVE)` at the entry of `SolverCommon::solveStepCommon()`. Also added `DYN_PROFILE_PHASE_MEM(PHASE_CALCULATE_IC)` at the entry of `SolverIDA::calculateIC()` — the IDA-specific initial-condition solve entry point. These are the two most important coarse-grained instrumentation points for separating initialization cost from simulation loop cost.
 
 ### Commit 7 — `4f7340a` — *profiler: fix B3b + B4 — instrument updateCurves() and decouple RECORD_TIMESTEP from enableRealTimeTracking_*
 
@@ -384,13 +422,22 @@ Added `DYN_PROFILE_PHASE(PHASE_SOLVER_SOLVE)` at the entry of `SolverCommon::sol
 
 ### Commit 8 — `bf4376b` — *fix(profiler): add CALCULATE_IC to SimulationLoop exclusive child list (B-EXCL-CALC_IC)*
 
-`PHASE_CALCULATE_IC` runs inside the `PHASE_SIMULATION_LOOP` RAII scope (via `Simulation::init()` → `calculateICCommon()`) but was absent from the `excl()` child list for `SimulationLoop` in `printReport()`. This caused IC-solve time to be misattributed as `SimulationLoop` dispatch overhead in the exclusive-time breakdown, overstating `SimulationLoop` exclusive time for stiff cases with a significant t=0 KINSOL solve.
+`PHASE_CALCULATE_IC` runs inside the `PHASE_SIMULATION_LOOP` RAII scope (via `Simulation::init()` → `SolverIDA::calculateIC()`) but was absent from the `excl()` child list for `SimulationLoop` in `printReport()`. This caused IC-solve time to be misattributed as `SimulationLoop` dispatch overhead in the exclusive-time breakdown, overstating `SimulationLoop` exclusive time for stiff cases with a significant t=0 KINSOL solve.
 
 Two changes in `DYNSolverProfiler.cpp`:
 1. Added `PHASE_CALCULATE_IC` to the `exclSimLoop` child initialiser list.
 2. Updated the parent→children comment block above the `excl()` lambda to include `CalculateIC` under `SimulationLoop`.
 
 Closes audit item **B-EXCL-CALC_IC**.
+
+### Commit 9 — *docs(profiling): audit pass — fix CALCULATE_IC call-site docs, add W-CALC_IC-IDA-ONLY and W-SHARED-PHASE warnings*
+
+Audit pass performed 2026-04-04 against branch HEAD. Findings:
+
+1. **Architecture Overview (§1)**: Corrected to show `PHASE_CALCULATE_IC` in `DYNSolverIDA.cpp` (actual instrumentation location, confirmed by code inspection of `DYNSolverIDA::calculateIC()`). Previous diagram incorrectly showed it under `DYNSolverCommon.cpp`; no `calculateICCommon()` function exists in that file.
+2. **Phase Reference Table (§3)**: Updated `Source` column for `PHASE_CALCULATE_IC`, `PHASE_JACOBIAN_EVAL`, `PHASE_RESIDUAL_EVAL`, and `PHASE_ROOT_EVAL` to reference `DYNSolverIDA.cpp` accurately.
+3. **§4.2 Solver Layer**: Replaced the incorrect claim about `calculateICCommon()` with accurate description of `SolverIDA::calculateIC()` as the call site, with a warning about the missing fixed-step solver instrumentation.
+4. **§8 Audit**: Added two new tracked items — `W-CALC_IC-IDA-ONLY` and `W-SHARED-PHASE-DOUBLE-COUNT`.
 
 ---
 
@@ -421,7 +468,7 @@ sim_time,step_duration_ms,memory_kb
 
 **Status**: **Fixed** in commit `bf4376b`.
 
-**Description**: `PHASE_CALCULATE_IC` is instrumented in `SolverCommon::calculateICCommon()` which is called from `Simulation::calculateIC()` — inside `Simulation::init()`, **before** the main simulation loop but **within** the `PHASE_SIMULATION_LOOP` RAII scope. Previously the exclusive-time lambda was:
+**Description**: `PHASE_CALCULATE_IC` is instrumented in `SolverIDA::calculateIC()`, called from `Simulation::calculateIC()` → `Simulation::init()`, **before** the main simulation loop but **within** the `PHASE_SIMULATION_LOOP` RAII scope. Previously the exclusive-time lambda was:
 
 ```cpp
 double exclSimLoop = excl(PHASE_SIMULATION_LOOP,
@@ -440,6 +487,42 @@ double exclSimLoop = excl(PHASE_SIMULATION_LOOP,
 ```
 
 The parent→children comment block above the `excl()` lambda was also updated to list `CalculateIC` as a direct child of `SimulationLoop`.
+
+---
+
+### 🟡 WARNING — W-CALC_IC-IDA-ONLY: `PHASE_CALCULATE_IC` only instrumented in the IDA solver
+
+**Location**: `DYNSolverIDA.cpp` — `SolverIDA::calculateIC()`
+
+**Description**: Code inspection confirms that `DYN_PROFILE_PHASE_MEM(PHASE_CALCULATE_IC)` is placed at the entry of `SolverIDA::calculateIC()` (IDA variable-step BDF solver). However, `DYNSolverCommon.cpp` contains **no** `calculateICCommon()` function, and no `PHASE_CALCULATE_IC` instrumentation. If the fixed-step Backward Euler solver (`DYNSolverKINEULER`) implements its own `calculateIC()` override — used in DynaWaltz long-term stability runs — that override is **not instrumented**.
+
+**Consequence**: In DynaWaltz simulations, `CalculateIC` will show `callCount = 0` and `totalTime = 0.0` in profiling reports, silently discarding IC-solve time into `SimulationLoop` exclusive time (partially mitigated by B-EXCL-CALC_IC fix, but still a data gap).
+
+**Recommended fix**:
+```cpp
+// DYNSolverKINEULER.cpp (or whichever file implements the fixed-step calculateIC())
+void SolverKINEULER::calculateIC(const double tEnd) {
+  DYN_PROFILE_PHASE(PHASE_CALCULATE_IC);   // ← add this
+  // ... existing implementation ...
+}
+```
+
+Verify the fixed-step solver's `calculateIC()` override location, then add the macro.
+
+---
+
+### 🟡 WARNING — W-SHARED-PHASE-DOUBLE-COUNT: `ResidualEval`/`JacobianEval` double-subtraction risk in mixed IDA+KINSOL runs
+
+**Location**: `SolverProfiler::printReport()` exclusive-time lambda
+
+**Description**: `RESIDUAL_EVAL` and `JACOBIAN_EVAL` are subtracted from both `SOLVER_STEP` (via `exclStep`) and `KINSOL_SOLVE` (via `exclKINSOL`) in separate `excl()` calls. Both phases can be entered from both IDA callbacks and KINSOL callbacks in the same simulation run. The exclusive calculation assumes a strict single-parent model and does not apportion time by call origin.
+
+**Consequence**: In DynaSwing simulations where KINSOL is used for algebraic restoration after mode changes, the time accumulated in `RESIDUAL_EVAL` and `JACOBIAN_EVAL` is subtracted **twice** from the total when computing exclusive times — once from `SolverStep` and once from `KINSOLSolve`. This can cause `SolverStep` exclusive time to be understated, or in extreme cases appear slightly negative (clamped to 0.0 in `printReport()`). The problem does not affect **total** (inclusive) times.
+
+The `printReport()` output already includes a warning comment:
+> *"Exclusive times assume single-parent nesting; shared phases (ResidualEval, JacobianEval) may be double-counted under mixed IDA+KINSOL runs — interpret SolverStep exclusive time with caution."*
+
+**Recommended fix** (long-term): Track call-site origin in `PhaseStats` using a per-caller accumulator, or split `PHASE_RESIDUAL_EVAL` into `PHASE_IDA_RESIDUAL_EVAL` and `PHASE_KINSOL_RESIDUAL_EVAL`. Short-term: the existing warning comment is adequate.
 
 ---
 
@@ -617,4 +700,4 @@ Then also set `DYNAWO_PROFILE_OUTPUT`. Both outputs will be generated independen
 
 ---
 
-*Last updated: April 2026 — reflects commits `1dce6fd`…`bf4376b` on `3_performance-analysis-framework`. Audit pass performed against `DYNSimulation.cpp`, `DYNSolverProfiler.h`, and `DYNSolverProfiler.cpp` (branch HEAD `bf4376b`).*
+*Last updated: 2026-04-04 — audit pass against branch HEAD. Reflects commits `1dce6fd`…`bf4376b` plus documentation corrections from code inspection of `DYNSolverIDA.cpp`, `DYNSolverCommon.cpp`, `DYNSolverProfiler.h`, and `DYNSolverProfiler.cpp`.*
