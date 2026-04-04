@@ -20,6 +20,7 @@
 #include "DYNSolverProfiler.h"
 #include "DYNTrace.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -30,7 +31,6 @@
 #include <limits>
 
 #ifdef __linux__
-#include <cstdio>
 #include <string>
 #endif
 
@@ -230,28 +230,18 @@ void SolverProfiler::printReport() const {
     double pct = (s.totalTime / totalSim) * 100.0;
     double minMs = (s.minTime < std::numeric_limits<double>::max()) ? s.minTime * 1000.0 : 0.0;
 
-    // Build row explicitly to ensure consistent formatting
-    oss << std::left << std::setw(20) << phaseToString(static_cast<ProfilePhase>(i));
-
-    // Total(s) - always apply fixed and precision(3)
-    oss << std::right << std::fixed << std::setprecision(3)
-        << std::setw(12) << s.totalTime;
-
-    // Calls - print as integer
-    oss << std::setw(10) << static_cast<uint64_t>(s.callCount);
-
-    // Avg(ms) - fixed, precision 3
-    oss << std::setw(12) << (s.avgTime() * 1000.0);
-
-    // Min(ms) - fixed, precision 3
-    oss << std::setw(12) << minMs;
-
-    // Max(ms) - fixed, precision 3
-    oss << std::setw(12) << (s.maxTime * 1000.0);
-
-    // Pct(%) - precision 1
-    oss << std::setprecision(1) << std::setw(10) << pct
-        << "\n";
+    // Build row with per-field formatting to avoid stream state leakage
+    char buf[128];
+    snprintf(buf, sizeof(buf),
+             "%-20s%12.3f%10llu%12.3f%12.3f%12.3f%10.1f",
+             phaseToString(static_cast<ProfilePhase>(i)),
+             s.totalTime,
+             static_cast<unsigned long long>(s.callCount),
+             s.avgTime() * 1000.0,
+             minMs,
+             s.maxTime * 1000.0,
+             pct);
+    oss << buf << "\n";
   }
 
   oss << "---------------------------------------------------------------\n";
@@ -288,11 +278,9 @@ void SolverProfiler::printReport() const {
 
   auto printExcl = [&](const char* name, double t) {
     if (t <= 0.0) return;
-    oss << std::left << std::setw(24) << name
-        << std::right << std::fixed << std::setprecision(3)
-        << std::setw(12) << t
-        << std::setw(10) << std::setprecision(1) << (t / totalSim * 100.0)
-        << "\n";
+    char buf[80];
+    snprintf(buf, sizeof(buf), "%-24s%12.3f%10.1f", name, t, t / totalSim * 100.0);
+    oss << buf << "\n";
   };
 
   printExcl("SimulationLoop",  exclSimLoop);
