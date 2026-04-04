@@ -261,13 +261,23 @@ void SolverProfiler::printReport() const {
   oss << "Timesteps recorded: " << timestepRecords_.size() << "\n";
 
   // Memory summary
-  uint64_t peakMem = 0;
-  for (int i = 0; i < PHASE_COUNT; ++i) {
-    if (stats_[i].peakMemoryKB > peakMem)
-      peakMem = stats_[i].peakMemoryKB;
+  // Prefer timestep memory (recorded every integration step) as the peak RSS source.
+  // Phase-level memory is only sampled for MEM-instrumented scopes and can be sparse.
+  uint64_t peakMemFromTimestepsKB = 0;
+  for (size_t i = 0; i < timestepRecords_.size(); ++i) {
+    if (timestepRecords_[i].memoryKB > peakMemFromTimestepsKB)
+      peakMemFromTimestepsKB = timestepRecords_[i].memoryKB;
   }
-  if (peakMem > 0)
-    oss << "Peak RSS: " << peakMem / 1024 << " MB\n";
+
+  uint64_t peakMemFromPhasesKB = 0;
+  for (int i = 0; i < PHASE_COUNT; ++i) {
+    if (stats_[i].peakMemoryKB > peakMemFromPhasesKB)
+      peakMemFromPhasesKB = stats_[i].peakMemoryKB;
+  }
+
+  uint64_t peakMemKB = (peakMemFromTimestepsKB > 0) ? peakMemFromTimestepsKB : peakMemFromPhasesKB;
+  if (peakMemKB > 0)
+    oss << "Peak RSS: " << std::fixed << std::setprecision(2) << (static_cast<double>(peakMemKB) / 1024.0) << " MB\n";
 
   oss << "===============================================================\n";
 
