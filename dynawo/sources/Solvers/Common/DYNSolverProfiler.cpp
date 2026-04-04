@@ -208,7 +208,7 @@ void SolverProfiler::printReport() const {
   // --- Exclusive time breakdown ---
   // Exclusive time = phase total - sum of its direct children.
   // Parent-child relationships (phases that are instrumented as nested sub-scopes):
-  //   SimulationLoop -> SolverSolve, CurvesUpdate, IO
+  //   SimulationLoop -> CalculateIC, SolverSolve, CurvesUpdate, IO
   //   SolverSolve    -> SolverStep, NRSolve, DiscreteEval, ModeEval, Reinit
   //   SolverStep     -> ResidualEval, JacobianEval, RootEval
   //   JacobianEval   -> MatrixCopy, KLUSymbolic, KLUSetup
@@ -224,8 +224,12 @@ void SolverProfiler::printReport() const {
     return t < 0.0 ? 0.0 : t;  // clamp: clock skew can give tiny negatives
   };
 
+  // Fix B-EXCL-CALC_IC: PHASE_CALCULATE_IC runs inside the PHASE_SIMULATION_LOOP
+  // RAII scope (via Simulation::init() -> calculateICCommon()) and must be
+  // subtracted from SimulationLoop's exclusive time so that IC solve cost is
+  // not misattributed as loop-dispatch overhead.
   double exclSimLoop  = excl(PHASE_SIMULATION_LOOP,
-      {PHASE_SOLVER_SOLVE, PHASE_CURVES_UPDATE, PHASE_IO});
+      {PHASE_CALCULATE_IC, PHASE_SOLVER_SOLVE, PHASE_CURVES_UPDATE, PHASE_IO});
   double exclSolve    = excl(PHASE_SOLVER_SOLVE,
       {PHASE_SOLVER_STEP, PHASE_NR_SOLVE, PHASE_DISCRETE_EVAL, PHASE_MODE_EVAL, PHASE_REINIT});
   double exclStep     = excl(PHASE_SOLVER_STEP,
