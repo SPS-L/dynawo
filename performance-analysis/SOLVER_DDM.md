@@ -569,13 +569,44 @@ void SolverDDM::reinit() {
       throw DYNError(Error::SOLVER_ALGO, SolverDDMUnstableRoots);
   } while (modeChange >= minimumModeChangeTypeForAlgebraicRestoration_);
 }
+```
 
+Setting `bdf1Bootstrap_ = true` on every `reinit()` ensures BDF-2 restarts cleanly from one
+BDF-1 step, preventing stale `y[n-1]` values from before the event from corrupting the derivative
+estimate.
+
+#### `runAlgebraicNewtonLoop` with F-Scaling
+
+The algebraic Newton loop borrows the **F-scaling** technique from `SolverKINAlgRestoration`
+(see `DYNSolverKINAlgRestoration.cpp`, `solveStrategy()`): the initial residual is evaluated
+once before the Newton iterations and used to build a diagonal scale vector `fScale`. This
+improves the WRMS convergence check for residuals with large absolute magnitudes (e.g. power
+injections in per-unit systems where `|F_i| >> 1` on the first call). The implementation is
+~10 lines, adds no SUNDIALS dependency, and is entirely compatible with the Schur linear solve.
+
+```cpp
 bool SolverDDM::runAlgebraicNewtonLoop(bool forceJacUpdate) {
   const double cj_alg = 0.0;
+
+  // --- F-scaling: evaluate F once to build a diagonal scale vector -----------
+  // Mirrors SolverKINAlgRestoration::solveStrategy() — no SUNDIALS needed.
+  model_->copyContinuousVariables(vectorY_.data(), vectorYp_.data());
+  model_->evalF(tSolve_, vectorY_.data(), vectorYp_.data(), vectorF_.data());
+
+  std::vector<double> fScale(model_->sizeF(), 1.0);
+  for (int i = 0; i < model_->sizeF(); ++i)
+    if (std::abs(vectorF_[i]) > 1.0)
+      fScale[i] = 1.0 / std::abs(vectorF_[i]);
+  // ---------------------------------------------------------------------------
+
   for (int iter = 0; iter < mxiterAlg_; ++iter) {
-    model_->copyContinuousVariables(vectorY_.data(), vectorYp_.data());
-    model_->evalF(tSolve_, vectorY_.data(), vectorYp_.data(), vectorF_.data());
-    if (checkAlgConvergence()) return true;
+    // Re-evaluate F (skipped on iter==0: already evaluated above for scaling)
+    if (iter > 0) {
+      model_->copyContinuousVariables(vectorY_.data(), vectorYp_.data());
+      model_->evalF(tSolve_, vectorY_.data(), vectorYp_.data(), vectorF_.data());
+    }
+
+    if (checkAlgConvergence(fScale)) return true;   // weighted WRMS norm < fnormtolAlg_
 
     if (iter == 0 || forceJacUpdate) {
       SparseMatrix smj;
@@ -593,9 +624,22 @@ bool SolverDDM::runAlgebraicNewtonLoop(bool forceJacUpdate) {
 }
 ```
 
-Setting `bdf1Bootstrap_ = true` on every `reinit()` ensures BDF-2 restarts cleanly from one
-BDF-1 step, preventing stale `y[n-1]` values from before the event from corrupting the derivative
-estimate.
+The `checkAlgConvergence(fScale)` helper computes:
+
+$$
+\|R\|_{\text{wrms}} = \sqrt{\frac{1}{N} \sum_i \bigl(F_i \cdot \text{fScale}_i\bigr)^2}
+$$
+
+and returns `true` when this norm falls below `fnormtolAlg_`. This is strictly the same criterion
+as KINSOL's `KIN_NONE` strategy, so numerical behaviour is directly comparable to
+`SolverKINAlgRestoration`.
+
+> **Why not use `SolverKINAlgRestoration` directly?**  
+> `SolverKINAlgRestoration` calls `KINSolve`, `N_VMake_Serial`, and `SUNLinSol_KLU` internally —
+> it has no hook to inject the Schur linear solve. The variable-filtering in `initVarAndEqTypes()`
+> (algebraic vs. differential classification) is also incompatible with the Schur partition
+> (injector-internal vs. interface). The F-scaling logic is the only numerically valuable piece;
+> it is cleanly extracted here without any KINSOL dependency.
 
 ### 5.5 History Buffer Management
 
@@ -677,6 +721,7 @@ those belonging to `ModelNetwork`/`ModelBus` sub-models.
 | `linearSolverInjector` | string | no | `dense` | `dense` or `sparse` for injector A1 blocks |
 | `kluThreshold` | int | no | 500 | Min injector size to switch from LAPACK to KLU |
 | `numThreads` | int | no | `OMP_NUM_THREADS` | OpenMP thread count |
+| `fnormtolAlg` | double | no | 1e-4 | Convergence tolerance for algebraic restoration WRMS norm |
 
 ---
 
@@ -712,10 +757,11 @@ those belonging to `ModelNetwork`/`ModelBus` sub-models.
 ## 10. Key Design Decisions
 
 | Decision | Rationale |
-|----------|-----------|
+|----------|-----------| 
 | Dense Eigen + LAPACK for injectors | Injectors have 10–200 variables; `dgetrf` outperforms KLU below ~500 variables |
 | KLU for the network system | Already in the SuiteSparse dependency stack; reuses the `klu_analyze`/`klu_factor` pattern established by `SolverIDA` |
 | No KINSOL anywhere | Eliminates KINSOL wrapper overhead; hand-rolled loop gives direct control over convergence criteria and Jacobian reuse |
 | BDF-2 only (BDF-1 as one-step startup) | Matches the reference method; avoids the variable-order complexity of full IDA BDF1–5 |
 | History flush on `reinit()` | Prevents stale `y[n-1]` from polluting the BDF-2 derivative estimate after a topology change |
 | `kReduceStep_` as LTE clamp | Reuses a familiar parameter name; semantics shift from fixed multiplier to factor bound — document clearly in PAR file comments |
+| F-scaling in `runAlgebraicNewtonLoop` | Cherry-picked from `SolverKINAlgRestoration::solveStrategy()`: builds a diagonal scale from the initial residual to improve WRMS convergence detection for large-magnitude residuals; ~10 lines, zero SUNDIALS dependency |
