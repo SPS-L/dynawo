@@ -30,6 +30,7 @@ The profiling framework is a lightweight, zero-overhead-when-disabled system bui
 │  ├─ DYN_PROFILE_PHASE_MEM(PHASE_SIMULATION_LOOP)  [outer scope]      │
 │  ├─ DYN_PROFILE_RECORD_TIMESTEP(t, ms, KB)        [per step]         │
 │  └─ DYN_PROFILE_PHASE(PHASE_CURVES_UPDATE)        [updateCurves()]   │
+│  └─ DYN_PROFILE_PHASE(PHASE_IO)                   [terminate()]      │
 ├──────────────────────────────────────────────────────────────────────┤
 │                        Solver layer                                  │
 │  DYNSolverCommon.cpp                                                 │
@@ -44,8 +45,7 @@ The profiling framework is a lightweight, zero-overhead-when-disabled system bui
 │  ├─ DYN_PROFILE_PHASE(PHASE_NR_SOLVE)                                │
 │  ├─ DYN_PROFILE_PHASE(PHASE_MATRIX_COPY)                             │
 │  ├─ DYN_PROFILE_PHASE(PHASE_KINSOL_SOLVE)                            │
-│  ├─ DYN_PROFILE_PHASE(PHASE_REINIT)                                  │
-│  └─ DYN_PROFILE_PHASE(PHASE_IO)         [Simulation::terminate()]    │
+│  └─ DYN_PROFILE_PHASE(PHASE_REINIT)                                  │
 ├──────────────────────────────────────────────────────────────────────┤
 │                        KLU linear-algebra layer                      │
 │  DYNSolverKINEULERCommon.cpp / DYNSolverIDA* (ops-patching)          │
@@ -77,14 +77,14 @@ The profiling framework is a lightweight, zero-overhead-when-disabled system bui
 ### CMake Option
 
 ```bash
-cmake -DDYNAWO_PROFILING=ON ...
+cmake -DDYNAWO_PROFILING=ON ..
 ```
 
 This defines the `DYNAWO_PROFILING` preprocessor symbol, which activates all `DYN_PROFILE_*` macros and sets `SolverProfiler::enabled_ = true` in the constructor.
 
 **Standard (non-profiling) build:**
 ```bash
-cmake -DDYNAWO_PROFILING=OFF ...
+cmake -DDYNAWO_PROFILING=OFF ..
 # or simply omit — OFF is the default
 ```
 
@@ -111,6 +111,7 @@ Phases are **inclusive** (a parent's `totalTime` includes all nested children). 
 
 ```
 SIMULATION_LOOP  (memory-tracked, RAII scope in simulate())
+├── CALCULATE_IC       (initial condition solve — called before the main loop)
 ├── SOLVER_SOLVE       (per solver_->solve() call)
 │   ├── SOLVER_STEP        (per IDA/Euler integration step)
 │   │   ├── RESIDUAL_EVAL      (F(x,x',y,t) evaluation)
@@ -127,11 +128,12 @@ SIMULATION_LOOP  (memory-tracked, RAII scope in simulate())
 │   ├── MODE_EVAL          (mode detection and state machine update)
 │   └── REINIT             (solver reinit after mode change)
 ├── CURVES_UPDATE      (updateCurves() — calculated-var flush)
-├── CALCULATE_IC       (initial condition solve, outside main loop)
 └── IO                 (terminate() — file export, final state dump)
 ```
 
-> **Note on shared children**: `RESIDUAL_EVAL` and `JACOBIAN_EVAL` appear under both `SOLVER_STEP` and `KINSOL_SOLVE`. The exclusive-time calculation in `printReport()` subtracts them only from their **immediate parent** as declared in the `excl()` lambda, which is the correct attribution — see §8 (Bug B-EXCL-1) for a known limitation.
+> **Note on shared children**: `RESIDUAL_EVAL` and `JACOBIAN_EVAL` appear under both `SOLVER_STEP` and `KINSOL_SOLVE`. The exclusive-time calculation in `printReport()` subtracts them only from their **immediate parent** as declared in the `excl()` lambda, which is the correct attribution — see §8 (B-EXCL-1) for a known limitation.
+
+> **Note on `CALCULATE_IC`**: Although `CALCULATE_IC` is conceptually a child of `SIMULATION_LOOP` (it runs before the main loop), the current `excl()` lambda in `printReport()` does **not** subtract it from `SIMULATION_LOOP`'s exclusive time. See §8 (B-EXCL-CALC_IC).
 
 ### Phase Reference Table
 
@@ -167,10 +169,23 @@ SIMULATION_LOOP  (memory-tracked, RAII scope in simulate())
 // Outer loop — memory-tracked
 DYN_PROFILE_PHASE_MEM(PHASE_SIMULATION_LOOP);   // RAII, fires at '}' of inner scope
 
-// Per-timestep timing — independent of real-time tracking CSV
-auto stepStartTime = std::chrono::high_resolution_clock::now(); // declared unconditionally
-// ... solver_->solve() ...
+// Per-timestep timing — stepStartTime declared unconditionally so both
+// real-time tracking and the profiler can share it without ordering dependency.
+auto stepStartTime = std::chrono::high_resolution_clock::now();
+// ... solver_->solve() and all step work ...
 
+// Real-time tracking block (compiled unconditionally, gated at runtime)
+if (enableRealTimeTracking_) {
+  auto stepEndTime = std::chrono::high_resolution_clock::now();
+  double stepTimeMs = std::chrono::duration_cast<std::chrono::microseconds>(
+      stepEndTime - stepStartTime).count() / 1000.0;
+  auto accDur = std::chrono::duration_cast<std::chrono::microseconds>(
+      stepEndTime - simulationStartTime_);
+  double accTimeS = accDur.count() / 1000000.0;
+  timingData_.emplace_back(tCurrent_, stepTimeMs, accTimeS);
+}
+
+// Profiler timestep record — independent of enableRealTimeTracking_
 #ifdef DYNAWO_PROFILING
 {
   auto stepEndTime = std::chrono::high_resolution_clock::now();
@@ -182,6 +197,8 @@ auto stepStartTime = std::chrono::high_resolution_clock::now(); // declared unco
 #endif
 ```
 
+> **Note**: `stepEndTime` is captured separately inside each feature's block (see §8 B-STEPTIME-DOUBLE). Both blocks are independent; when both features are active, `chrono::now()` is called twice per step.
+
 **`Simulation::updateCurves()`**
 
 ```cpp
@@ -189,7 +206,7 @@ void Simulation::updateCurves(const bool updateCalculatedVariable) const {
   if (exportCurvesMode_ == EXPORT_CURVES_NONE &&
       exportFinalStateValuesMode_ == EXPORT_FINAL_STATE_VALUES_NONE)
     return;               // ← zero cost if no curves configured
-  DYN_PROFILE_PHASE(PHASE_CURVES_UPDATE);  // ← B3b: after guard
+  DYN_PROFILE_PHASE(PHASE_CURVES_UPDATE);  // ← placed after early-return guard
   // ...
 }
 ```
@@ -251,16 +268,17 @@ Called explicitly via `DYN_PROFILE_PRINT_REPORT()` at the end of `simulate()`. W
 
 **Inclusive table** — columns: `Phase | Total(s) | Calls | Avg(ms) | Min(ms) | Max(ms) | Pct(%)`
 
-**Exclusive breakdown** — shows `Phase | Excl(s) | Pct(%)` for the six phases that have instrumented children.
+**Exclusive breakdown** — shows `Phase | Excl(s) | Pct(%)` for the six phases that have instrumented children: `SimulationLoop`, `SolverSolve`, `SolverStep`, `JacobianEval`, `NRSolve`, `KINSOLSolve`.
 
-**Timestep count** and **Peak RSS** are appended at the bottom.
+**Timestep count** and **Peak RSS** are appended at the bottom. Peak RSS is derived from the timestep series (`timestepRecords_`) when available; if no timestep records exist (e.g., `DYN_PROFILE_RECORD_TIMESTEP` was never called), it falls back to scanning `PhaseStats::peakMemoryKB` across all phases.
 
 ### 5.2 CSV Export (`DYNAWO_PROFILE_OUTPUT=<file>.csv`)
 
-Two sections in a single file:
+Two sections in a single file, separated by a blank line and identified by `# PHASES` / `# TIMESTEPS` comment headers:
 
 **Section 1 — Phase summary:**
 ```
+# PHASES
 phase,total_seconds,call_count,avg_ms,min_ms,max_ms,peak_memory_kb
 SimulationLoop,12.345678,1,12345.6780,12345.6780,12345.6780,204800
 SolverSolve,11.234567,1000,11.2346,...
@@ -269,11 +287,15 @@ SolverSolve,11.234567,1000,11.2346,...
 
 **Section 2 — Timestep time-series (appended after a blank line):**
 ```
+
+# TIMESTEPS
 sim_time,step_duration_ms,memory_kb
 0.000000,1.2340,204800
 0.010000,1.1890,204816
 ...
 ```
+
+The `# PHASES` and `# TIMESTEPS` comment markers allow standard CSV parsers (pandas, Excel) to detect section boundaries. In pandas, skip comment lines with `pd.read_csv(f, comment='#')` after splitting the file at the blank line.
 
 ### 5.3 JSON Export (`DYNAWO_PROFILE_OUTPUT=<file>.json`)
 
@@ -321,7 +343,7 @@ This is a **separate, independent feature** from the profiler. It is controlled 
 | Output | `DYNAWO_PROFILE_OUTPUT` env-var | `<outputsDir>/simRT.csv` |
 | Phase data | Yes (17 phases) | No |
 
-**Important (post B4)**: `DYN_PROFILE_RECORD_TIMESTEP` is now executed in its own `#ifdef DYNAWO_PROFILING` scope, independently of `enableRealTimeTracking_`. Both features share the same `stepStartTime` variable (declared unconditionally before `solver_->solve()`). The `stepEndTime` variable is computed twice (once per feature when both are active) — this is intentional to keep both features decoupled and avoid ordering dependency.
+**Important (post B4)**: `DYN_PROFILE_RECORD_TIMESTEP` is executed in its own `#ifdef DYNAWO_PROFILING` scope, independently of `enableRealTimeTracking_`. Both features share the same `stepStartTime` variable (declared unconditionally before `solver_->solve()`). The `stepEndTime` variable is computed separately inside each feature's block — see §8 B-STEPTIME-DOUBLE for the minor overhead implication.
 
 ---
 
@@ -353,7 +375,7 @@ Added `PHASE_CURVES_UPDATE` as enum value 16 in `ProfilePhase`, with a Doxygen c
 3. Implemented the **exclusive-time breakdown** section in `printReport()` using the `excl()` lambda with hard-coded parent→children relationships.
 4. Added `PHASE_CURVES_UPDATE` as a child of `PHASE_SIMULATION_LOOP` in the exclusive calculation for `SimulationLoop`.
 
-### Commit 6 — `f1b880` — *fix(profiler): instrument solveStepCommon (B1) and calculateICCommon (B2) with profiler phases*
+### Commit 6 — `f1b8800` — *fix(profiler): instrument solveStepCommon (B1) and calculateICCommon (B2) with profiler phases*
 
 Added `DYN_PROFILE_PHASE(PHASE_SOLVER_SOLVE)` at the entry of `SolverCommon::solveStepCommon()` and `DYN_PROFILE_PHASE(PHASE_CALCULATE_IC)` at the entry of `SolverCommon::calculateICCommon()`. These are the two most important coarse-grained instrumentation points for separating initialization cost from simulation loop cost.
 
@@ -366,50 +388,48 @@ Added `DYN_PROFILE_PHASE(PHASE_SOLVER_SOLVE)` at the entry of `SolverCommon::sol
 
 ## 8. Audit — Known Issues and Limitations
 
-### 🔴 BUG — B-CSV-PARSE: Two-section CSV breaks standard parsers
+### 🟢 RESOLVED — B-CSV-PARSE: Two-section CSV now uses `# PHASES` / `# TIMESTEPS` markers
 
 **Location**: `SolverProfiler::exportCSV()` in `DYNSolverProfiler.cpp`
 
-**Description**: The CSV file contains two independent tables separated by a blank line, with different column counts (7 vs 3). Any standard CSV reader (`pandas.read_csv`, `csv.reader`) will fail on the second table or interpret blank lines as errors.
+**Status**: **Fixed.** The `exportCSV()` implementation now writes explicit `# PHASES` and `# TIMESTEPS` comment lines before each section header. Standard CSV parsers that support comment skipping (e.g., `pd.read_csv(..., comment='#')`) can parse either section cleanly. The blank line between sections is still present as an additional visual separator.
 
-**Consequence**: `analyze_profile.py` must implement custom parsing to skip the blank line and detect section boundaries. If a user opens the file with Excel or a naive parser they will get garbled output.
-
-**Recommended fix**: Output two separate files — `profile_phases.csv` and `profile_timesteps.csv` — or add a dedicated section-header comment line:
+**Actual output format** (as implemented):
 ```
 # PHASES
-phase,total_seconds,...
-...
+phase,total_seconds,call_count,avg_ms,min_ms,max_ms,peak_memory_kb
+SimulationLoop,...
+
 # TIMESTEPS
 sim_time,step_duration_ms,memory_kb
-...
+0.000000,...
 ```
 
 ---
 
-### 🔴 BUG — B-MINTIME-INIT: `minTime` initialised to `+∞` but never guarded in report
+### 🔴 BUG — B-EXCL-CALC_IC: `CALCULATE_IC` not subtracted from `SimulationLoop` exclusive time
 
-**Location**: `PhaseStats::reset()` initialises `minTime = std::numeric_limits<double>::max()`. The `printReport()` method guards it:
-```cpp
-double minMs = (s.minTime < std::numeric_limits<double>::max()) ? s.minTime * 1000.0 : 0.0;
-```
-But `exportCSV()` and `exportJSON()` apply the same guard. **This is actually correct** — however `exportJSON()` applies the guard only for `min_ms`:
-```cpp
-double minMs = (s.minTime < ...) ? s.minTime * 1000.0 : 0.0;
-```
-If a phase is recorded exactly **once**, `minTime == maxTime == elapsedSeconds` and the guard fires correctly. **However**, if the phase is entered but the `PhaseTimer` is destroyed before `record()` is called (e.g., early-return inside the timed scope via exception), `callCount > 0` but `minTime` remains `+∞` in the CSV/JSON output.
+**Location**: `SolverProfiler::printReport()`, `excl()` lambda in `DYNSolverProfiler.cpp`
 
-**Recommended fix**: In `SolverProfiler::record()`, always clamp `minTime`:
+**Description**: `PHASE_CALCULATE_IC` is instrumented in `SolverCommon::calculateICCommon()` which is called from `Simulation::calculateIC()` — inside `Simulation::init()`, **before** the main simulation loop but **within** the `PHASE_SIMULATION_LOOP` RAII scope. The exclusive-time lambda is:
+
 ```cpp
-void SolverProfiler::record(ProfilePhase phase, double elapsedSeconds) {
-  if (!enabled_) return;
-  PhaseStats& s = stats_[phase];
-  s.totalTime += elapsedSeconds;
-  s.callCount++;
-  if (elapsedSeconds < s.minTime) s.minTime = elapsedSeconds;  // always fires on first call
-  if (elapsedSeconds > s.maxTime) s.maxTime = elapsedSeconds;
-}
+double exclSimLoop = excl(PHASE_SIMULATION_LOOP,
+    {PHASE_SOLVER_SOLVE, PHASE_CURVES_UPDATE, PHASE_IO});
 ```
-This is already correct — the guard is defensive only for the zero-call case. The real issue is that `callCount` can become non-zero without `minTime` being set if `PhaseTimer::~PhaseTimer()` calls `record()` with `elapsedSeconds = 0.0` due to a zero-duration race. This is highly unlikely in practice but worth noting.
+
+`PHASE_CALCULATE_IC` is not in this child list. Its time is therefore attributed to `SimulationLoop` exclusive time, making it appear as "overhead" of the loop dispatch rather than initial-condition cost.
+
+**Consequence**: For simulations where IC calculation is significant (stiff initial transients, large KINSOL solve at t=0), `SimulationLoop` exclusive time is overstated. The `CalculateIC` row in the inclusive table is correct, but the exclusive section misattributes the time.
+
+**Fix**: Add `PHASE_CALCULATE_IC` to the `SimulationLoop` exclusive child list:
+
+```cpp
+// DYNSolverProfiler.cpp — printReport(), excl() section
+double exclSimLoop = excl(PHASE_SIMULATION_LOOP,
+    {PHASE_SOLVER_SOLVE, PHASE_CURVES_UPDATE, PHASE_IO, PHASE_CALCULATE_IC});
+//                                                       ^^^^^^^^^^^^^^^^^^^ add this
+```
 
 ---
 
@@ -419,9 +439,10 @@ This is already correct — the guard is defensive only for the zero-call case. 
 
 **Description**: `RESIDUAL_EVAL` and `JACOBIAN_EVAL` are subtracted from both `SOLVER_STEP` and `KINSOL_SOLVE` via separate `excl()` calls. However, these two phases may be entered from both contexts in the same simulation run. The exclusive calculation assumes a strict single-parent model and does not apportion time proportionally.
 
-**Consequence**: In DynaSwing simulations using KINSOL for algebraic initialisation, `SolverStep` exclusive time may appear slightly negative or misleadingly small.
+**Consequence**: In DynaSwing simulations using KINSOL for algebraic initialisation, `SolverStep` exclusive time may appear slightly negative or misleadingly small. The `printReport()` code clamps negative exclusive times to `0.0`.
 
-**Recommendation**: Add a note in the report output header: *"Exclusive times assume single-parent nesting; shared phases (ResidualEval, JacobianEval) may be double-counted under mixed IDA+KINSOL runs."*
+The `printReport()` output already includes a warning comment:
+> *"Exclusive times assume single-parent nesting; shared phases (ResidualEval, JacobianEval) may be double-counted under mixed IDA+KINSOL runs — interpret SolverStep exclusive time with caution."*
 
 ---
 
@@ -441,7 +462,7 @@ This is already correct — the guard is defensive only for the zero-call case. 
 
 **Description**: When both `enableRealTimeTracking_ = true` AND `DYNAWO_PROFILING` is defined, two separate `chrono::high_resolution_clock::now()` calls are made per timestep — one inside `if (enableRealTimeTracking_)` and one inside `#ifdef DYNAWO_PROFILING`. The two timestamps are microseconds apart and will slightly overstate both durations.
 
-**Recommended fix**: Capture a single `stepEndTime` unconditionally (mirroring `stepStartTime`):
+**Recommended fix**: Capture a single `stepEndTime` unconditionally (mirroring `stepStartTime`), then share it across both blocks:
 ```cpp
 // After solver_->solve() and all step work:
 auto stepEndTime = std::chrono::high_resolution_clock::now();
@@ -467,9 +488,27 @@ if (enableRealTimeTracking_) {
 
 **Description**: `DYN_PROFILE_PHASE_MEM(PHASE_SIMULATION_LOOP)` uses `trackMemory = true`, which calls `getCurrentMemoryKB()` once at the end of the loop. Only `peakMemoryKB` for `PHASE_SIMULATION_LOOP` is populated via this path. Sub-phases (`PHASE_KLU_SETUP`, etc.) never populate `peakMemoryKB` unless `recordWithMemory()` is called explicitly.
 
-**Consequence**: The *"Peak RSS"* reported at the bottom of `printReport()` scans all phases but will only find non-zero in `PHASE_SIMULATION_LOOP`, making the scan redundant.
+**Consequence**: The *"Peak RSS"* scan in `printReport()` prioritises the timestep series (`timestepRecords_[i].memoryKB`) which is populated by `DYN_PROFILE_RECORD_TIMESTEP` on every step. The `PhaseStats::peakMemoryKB` fallback scan is only reached when no timestep records exist — at which point only `PHASE_SIMULATION_LOOP` will have a non-zero value, making the scan redundant.
 
-**Recommendation**: Either instrument critical sub-phases with `DYN_PROFILE_PHASE_MEM(...)` (note: `fopen("/proc/self/status")` per step is expensive), or capture memory only in `DYN_PROFILE_RECORD_TIMESTEP` (already done) and report peak from the timestep series rather than from `PhaseStats::peakMemoryKB`.
+**Recommendation**: The current two-stage fallback (timestep series → PhaseStats scan) is correct and adequate. No code change needed; the `PhaseStats` fallback is a safety net for profiling builds that omit `DYN_PROFILE_RECORD_TIMESTEP`.
+
+---
+
+### 🟢 NOTE — B-MINTIME-INIT: `minTime` guard is correct and not reachable as a bug
+
+**Location**: `PhaseStats::reset()` initialises `minTime = std::numeric_limits<double>::max()`.
+
+**Analysis**: The original concern was that `callCount > 0` could occur while `minTime` remains `+∞` if `PhaseTimer::~PhaseTimer()` is invoked without completing `record()`. In practice this cannot happen:
+
+1. `PhaseTimer::~PhaseTimer()` always calls `record()` or `recordWithMemory()`.
+2. `PhaseTimer::elapsed()` uses `std::chrono::duration<double>::count()` which is `noexcept` — it cannot throw.
+3. The first `record()` call always satisfies `elapsedSeconds < std::numeric_limits<double>::max()`, so `minTime` is updated on the first entry.
+
+The defensive guard in `exportCSV()`, `exportJSON()`, and `printReport()`:
+```cpp
+double minMs = (s.minTime < std::numeric_limits<double>::max()) ? s.minTime * 1000.0 : 0.0;
+```
+protects only against the zero-call case (`callCount == 0`, `minTime` unreset). This is correct and complete. No code change needed.
 
 ---
 
@@ -477,15 +516,15 @@ if (enableRealTimeTracking_) {
 
 **Description**: `DYN_PROFILE_RECORD_TIMESTEP` calls `SolverProfiler::getCurrentMemoryKB()` per timestep, which opens and scans `/proc/self/status`. On Linux this is a virtual file backed by the kernel's task structure — typically ~2–5 µs per call. For a 10-second simulation with 1 ms average timestep (~10,000 steps), this adds ~20–50 ms to total runtime (~0.2–0.5% overhead). Acceptable for profiling builds.
 
-**Recommendation**: None required. Acceptable overhead for a profiling build. Document in user-facing README.
+**Recommendation**: None required. Acceptable overhead for a profiling build.
 
 ---
 
-### 🟢 NOTE — B-REINIT-SCOPE: `PHASE_REINIT` declared but instrumentation not confirmed
+### 🟢 NOTE — B-REINIT-SCOPE: `PHASE_REINIT` placement not confirmed from `simulate()` alone
 
-**Description**: `PHASE_REINIT` appears in the enum and `phaseToString()` but its placement in `DYNSolverCommon.cpp` was not explicitly part of the 7-commit series. If `solver_->reinit()` in `simulate()` is not wrapped, `callCount` will be zero and it will not appear in the report — which is silently correct behaviour but can create confusion during analysis.
+**Description**: `PHASE_REINIT` appears in the enum and `phaseToString()`. In `Simulation::simulate()`, `solver_->reinit()` is called when `solverState.getFlags(ModeChange)` is true, but this call is not wrapped with `DYN_PROFILE_PHASE(PHASE_REINIT)` at the simulation layer. The instrumentation is expected to be inside the solver's `reinit()` implementation in `DYNSolverCommon.cpp`. If it is absent there, `callCount` will be zero and the phase will not appear in reports — which is silently correct behaviour but creates confusion.
 
-**Recommendation**: Verify that `DYN_PROFILE_PHASE(PHASE_REINIT)` is placed at the entry of the solver's `reinit()` implementation in `DYNSolverCommon.cpp`.
+**Recommendation**: Verify that `DYN_PROFILE_PHASE(PHASE_REINIT)` is present at the entry of the solver's `reinit()` implementation in `DYNSolverCommon.cpp`.
 
 ---
 
@@ -522,7 +561,7 @@ import json
 with open('/tmp/dynawo_profile.json') as f:
     d = json.load(f)
 for p in sorted(d['phases'], key=lambda x: -x['total_seconds']):
-    print(f"{p['name']:20s}  {p['total_seconds']:8.3f}s  ({p['call_count']} calls)")
+    print(f\"{p['name']:20s}  {p['total_seconds']:8.3f}s  ({p['call_count']} calls)\")
 "
 ```
 
@@ -568,4 +607,4 @@ Then also set `DYNAWO_PROFILE_OUTPUT`. Both outputs will be generated independen
 
 ---
 
-*Last updated: April 2026 — reflects commits `1dce6fd`…`4f7340a` on `3_performance-analysis-framework`.*
+*Last updated: April 2026 — reflects commits `1dce6fd`…`4f7340a` on `3_performance-analysis-framework`. Audit pass performed against `DYNSimulation.cpp`, `DYNSolverProfiler.h`, and `DYNSolverProfiler.cpp` (branch HEAD `c3ba4f8`).*
