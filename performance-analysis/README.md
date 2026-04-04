@@ -711,32 +711,32 @@ sudo sh -c 'echo 0 > /proc/sys/kernel/kptr_restrict'
 ### Step 1 — Record
 
 ```bash
-mkdir -p results/perf
+mkdir -p results/nordic/perf
 
 perf record \
     -F 999 \
-    --call-graph dwarf,65536 \
-    -o results/perf/perf.data \
+    --call-graph dwarf,32768 \
+    -o results/nordic/perf/perf.data \
     -- \
-    ./myEnvDynawo.sh jobs <path/to/case.jobs>
+    ./myEnvDynawo.sh jobs examples/DynaWaltz/Nordic/Nordic.jobs
 ```
 
 | Flag | Purpose |
 |------|---------|
 | `-F 999` | ~1 kHz sampling rate (stay below the 1000 Hz NMI watchdog threshold) |
-| `--call-graph dwarf,65536` | DWARF-based stack unwinding with 64 KB stack snapshot; works without `-fno-omit-frame-pointer` |
-| `-o results/perf/perf.data` | Output file |
+| `--call-graph dwarf,32768` | DWARF-based stack unwinding with 32 KB stack snapshot; works without `-fno-omit-frame-pointer` |
+| `-o results/nordic/perf/perf.data` | Output file |
 
 ### Step 2 — Flat report filtered to KLU symbols
 
 ```bash
 perf report \
-    -i results/perf/perf.data \
+    -i results/nordic/perf/perf.data \
     --stdio \
     --sort comm,dso,symbol \
     --no-children \
     | grep -E 'klu_l_analyze|klu_l_factor|klu_l_refactor|klu_l_solve|btf_l_maxtrans|btf_l_strongcomp' \
-    | tee results/perf/klu_hotspots.txt
+    | tee results/nordic/perf/klu_hotspots.txt
 ```
 
 Each output line shows `% overhead  symbol  DSO`. The `klu_l_analyze` row gives
@@ -761,7 +761,7 @@ rather than `CalculateIC` (startup only):
 
 ```bash
 perf report \
-    -i results/perf/perf.data \
+    -i results/nordic/perf/perf.data \
     --stdio \
     --call-graph graph,0.5 \
     | grep -A 20 'klu_l_analyze'
@@ -775,15 +775,15 @@ A flame graph makes the relative widths of `klu_analyze` vs. `klu_factor` vs.
 ```bash
 git clone https://github.com/brendangregg/FlameGraph ~/FlameGraph
 
-perf script -i results/perf/perf.data \
+perf script -i results/nordic/perf/perf.data \
     | ~/FlameGraph/stackcollapse-perf.pl \
     | ~/FlameGraph/flamegraph.pl \
         --title "Dynawo — KLU sub-symbol breakdown" \
         --width 1600 \
-    > results/perf/flamegraph.svg
+    > results/nordic/perf/flamegraph.svg
 ```
 
-Open `flamegraph.svg` in a browser; click any KLU frame to zoom in.
+Open `results/nordic/perf/flamegraph.svg` in a browser; click any KLU frame to zoom in.
 
 ### Step 5 — Make the measurement permanent
 

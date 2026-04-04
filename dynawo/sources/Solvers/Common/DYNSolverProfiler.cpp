@@ -229,14 +229,28 @@ void SolverProfiler::printReport() const {
       continue;
     double pct = (s.totalTime / totalSim) * 100.0;
     double minMs = (s.minTime < std::numeric_limits<double>::max()) ? s.minTime * 1000.0 : 0.0;
-    oss << std::left << std::setw(20) << phaseToString(static_cast<ProfilePhase>(i))
-        << std::right << std::fixed << std::setprecision(3)
-        << std::setw(12) << s.totalTime
-        << std::setw(10) << s.callCount
-        << std::setw(12) << s.avgTime() * 1000.0
-        << std::setw(12) << minMs
-        << std::setw(12) << s.maxTime * 1000.0
-        << std::setw(10) << std::setprecision(1) << pct
+
+    // Build row explicitly to ensure consistent formatting
+    oss << std::left << std::setw(20) << phaseToString(static_cast<ProfilePhase>(i));
+
+    // Total(s) - always apply fixed and precision(3)
+    oss << std::right << std::fixed << std::setprecision(3)
+        << std::setw(12) << s.totalTime;
+
+    // Calls - print as integer
+    oss << std::setw(10) << static_cast<uint64_t>(s.callCount);
+
+    // Avg(ms) - fixed, precision 3
+    oss << std::setw(12) << (s.avgTime() * 1000.0);
+
+    // Min(ms) - fixed, precision 3
+    oss << std::setw(12) << minMs;
+
+    // Max(ms) - fixed, precision 3
+    oss << std::setw(12) << (s.maxTime * 1000.0);
+
+    // Pct(%) - precision 1
+    oss << std::setprecision(1) << std::setw(10) << pct
         << "\n";
   }
 
