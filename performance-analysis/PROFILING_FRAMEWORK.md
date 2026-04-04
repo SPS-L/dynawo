@@ -543,15 +543,33 @@ for p in sorted(d['phases'], key=lambda x: -x['total_seconds']):
 
 ```bash
 # Build with frame pointers for better call-graph reconstruction
-cmake -DDYNAWO_PROFILING=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-      -DCMAKE_CXX_FLAGS="-fno-omit-frame-pointer" ..
-make -j$(nproc)
+./myEnvDynawo.sh clean-build-dynawo \
+  --cmake-options "-DCMAKE_CXX_FLAGS=-fno-omit-frame-pointer"
 
 # Record with call-graph
-perf record -g --call-graph dwarf -- dynawo.sh jobs mySimulation.jobs
+mkdir -p results/nordic/perf
+perf record \
+  -F 1999 \
+  --call-graph fp \
+  -o results/nordic/perf/perf.data \
+  -- ./myEnvDynawo.sh jobs examples/DynaWaltz/Nordic/Nordic.jobs
 
-# Report: focus on KLU
-perf report --no-children -g --sort symbol | grep -A5 klu
+# Report: dynawo binary only call graph
+perf report \
+  -i results/nordic/perf/perf.data \
+  --stdio \
+  --dso dynawo-1.8.0 \
+  --call-graph graph,0.5 \
+  > results/nordic/perf/graph_fp.txt
+
+# Optional KLU hotspot extraction
+perf report \
+  -i results/nordic/perf/perf.data \
+  --stdio \
+  --sort comm,dso,symbol \
+  --no-children \
+  | grep -E 'klu_l_analyze|klu_l_factor|klu_l_refactor|klu_l_solve|btf_l_maxtrans|btf_l_strongcomp' \
+  | tee results/nordic/perf/klu_hotspots.txt
 
 # Annotate specific function
 perf annotate klu_refactor

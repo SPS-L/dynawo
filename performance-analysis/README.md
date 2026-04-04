@@ -704,9 +704,13 @@ sudo sh -c 'echo 0 > /proc/sys/kernel/kptr_restrict'
 ```
 
 > **Note on frame pointers:** GCC `-O2`/`-O3` omits frame pointers by default,
-> which breaks `--call-graph fp`. Use `--call-graph dwarf` (DWARF stack
-> unwinding) as shown below, or add `-fno-omit-frame-pointer` to
-> `DYNAWO_CMAKE_OPTIONAL` and switch to the faster `--call-graph fp`.
+> which breaks `--call-graph fp`. Rebuild Dynawo with frame pointers enabled
+> before recording:
+>
+> ```bash
+> ./myEnvDynawo.sh clean-build-dynawo \
+>   --cmake-options "-DCMAKE_CXX_FLAGS=-fno-omit-frame-pointer"
+> ```
 
 ### Step 1 — Record
 
@@ -714,8 +718,8 @@ sudo sh -c 'echo 0 > /proc/sys/kernel/kptr_restrict'
 mkdir -p results/nordic/perf
 
 perf record \
-    -F 999 \
-    --call-graph dwarf,32768 \
+  -F 1999 \
+  --call-graph fp \
     -o results/nordic/perf/perf.data \
     -- \
     ./myEnvDynawo.sh jobs examples/DynaWaltz/Nordic/Nordic.jobs
@@ -723,26 +727,23 @@ perf record \
 
 | Flag | Purpose |
 |------|---------|
-| `-F 999` | ~1 kHz sampling rate (stay below the 1000 Hz NMI watchdog threshold) |
-| `--call-graph dwarf,32768` | DWARF-based stack unwinding with 32 KB stack snapshot; works without `-fno-omit-frame-pointer` |
+| `-F 1999` | Sampling frequency set to 1999 Hz |
+| `--call-graph fp` | Frame-pointer call graph (requires build with `-fno-omit-frame-pointer`) |
 | `-o results/nordic/perf/perf.data` | Output file |
 
-### Step 2 — Flat report filtered to KLU symbols
+### Step 2 — Report filtered to Dynawo binary
 
 ```bash
 perf report \
     -i results/nordic/perf/perf.data \
     --stdio \
-    --sort comm,dso,symbol \
-    --no-children \
-    | grep -E 'klu_l_analyze|klu_l_factor|klu_l_refactor|klu_l_solve|btf_l_maxtrans|btf_l_strongcomp' \
-    | tee results/nordic/perf/klu_hotspots.txt
+  --dso dynawo-1.8.0 \
+  --call-graph graph,0.5 \
+  > results/nordic/perf/graph_fp.txt
 ```
 
-Each output line shows `% overhead  symbol  DSO`. The `klu_l_analyze` row gives
-the directly measured fraction of total CPU cycles spent in symbolic
-factorization for this specific testcase and model size — not an estimate
-extrapolated from a different run.
+This report keeps only samples from the Dynawo binary and writes a call-graph
+view to `results/nordic/perf/graph_fp.txt`.
 
 Key symbols to watch:
 
@@ -754,17 +755,18 @@ Key symbols to watch:
 | `klu_l_refactor` | Numeric-only re-factorization (cheaper; skips symbolic) |
 | `klu_l_solve` / `klu_l_tsolve` | Forward/backward triangular solves |
 
-### Step 3 — Confirm call origin with call-graph
+### Step 3 — Optional KLU hotspot extraction
 
-Verify each KLU symbol is called from `KINSOLSolve` (event reinitializations)
-rather than `CalculateIC` (startup only):
+If you need KLU-only hotspot lines from the same capture, run:
 
 ```bash
 perf report \
     -i results/nordic/perf/perf.data \
     --stdio \
-    --call-graph graph,0.5 \
-    | grep -A 20 'klu_l_analyze'
+  --sort comm,dso,symbol \
+  --no-children \
+  | grep -E 'klu_l_analyze|klu_l_factor|klu_l_refactor|klu_l_solve|btf_l_maxtrans|btf_l_strongcomp' \
+  | tee results/nordic/perf/klu_hotspots.txt
 ```
 
 ### Step 4 — Flame graph (optional)
