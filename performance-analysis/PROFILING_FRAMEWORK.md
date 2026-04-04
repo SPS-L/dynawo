@@ -133,8 +133,6 @@ SIMULATION_LOOP  (memory-tracked, RAII scope in simulate())
 
 > **Note on shared children**: `RESIDUAL_EVAL` and `JACOBIAN_EVAL` appear under both `SOLVER_STEP` and `KINSOL_SOLVE`. The exclusive-time calculation in `printReport()` subtracts them only from their **immediate parent** as declared in the `excl()` lambda, which is the correct attribution — see §8 (B-EXCL-1) for a known limitation.
 
-> **Note on `CALCULATE_IC`**: Although `CALCULATE_IC` is conceptually a child of `SIMULATION_LOOP` (it runs before the main loop), the current `excl()` lambda in `printReport()` does **not** subtract it from `SIMULATION_LOOP`'s exclusive time. See §8 (B-EXCL-CALC_IC).
-
 ### Phase Reference Table
 
 | Enum | String | Source | Triggered by |
@@ -384,6 +382,16 @@ Added `DYN_PROFILE_PHASE(PHASE_SOLVER_SOLVE)` at the entry of `SolverCommon::sol
 1. **B3b**: Added `DYN_PROFILE_PHASE(PHASE_CURVES_UPDATE)` inside `Simulation::updateCurves()` after the early-return guard. Closes the gap between the enum definition (B3a) and actual instrumentation.
 2. **B4**: Moved `DYN_PROFILE_RECORD_TIMESTEP` out of the `if (enableRealTimeTracking_)` block into a standalone `#ifdef DYNAWO_PROFILING` scope, so profiling builds always record per-timestep entries regardless of JOB XML settings.
 
+### Commit 8 — `bf4376b` — *fix(profiler): add CALCULATE_IC to SimulationLoop exclusive child list (B-EXCL-CALC_IC)*
+
+`PHASE_CALCULATE_IC` runs inside the `PHASE_SIMULATION_LOOP` RAII scope (via `Simulation::init()` → `calculateICCommon()`) but was absent from the `excl()` child list for `SimulationLoop` in `printReport()`. This caused IC-solve time to be misattributed as `SimulationLoop` dispatch overhead in the exclusive-time breakdown, overstating `SimulationLoop` exclusive time for stiff cases with a significant t=0 KINSOL solve.
+
+Two changes in `DYNSolverProfiler.cpp`:
+1. Added `PHASE_CALCULATE_IC` to the `exclSimLoop` child initialiser list.
+2. Updated the parent→children comment block above the `excl()` lambda to include `CalculateIC` under `SimulationLoop`.
+
+Closes audit item **B-EXCL-CALC_IC**.
+
 ---
 
 ## 8. Audit — Known Issues and Limitations
@@ -407,29 +415,31 @@ sim_time,step_duration_ms,memory_kb
 
 ---
 
-### 🔴 BUG — B-EXCL-CALC_IC: `CALCULATE_IC` not subtracted from `SimulationLoop` exclusive time
+### 🟢 RESOLVED — B-EXCL-CALC_IC: `CALCULATE_IC` now subtracted from `SimulationLoop` exclusive time
 
 **Location**: `SolverProfiler::printReport()`, `excl()` lambda in `DYNSolverProfiler.cpp`
 
-**Description**: `PHASE_CALCULATE_IC` is instrumented in `SolverCommon::calculateICCommon()` which is called from `Simulation::calculateIC()` — inside `Simulation::init()`, **before** the main simulation loop but **within** the `PHASE_SIMULATION_LOOP` RAII scope. The exclusive-time lambda is:
+**Status**: **Fixed** in commit `bf4376b`.
+
+**Description**: `PHASE_CALCULATE_IC` is instrumented in `SolverCommon::calculateICCommon()` which is called from `Simulation::calculateIC()` — inside `Simulation::init()`, **before** the main simulation loop but **within** the `PHASE_SIMULATION_LOOP` RAII scope. Previously the exclusive-time lambda was:
 
 ```cpp
 double exclSimLoop = excl(PHASE_SIMULATION_LOOP,
     {PHASE_SOLVER_SOLVE, PHASE_CURVES_UPDATE, PHASE_IO});
 ```
 
-`PHASE_CALCULATE_IC` is not in this child list. Its time is therefore attributed to `SimulationLoop` exclusive time, making it appear as "overhead" of the loop dispatch rather than initial-condition cost.
+`PHASE_CALCULATE_IC` was absent from this child list, so IC-solve time was attributed to `SimulationLoop` exclusive time — appearing as "loop dispatch overhead" rather than initial-condition cost. For simulations with stiff initial transients or large t=0 KINSOL solves this overstated `SimulationLoop` exclusive time significantly.
 
-**Consequence**: For simulations where IC calculation is significant (stiff initial transients, large KINSOL solve at t=0), `SimulationLoop` exclusive time is overstated. The `CalculateIC` row in the inclusive table is correct, but the exclusive section misattributes the time.
-
-**Fix**: Add `PHASE_CALCULATE_IC` to the `SimulationLoop` exclusive child list:
+**Fix applied**:
 
 ```cpp
 // DYNSolverProfiler.cpp — printReport(), excl() section
 double exclSimLoop = excl(PHASE_SIMULATION_LOOP,
-    {PHASE_SOLVER_SOLVE, PHASE_CURVES_UPDATE, PHASE_IO, PHASE_CALCULATE_IC});
-//                                                       ^^^^^^^^^^^^^^^^^^^ add this
+    {PHASE_CALCULATE_IC, PHASE_SOLVER_SOLVE, PHASE_CURVES_UPDATE, PHASE_IO});
+//   ^^^^^^^^^^^^^^^^^^^ added
 ```
+
+The parent→children comment block above the `excl()` lambda was also updated to list `CalculateIC` as a direct child of `SimulationLoop`.
 
 ---
 
@@ -607,4 +617,4 @@ Then also set `DYNAWO_PROFILE_OUTPUT`. Both outputs will be generated independen
 
 ---
 
-*Last updated: April 2026 — reflects commits `1dce6fd`…`4f7340a` on `3_performance-analysis-framework`. Audit pass performed against `DYNSimulation.cpp`, `DYNSolverProfiler.h`, and `DYNSolverProfiler.cpp` (branch HEAD `c3ba4f8`).*
+*Last updated: April 2026 — reflects commits `1dce6fd`…`bf4376b` on `3_performance-analysis-framework`. Audit pass performed against `DYNSimulation.cpp`, `DYNSolverProfiler.h`, and `DYNSolverProfiler.cpp` (branch HEAD `bf4376b`).*
