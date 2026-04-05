@@ -76,11 +76,11 @@ struct KLUSetupHook {
  * first entry if not found (original single-instance behaviour preserved).
  */
 
-static const int kMaxKLUInstances = 8;
+static const int kMaxKLUInstances = 64;
 
 struct KLUProfilerTable {
   SUNLinearSolver solver;                     ///< Identity key: the solver pointer
-  int (*origSetup)(SUNLinearSolver, SUNMatrix); ///< Original ops->setup for this instance
+  int (*origSetup)(SUNLinearSolver, SUNMatrix);  ///< Original ops->setup for this instance
 };
 
 static KLUProfilerTable s_kluTable[kMaxKLUInstances];
@@ -185,8 +185,11 @@ void SolverCommon::installKLUProfiler(SUNLinearSolver& LS) {
   }
 
   // Register this instance in the table.
-  assert(s_kluCount < kMaxKLUInstances &&
-         "installKLUProfiler: exceeded maximum tracked KLU instances (kMaxKLUInstances)");
+  if (s_kluCount >= kMaxKLUInstances) {
+    Trace::warn() << "installKLUProfiler: exceeded maximum tracked KLU instances ("
+                  << kMaxKLUInstances << "), skipping profiler install for this instance" << Trace::endline;
+    return;
+  }
   s_kluTable[s_kluCount].solver    = LS;
   s_kluTable[s_kluCount].origSetup = LS->ops->setup;  // capture per-instance original
   ++s_kluCount;
