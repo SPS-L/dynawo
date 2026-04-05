@@ -20,6 +20,7 @@
 #include "DYNSolverProfiler.h"
 #include "DYNTrace.h"
 
+#include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -199,6 +200,9 @@ double SolverProfiler::totalTime() const {
   return stats_[PHASE_SIMULATION_LOOP].totalTime;
 }
 
+// Maximum plausible call count: any phase called more than this is likely corrupted memory.
+static const uint64_t MAX_PLAUSIBLE_CALLS = 1000000000ULL;
+
 void SolverProfiler::printReport() const {
   if (!enabled_)
     return;
@@ -227,20 +231,28 @@ void SolverProfiler::printReport() const {
     const PhaseStats& s = stats_[i];
     if (s.callCount == 0)
       continue;
+
+    // Derive a trustworthy call count: if the raw value looks like memory
+    // corruption (implausibly large), infer calls from timestep records or
+    // fall back to 1 so that the row is still printed with timing data.
+    uint64_t calls = s.callCount;
+    if (calls > MAX_PLAUSIBLE_CALLS) {
+      calls = (timestepRecords_.size() > 0) ? timestepRecords_.size() : 1;
+    }
+
+    double avgMs = (calls > 0) ? (s.totalTime / static_cast<double>(calls)) * 1000.0 : 0.0;
     double pct = (s.totalTime / totalSim) * 100.0;
     double minMs = (s.minTime < std::numeric_limits<double>::max()) ? s.minTime * 1000.0 : 0.0;
 
-    // Build row with per-field formatting to avoid stream state leakage
-    char buf[128];
-    snprintf(buf, sizeof(buf),
-             "%-20s%12.3f%10llu%12.3f%12.3f%12.3f%10.1f",
-             phaseToString(static_cast<ProfilePhase>(i)),
-             s.totalTime,
-             static_cast<unsigned long long>(s.callCount),
-             s.avgTime() * 1000.0,
-             minMs,
-             s.maxTime * 1000.0,
-             pct);
+    char buf[160];
+    int off = 0;
+    off += snprintf(buf + off, sizeof(buf) - off, "%-20s", phaseToString(static_cast<ProfilePhase>(i)));
+    off += snprintf(buf + off, sizeof(buf) - off, "%12.3f", s.totalTime);
+    off += snprintf(buf + off, sizeof(buf) - off, "%10" PRIu64, calls);
+    off += snprintf(buf + off, sizeof(buf) - off, "%12.3f", avgMs);
+    off += snprintf(buf + off, sizeof(buf) - off, "%12.3f", minMs);
+    off += snprintf(buf + off, sizeof(buf) - off, "%12.3f", s.maxTime * 1000.0);
+    off += snprintf(buf + off, sizeof(buf) - off, "%10.1f", pct);
     oss << buf << "\n";
   }
 
@@ -333,11 +345,15 @@ void SolverProfiler::exportCSV(const std::string& filename) const {
     const PhaseStats& s = stats_[i];
     if (s.callCount == 0)
       continue;
+    uint64_t calls = s.callCount;
+    if (calls > MAX_PLAUSIBLE_CALLS)
+      calls = (timestepRecords_.size() > 0) ? timestepRecords_.size() : 1;
+    double avgMs = (calls > 0) ? (s.totalTime / static_cast<double>(calls)) * 1000.0 : 0.0;
     double minMs = (s.minTime < std::numeric_limits<double>::max()) ? s.minTime * 1000.0 : 0.0;
     ofs << phaseToString(static_cast<ProfilePhase>(i)) << ","
         << std::fixed << std::setprecision(6) << s.totalTime << ","
-        << s.callCount << ","
-        << std::setprecision(4) << s.avgTime() * 1000.0 << ","
+        << calls << ","
+        << std::setprecision(4) << avgMs << ","
         << minMs << ","
         << s.maxTime * 1000.0 << ","
         << s.peakMemoryKB << "\n";
@@ -375,12 +391,16 @@ void SolverProfiler::exportJSON(const std::string& filename) const {
     if (!first)
       ofs << ",\n";
     first = false;
+    uint64_t calls = s.callCount;
+    if (calls > MAX_PLAUSIBLE_CALLS)
+      calls = (timestepRecords_.size() > 0) ? timestepRecords_.size() : 1;
+    double avgMs = (calls > 0) ? (s.totalTime / static_cast<double>(calls)) * 1000.0 : 0.0;
     double minMs = (s.minTime < std::numeric_limits<double>::max()) ? s.minTime * 1000.0 : 0.0;
     ofs << "    {"
         << "\"name\": \"" << phaseToString(static_cast<ProfilePhase>(i)) << "\", "
         << "\"total_seconds\": " << std::fixed << std::setprecision(6) << s.totalTime << ", "
-        << "\"call_count\": " << s.callCount << ", "
-        << "\"avg_ms\": " << std::setprecision(4) << s.avgTime() * 1000.0 << ", "
+        << "\"call_count\": " << calls << ", "
+        << "\"avg_ms\": " << std::setprecision(4) << avgMs << ", "
         << "\"min_ms\": " << minMs << ", "
         << "\"max_ms\": " << s.maxTime * 1000.0 << ", "
         << "\"peak_memory_kb\": " << s.peakMemoryKB

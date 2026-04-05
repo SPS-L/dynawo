@@ -181,7 +181,7 @@ SolverCommonFixedTimeStep::initCommon(const std::shared_ptr<Model> &model, const
 }
 
 void SolverCommonFixedTimeStep::solveStepCommon(double /*tAim*/, double& tNxt) {
-  DYN_PROFILE_PHASE(PHASE_SOLVER_STEP);  // B1: instrument per-step wall-clock cost for fixed-step solvers
+  // PHASE_SOLVER_STEP is instrumented in SolverSIM::solveStep() and SolverTRAP::solveStep()
   int counter = 0;
   bool redoStep = false;
 
