@@ -52,7 +52,7 @@ def parse_profile_csv(filepath):
     phase_text = sections[0].strip()
     if phase_text:
         try:
-            phase_df = pd.read_csv(StringIO(phase_text))
+            phase_df = pd.read_csv(StringIO(phase_text), comment="#")
             phase_df.columns = [c.strip().lower() for c in phase_df.columns]
         except Exception as exc:
             print(f"Warning: could not parse phase summary in {filepath}: {exc}",
@@ -62,7 +62,7 @@ def parse_profile_csv(filepath):
         ts_text = sections[1].strip()
         if ts_text:
             try:
-                timestep_df = pd.read_csv(StringIO(ts_text))
+                timestep_df = pd.read_csv(StringIO(ts_text), comment="#")
                 timestep_df.columns = [c.strip().lower() for c in timestep_df.columns]
             except Exception as exc:
                 print(f"Warning: could not parse timestep section in {filepath}: {exc}",

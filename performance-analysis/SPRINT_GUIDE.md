@@ -148,7 +148,26 @@ for RUN in $(seq 1 5); do
 done
 ```
 
-Select the median CSV by `SimulationLoop` `total_seconds` and save as `run_median.csv`.
+Select the median CSV by `SimulationLoop` `total_seconds`:
+
+```python
+import pandas as pd, shutil, os
+from io import StringIO
+
+runs = {}
+for i in range(1, 6):
+    path = f"results/PFR/run_{i}.csv"
+    raw  = open(path).read().split("\n\n", 1)[0]
+    df   = pd.read_csv(StringIO(raw), comment="#")
+    df.columns = [c.strip().lower() for c in df.columns]
+    t = float(df.loc[df["phase"].str.strip().str.lower() == "simulationloop", "total_seconds"].iloc[0])
+    runs[i] = t
+    print(f"  run_{i}.csv  SimulationLoop = {t:.3f} s")
+
+median_run = sorted(runs, key=runs.get)[len(runs) // 2]
+print(f"\nMedian run: run_{median_run}.csv ({runs[median_run]:.3f} s)")
+shutil.copy(f"results/PFR/run_{median_run}.csv", "results/PFR/run_median.csv")
+```
 
 ### Z.2 — Full Phase Table
 
@@ -246,15 +265,18 @@ cd ../..
 perf report \
     -i results/perf/pfr.data \
     --stdio --sort dso \
+    --no-children --call-graph none \
     | grep -v '^#' | grep -v '^$' \
     | head -40 \
     | tee results/perf/dso_list.txt
 ```
 
-Build the DSO filter from what was actually recorded, then re-run scoped to Dynawo libraries:
+> `--call-graph none` is required to get flat DSO output; without it, `perf report` produces a call-tree even with `--sort dso`.
+
+Build the DSO filter from what was actually recorded, then re-run scoped to Dynawo libraries. Note that Dynawo DSOs have varied naming: `DYNModelNetwork.so`, `libdynawo_*.so`, `dynawo_*.so`, and the `dynawo` binary itself — use a case-insensitive grep:
 
 ```bash
-DYNAWO_DSOS=$(grep 'libdynawo' results/perf/dso_list.txt \
+DYNAWO_DSOS=$(grep -iE 'dynawo|DYN' results/perf/dso_list.txt \
     | awk '{print $NF}' | paste -sd ',' -)
 
 perf report \
@@ -262,7 +284,7 @@ perf report \
     --stdio \
     --dsos "${DYNAWO_DSOS}" \
     --sort comm,dso,symbol \
-    --no-children \
+    --no-children --call-graph none \
     | head -60 \
     | tee results/perf/top_symbols_dynawo.txt
 ```
@@ -276,14 +298,25 @@ If the dominant symbols match a Phase Z finding, the hypothesis is confirmed. If
 ```bash
 git clone https://github.com/brendangregg/FlameGraph ~/FlameGraph
 
+# Full flame graph (unfiltered — shows all DSOs in context)
 perf script -i results/perf/pfr.data \
-    | grep 'libdynawo' \
     | ~/FlameGraph/stackcollapse-perf.pl \
     | ~/FlameGraph/flamegraph.pl \
-        --title "Dynaωo PFR — Dynawo DSOs" \
+        --title "Dynaωo PFR — Full Profile" \
+        --width 1800 \
+    > results/perf/flamegraph_full.svg
+
+# Dynawo-only flame graph (filter collapsed stacks to DYN:: frames)
+perf script -i results/perf/pfr.data \
+    | ~/FlameGraph/stackcollapse-perf.pl \
+    | grep -i 'DYN::' \
+    | ~/FlameGraph/flamegraph.pl \
+        --title "Dynaωo PFR — Dynawo Frames Only" \
         --width 1800 \
     > results/perf/flamegraph_dynawo.svg
 ```
+
+> Do not filter `perf script` output before `stackcollapse-perf.pl` — it expects complete stack traces. Filter the collapsed one-line-per-stack output instead, where grepping for `DYN::` selects stacks that pass through Dynawo code.
 
 Any function occupying ≥ 2% of width is a valid investigation target.
 
@@ -294,22 +327,85 @@ For any expensive function identified above, confirm where it is being called fr
 ```bash
 perf report \
     -i results/perf/pfr.data \
-    --stdio --call-graph graph,0.5 \
-    | grep -A 30 '<function_name>'
+    --stdio --no-children \
+    --call-graph graph,0.5 \
+    --symbol-filter='<function_name>'
 ```
+
+> Use `--symbol-filter` instead of piping through `grep -A` — it preserves the complete call-graph context for the matched symbol. Replace `<function_name>` with the symbol name (e.g., `ModelBus::evalF`); partial matches work.
 
 The same function called from initialisation, from steady-state stepping, or from event handling requires a completely different response.
 
-### I.5 — Investigation Checklist
+### I.5 — Violation-Filtered Profiling
+
+The full-run profile is dominated by the many cheap steps (~72 ms each), drowning out the few expensive violation steps (~1000-1500 ms). Since violation steps collect far more samples at a fixed sampling rate, filtering to their time windows reveals the true hotspot structure.
+
+**Step 1 — Find violation wall-clock windows from the log:**
+
+```bash
+grep "Algebraic mode (with J recalculation)" \
+    testcases/PFR_20240605_N_NB_all_retained/outputs/logs/dynamo.log
+```
+
+Note the wall-clock timestamps (e.g., `2026-04-06 00:49:11` for t=10). Each violation spans ~1-2 seconds.
+
+**Step 2 — Map to perf monotonic timestamps:**
+
+```bash
+perf script --header-only -i results/perf/pfr.data 2>/dev/null \
+    | grep -E 'time of first sample|time of last sample'
+```
+
+Compute the offset: `perf_time = first_sample + (violation_wallclock - sim_start_wallclock)`.
+
+**Step 3 — Extract violation-window samples:**
+
+```bash
+# Replace timestamps below with actual computed values
+perf script -i results/perf/pfr.data \
+    --time "<t10_start>,<t10_end> <t20_start>,<t20_end> <t300_start>,<t300_end>" \
+    > /tmp/perf_violations.script
+```
+
+**Step 4 — Violation-only flame graph and top functions:**
+
+```bash
+# Flame graph
+cat /tmp/perf_violations.script \
+    | ~/FlameGraph/stackcollapse-perf.pl \
+    > /tmp/violations_collapsed.txt
+
+cat /tmp/violations_collapsed.txt \
+    | ~/FlameGraph/flamegraph.pl \
+        --title "PFR — Violation Steps Only" \
+        --width 1800 \
+    > results/perf/flamegraph_violations.svg
+
+# Top leaf functions by self-time
+TOTAL=$(awk '{sum += $NF} END {print sum}' /tmp/violations_collapsed.txt)
+
+awk -F';' '{print $NF}' /tmp/violations_collapsed.txt \
+    | awk '{count[$1]+=$2} END {for(f in count) print count[f], f}' \
+    | sort -rn | head -20 | while read cnt func; do
+        pct=$(echo "scale=2; $cnt * 100 / $TOTAL" | bc)
+        printf "%6s  %6s%%  %s\n" "$cnt" "$pct" "$func"
+    done
+```
+
+Compare the violation-only top functions against the full-run top functions (I.2). Functions that appear high in violations but not in the full run are the event-handling bottlenecks.
+
+### I.6 — Investigation Checklist
 
 Do not proceed to Phase P until every item has a measured answer:
 
 ```
 □ What is the dominant phase by time?                              [Z.2 table]
 □ What fraction of total is steady-state stepping vs. Reinit?     [Z.2 table]
-□ What are the top-5 symbols by perf self-time?                   [I.2]
+□ What are the top-5 symbols by perf self-time (full run)?        [I.2]
 □ Does the flame graph show unexpected width?                      [I.3]
 □ For the dominant expensive function: what is its call origin?    [I.4]
+□ What are the top-5 symbols during violation steps only?          [I.5]
+□ Which functions appear in violations but not in the full run?    [I.5 vs I.2]
 □ Does step_duration_ts show event-correlated spikes or flat?      [Z.5]
 □ Is memory growing over the simulation?                           [Z.6]
 □ Does the cost pattern repeat at Nordic scale and PFR scale?      [Z.1]
