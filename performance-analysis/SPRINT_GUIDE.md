@@ -344,7 +344,7 @@ The full-run profile is dominated by the many cheap steps (~72 ms each), drownin
 
 ```bash
 grep "Algebraic mode (with J recalculation)" \
-    testcases/PFR_20240605_N_NB_all_retained/outputs/logs/dynamo.log
+    testcases/PFR_20240605_N_NB_all_retained/outputs/logs/dynawo.log
 ```
 
 Note the wall-clock timestamps (e.g., `2026-04-06 00:49:11` for t=10). Each violation spans ~1-2 seconds.

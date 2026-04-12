@@ -20,6 +20,7 @@
 #include <string>
 #include <cmath>
 #include <cassert>
+#include <vector>
 #include <sunmatrix/sunmatrix_sparse.h>
 #include <sunlinsol/sunlinsol_klu.h>
 
@@ -76,15 +77,19 @@ struct KLUSetupHook {
  * first entry if not found (original single-instance behaviour preserved).
  */
 
-static const int kMaxKLUInstances = 64;
-
 struct KLUProfilerTable {
   SUNLinearSolver solver;                     ///< Identity key: the solver pointer
   int (*origSetup)(SUNLinearSolver, SUNMatrix);  ///< Original ops->setup for this instance
 };
 
-static KLUProfilerTable s_kluTable[kMaxKLUInstances];
-static int s_kluCount = 0;
+// Dynamically-sized table: PFR init with many out-of-service buses triggers
+// repeated algebraic-restoration KINSOL/KLU recreation, so any fixed cap is
+// wrong. Entries are never pruned (solver teardown has no hook here), which is
+// acceptable: each entry is two pointers and the lifetime matches the process.
+static std::vector<KLUProfilerTable>& kluTable() {
+  static std::vector<KLUProfilerTable> table;
+  return table;
+}
 
 /**
  * @brief Profiling wrapper for SUNLinSolSetup (klu_refactor / klu_factor).
@@ -96,15 +101,16 @@ static int s_kluCount = 0;
  */
 static int profiledKLUSetup(SUNLinearSolver S, SUNMatrix A) {
   int (*orig)(SUNLinearSolver, SUNMatrix) = NULL;
-  for (int i = 0; i < s_kluCount; ++i) {
-    if (s_kluTable[i].solver == S) {
-      orig = s_kluTable[i].origSetup;
+  const std::vector<KLUProfilerTable>& table = kluTable();
+  for (size_t i = 0; i < table.size(); ++i) {
+    if (table[i].solver == S) {
+      orig = table[i].origSetup;
       break;
     }
   }
   // Fallback: should not happen; avoids NULL dereference in production.
-  if (orig == NULL && s_kluCount > 0)
-    orig = s_kluTable[0].origSetup;
+  if (orig == NULL && !table.empty())
+    orig = table[0].origSetup;
 
   DYN::PhaseTimer dynProfileTimer_KLU_SETUP(DYN::PHASE_KLU_SETUP);
   return orig(S, A);
@@ -177,22 +183,18 @@ void SolverCommon::installKLUProfiler(SUNLinearSolver& LS) {
 
   // Avoid double-wrapping if called again for the same instance (e.g. after
   // resetAlgebraicRestoration recreates KINSOL with the same LS pointer).
-  for (int i = 0; i < s_kluCount; ++i) {
-    if (s_kluTable[i].solver == LS) {
+  std::vector<KLUProfilerTable>& table = kluTable();
+  for (size_t i = 0; i < table.size(); ++i) {
+    if (table[i].solver == LS) {
       // Already registered; the wrapper is already in ops->setup — nothing to do.
       return;
     }
   }
 
-  // Register this instance in the table.
-  if (s_kluCount >= kMaxKLUInstances) {
-    Trace::warn() << "installKLUProfiler: exceeded maximum tracked KLU instances ("
-                  << kMaxKLUInstances << "), skipping profiler install for this instance" << Trace::endline;
-    return;
-  }
-  s_kluTable[s_kluCount].solver    = LS;
-  s_kluTable[s_kluCount].origSetup = LS->ops->setup;  // capture per-instance original
-  ++s_kluCount;
+  KLUProfilerTable entry;
+  entry.solver    = LS;
+  entry.origSetup = LS->ops->setup;  // capture per-instance original
+  table.push_back(entry);
 
   LS->ops->setup = profiledKLUSetup;
 #else
