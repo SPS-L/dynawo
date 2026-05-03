@@ -1,438 +1,678 @@
-# SolverDDM: Schur-Complement Domain Decomposition Solver for Dynaωo
+<!--
+SPDX-License-Identifier: MPL-2.0
+SolverDDM — Domain Decomposition Method Solver for Dynaωo
+Design Document  (rev 2 — post-review corrections)
 
-## Executive Summary
+Branch: 3_performance-analysis-framework
+Repository: https://github.com/SPS-L/dynawo
 
-This document provides a comprehensive implementation design for `SolverDDM`, a new Dynaωo solver that applies a **Bordered-Block-Diagonal (BBD) Schur-complement decomposition** to the Newton iterations at each time step. The mathematical foundation is the decomposition method from Fabozzi (2012) and Aristidou & Van Cutsem (2015), specifically the **single-level Schur-complement formulation (Chapter 4 of Fabozzi's thesis)**. The Chapter 5 localisation technique from the same source is intentionally excluded from this baseline implementation because it relaxes spatial accuracy and is incompatible with the solver's correctness guarantee against the reference `SolverIDA`.
+Algorithm reference:
+  Aristidou, P. (2015). "Dynamic Simulations of Large-Scale Power Systems
+  Using Parallel Processing Techniques." PhD thesis, University of Liège.
+  Chapter 4: Single-level BBD-Newton solver (RAMSES).
 
-The design follows Dynaωo's strict modeller/solver separation: all model code (residual F, Jacobian J, zero-crossings g, and event callbacks) is unchanged; `SolverDDM` only replaces the inner linear algebra step within the Newton loop. The solver maps naturally onto Dynaωo's existing `SubModel` hierarchy — each `SubModel` is a BBD injector, and the shared network (`ModelNetwork`/`ModelBus`) provides the network matrix D. Parallelism across injectors is achieved via OpenMP over the sub-domain solves.
+Dynaωo integration references:
+  DYNSolver.h / DYNSolverImpl.{h,cpp}  — common solver base
+  DYNSubModel.h                          — per-sub-model API (evalF, evalJt, yDeb, sizeY, ...)
+  DYNModelMulti.{h,cpp}                  — aggregated model (getSubModels, evalJt, ...)
+  DYNSolverFactory.h                     — dlopen-based plugin mechanism
+  Solvers/VariableTimeStep/CMakeLists.txt — home directory for SolverDDM
+-->
+
+# SolverDDM — Domain Decomposition Method Solver
+
+## 0. Location in the source tree
+
+`SolverDDM` is a **variable-step** solver and therefore lives alongside
+`SolverIDA` inside `VariableTimeStep/`:
+
+```
+dynawo/sources/Solvers/
+├── Common/                  ← DYNSolver.h, DYNSolverImpl, DYNSolverFactory
+├── AlgebraicSolvers/        ← KINSOL wrapper (algebraic restoration, shared)
+├── FixedTimeStep/
+│   └── SolverSIM/
+├── VariableTimeStep/
+│   ├── CMakeLists.txt       ← add_subdirectory(SolverDDM) added here
+│   ├── SolverIDA/
+│   └── SolverDDM/           ← THIS SOLVER
+│       ├── CMakeLists.txt
+│       ├── DESIGN.md
+│       ├── DYNSolverDDM.h
+│       ├── DYNSolverDDM.cpp
+│       └── test/
+└── util/
+```
+
+**Rationale**: `SolverIDA` owns its own variable-step BDF integrator (SUNDIALS
+IDA); `SolverDDM` implements a self-contained BDF-1/2 integrator with a BBD
+Jacobian factorisation strategy.  Both share the same outer `Solver::Impl`
+infrastructure (parameter handling, `evalZMode`, `reinit`,
+`setupNewAlgRestoration`).  Placing DDM next to IDA makes dependency
+management, testing, and CMake integration straightforward.
+
+`SolverDDM` is loaded by the same `SolverFactory`/dlopen mechanism as `SolverIDA`
+— no changes to `DYNSolverFactory.h` or `DYNSolver.h` are needed.
 
 ---
 
 ## 1. Mathematical Background
 
-### 1.1 BBD Structure of the Jacobian
+### 1.1 Dynaωo DAE system
 
-At each Newton iteration k and time step, Dynaωo must solve the linear system
+After BDF-k discretisation, the global Newton residual at step n+1 is
 
-```
-J [Δx₁; ...; Δxₙ; ΔV] = -[f₁; ...; fₙ; g]
-```
+    F(y) = f(t_{n+1}, y, (α y − history) / h) = 0        (1)
 
-where the Jacobian has the BBD structure
+where `y ∈ ℝᴺᵗᵒᵗ` collects all continuous variables (differential + algebraic)
+of all sub-models.  With BDF-1 (k=1): `yp ≈ (y − y_n) / h`, giving the scalar
+coefficient `cj = α/h = 1/h`.
 
-```
-J = | A₁          B₁ |
-    |    A₂        B₂ |
-    |       ...    .. |
-    |          Aₙ  Bₙ |
-    | C₁ ... Cₙ  D   |
-```
+`ModelMulti::evalJt(t, cj, jt)` assembles the full global sparse Jacobian
 
-Here `Aᵢ ∈ ℝⁿⁱ×ⁿⁱ` is the Jacobian of injector i's equations with respect to its own state variables `xᵢ`; `Bᵢ ∈ ℝⁿⁱ×²ᴺ` is the sensitivity of injector i's equations to bus voltages; `Cᵢ ∈ ℝ²ᴺ×ⁿⁱ` maps injector currents into the network equations (2-column extraction matrix for the connected bus); and `D ∈ ℝ²ᴺ×²ᴺ` is the network matrix. N is the number of AC buses.
+    J = ∂f/∂y + cj · ∂f/∂yp
 
-### 1.2 Schur Complement Factorisation
+in Dynaωo's `SparseMatrix` (CSC format) by calling `evalJtSub` on each
+`SubModel` in turn.
 
-Block Gaussian elimination on the injector rows yields:
+### 1.2 BBD structure and Schur reduction (Aristidou Ch. 4)
 
-```
-Δxᵢ = Aᵢ⁻¹(-fᵢ - Bᵢ ΔV)     i=1,...,n     (1)
-D̃ ΔV = -g + Σᵢ C̃ᵢ fᵢ                        (2)
-```
+Split sub-models into:
+- **Network model** (index 0 in `ModelMulti`): `g(V, ...) = 0`, Jacobian block `D`.
+- **Injector sub-models** i = 1…M (generators, loads, etc.): each has its own
+  state vector `xᵢ` and is connected to one or two network buses.
 
-where the **Schur-corrected network matrix** is:
+After `initSize()` is called by `ModelMulti`, each `SubModel` exposes:
+- `yDeb()` — global offset of its continuous variables in the shared `y[]` buffer.
+- `sizeY()` — number of continuous variables (interior + interface combined).
+- `fDeb()` — global offset of its residual equations in the shared `f[]` buffer.
+- `sizeF()` — number of residuals.
 
-```
-D̃ = D - Σᵢ C̃ᵢ Bᵢ,    C̃ᵢ = Cᵢ Aᵢ⁻¹          (3)
-```
-
-The term `C̃ᵢBᵢ` is a sparse **rank-2** (single-port) or **rank-4** (two-port) correction to `D̃`, affecting only the 2×2 (or 4×4) diagonal block of the bus connected to injector i. This means `D̃` inherits the structural sparsity of D and can be re-ordered and factorised with KLU.
-
-### 1.3 Variant: Updated Right-Hand Side
-
-A variant replaces the right-hand side of (1) with a fresh `fᵢ` evaluation at the updated voltage `Vᵏ`:
+The per-injector local Jacobian has the 4-block structure (Thesis Eq. 4.8):
 
 ```
-Aᵢ Δxᵢ = -fᵢ(xᵢᵏ⁻¹, zᵢ, Vᵏ)               (1')
+  ┌            ┐
+  │ Aᵢ¹  Aᵢ²  │   ← Aᵢ¹: ∂fᵢᵢⁿᵗ/∂xᵢᵢⁿᵗ   Aᵢ²: ∂fᵢᵢⁿᵗ/∂xᵢᵉˣᵗ
+  │ Aᵢ³  Aᵢ⁴  │   ← Aᵢ³: ∂fᵢᵉˣᵗ/∂xᵢᵢⁿᵗ   Aᵢ⁴: ∂fᵢᵉˣᵗ/∂xᵢᵉˣᵗ
+  └            ┘
 ```
 
-This approximation requires one additional `fᵢ` evaluation per iteration but significantly accelerates Newton convergence after large discontinuities (e.g., short-circuit inception) because `Vᵏ` is far from `Vᵏ⁻¹`. The accuracy of the final solution is identical to the standard Newton scheme.
+where `xᵢᵢⁿᵗ` are the interior (rotor flux, exciter, ...) states and `xᵢᵉˣᵗ`
+are the interface states (typically terminal voltages re-expressed as local
+unknowns).  The Schur complement that eliminates the interior states is:
 
-### 1.4 Acceleration: Skip Converged Injectors
+    Sᵢ = Aᵢ⁴ − Aᵢ³ (Aᵢ¹)⁻¹ Aᵢ²                           (2)
 
-At each Newton iteration, injectors whose correction vector `‖Δxᵢ‖` has already fallen below tolerance are not re-solved. Once the correction test is satisfied for injector i, it switches to checking only the mismatch norm `‖fᵢ‖`, avoiding repeated factorisations of Aᵢ. This is the main source of per-iteration speedup in large systems where most injectors are in quasi-steady-state.
+The coupling matrices `Bᵢ` and `Cᵢ` (Thesis Eq. 4.7) each have at most 2 (single-
+port) or 4 (two-port) non-zero columns/rows corresponding to the bus voltage
+indices `busIdx[]`.
 
-### 1.5 Acceleration: Lazy Jacobian Update
+The reduced network system (Thesis Eq. 4.11–4.12) is:
 
-The Aᵢ and D̃ matrices are **not** updated simultaneously:
+    D̃ ΔV = −g̃                                              (3)
 
-- When injector i changes a discrete state `zᵢ`, only `Aᵢ`, `Bᵢ`, and `C̃ᵢ` are recomputed; `D̃` is rebuilt from (3) using cached `C̃ⱼ` for j ≠ i.
-- When the network calls for a `D̃` update (e.g., topology change), only `Bᵢ` matrices are refreshed; `Aᵢ` and `C̃ᵢ` are reused.
+    D̃ = D − Σᵢ C̃ᵢ Bᵢ,    C̃ᵢ = Cᵢ (Aᵢ¹)⁻¹ ← only when nᵢᵢⁿᵗ > 0
+                                  else Cᵢ Sᵢ⁻¹
 
-This asymmetric update strategy avoids the O(n) cost of refactorising all Aᵢ on every network event.
+    g̃ = g − Σᵢ C̃ᵢ fᵢ
+
+Back-substitution per injector (Thesis Eq. 4.12):
+
+    Δxᵢ = (Aᵢ¹)⁻¹ (−fᵢᵢⁿᵗ − Aᵢ² Δxᵢᵉˣᵗ)                  (4)
+    Δxᵢᵉˣᵗ = Sᵢ⁻¹ (−fᵢᵉˣᵗ − Aᵢ³ Δxᵢᵢⁿᵗ − Bᵢ ΔV)            (5)
+
+**Important**: if a sub-model exposes no interior variables (nᵢᵢⁿᵗ = 0, e.g. a
+simple load model), Eq. (2) degenerates to `Sᵢ = Aᵢ⁴` and only one LU solve is
+needed (Eq. 5).
+
+### 1.3 Jacobian coefficient dependency on `h`
+
+Under BDF-1 the full local Jacobian contribution of injector `i` to the global
+`J` is
+
+    Jᵢ = ∂fᵢ/∂xᵢ + cj · ∂fᵢ/∂ẋᵢ,   cj = 1/h
+
+The blocks `Aᵢ¹, Aᵢ², Aᵢ³, Aᵢ⁴` are therefore all functions of `h`.  A change
+in step size **always** invalidates the cached LU factorisations and requires a
+full Jacobian re-evaluation for all sub-models.  The same applies to BDF-2 where
+`cj = (2τ+1)/((τ+1)h)` with `τ = h_n/h_{n-1}`.
 
 ---
 
-## 2. Dynaωo Solver Architecture Fit
+## 2. Mapping between Dynaωo Concepts and DDM Variables
 
-### 2.1 Solver Directory Layout
+### 2.1 Identifying the network model and injector sub-models
 
-`SolverDDM` is placed as a peer of `SolverIDA` and `SolverSIM` in `dynawo/sources/Solvers/`:
-
-```
-dynawo/sources/Solvers/
-├── FixedTimeStep/      # SolverSIM: fixed-step order-1 Backward Euler
-├── VariableTimeStep/   # SolverIDA: SUNDIALS IDA variable-step BDF
-├── SolverDDM/          # ← NEW: Schur-complement BBD
-│   ├── CMakeLists.txt
-│   ├── DYNSolverDDM.h
-│   ├── DYNSolverDDM.cpp
-│   ├── DYNSubDomainDDM.h
-│   ├── DYNSubDomainDDM.cpp
-│   ├── DYNSchurNetworkSolver.h
-│   ├── DYNSchurNetworkSolver.cpp
-│   └── DESIGN.md       ← this file
-└── Common/
-    └── DYNSolverImpl.h  # Base class: step(), reinit(), printHeader()
-```
-
-The solver CMake target links against `Eigen3`, `SuiteSparse::KLU`, and optionally `OpenMP`.
-
-### 2.2 Interface to ModelMulti
-
-`SolverDDM` interacts with `ModelMulti` through the four methods already mandated by `DYNSolverImpl`:
-
-| Method | Use in SolverDDM |
-|---|---|
-| `evalF(t, y, yp, F)` | Full residual evaluation for network and injectors |
-| `evalJt(t, y, yp, cj, J)` | Full Jacobian fill for Aᵢ, Bᵢ, Cᵢ, D assembly |
-| `evalG(t, y, yp, g)` | Zero-crossing detection (unchanged from standard solvers) |
-| `callJModelicaSubModel(i)` | Used during sub-domain factorisation and event callbacks |
-
-The decomposition into sub-domains is achieved by calling `ModelMulti::getSubModels()`, which returns the vector of `SubModel*` objects. Each `SubModel` maps to one `SubDomainDDM` instance.
-
-### 2.3 Variable Mapping
-
-At `init()` time, `SolverDDM` inspects the connector graph (`DYNConnector.cpp`) to determine, for each `SubModel`, which continuous variables `xᵢ` are internal and which correspond to injected currents at the connected buses. This populates the Cᵢ structure matrices, which are constructed once and cached.
-
----
-
-## 3. Class Design
-
-### 3.1 `SubDomainDDM`
+`ModelMulti` (in `DYNModelMulti.h`) stores all sub-models internally.
+`SolverDDM::init()` casts the `Model*` handle to `ModelMulti*` to obtain the
+sub-model list:
 
 ```cpp
-class SubDomainDDM {
-public:
-    int         subModelIndex;   // index into ModelMulti::getSubModels()
-    int         ni;              // number of state variables
-    int         busIdx;          // connected bus (or two buses for 2-port)
-    bool        isConverged;     // skip flag for inner Newton
-    bool        jacNeedsUpdate;  // lazy update flag
+// DYNSolverDDM.cpp
+#include "DYNModelMulti.h"
 
-    Eigen::MatrixXd  Ai;         // ni × ni injector Jacobian (dense)
-    Eigen::MatrixXd  Bi;         // ni × 2N (sparse: only 2 nonzero cols)
-    Eigen::MatrixXd  Ci_tilde;   // 2N × ni = Ci * Ai^{-1} (dense; 2 rows live)
-    Eigen::VectorXd  fi;         // ni residual
-    Eigen::VectorXd  dxi;        // Newton correction
-
-    Eigen::PartialPivLU<Eigen::MatrixXd> luAi;  // factorisation of Ai
-
-    void factoriseAi();
-    void computeCiTilde();       // Ci_tilde = Ci * Ai^{-1}
-    void solveForDxi(const Eigen::VectorXd& dV);
-    void checkConvergence(double tol_f, double tol_x);
-};
-```
-
-Because individual injectors in a typical Dynaωo model have 10–200 state variables, dense DGETRF via Eigen is faster than sparse KLU for Aᵢ.
-
-### 3.2 `SchurNetworkSolver`
-
-```cpp
-class SchurNetworkSolver {
-public:
-    SunMatrix*       D_sparse;    // 2N × 2N network Jacobian (CSC, owned by KLU)
-    klu_symbolic*    klu_sym;     // KLU symbolic analysis (done once at init)
-    klu_numeric*     klu_num;     // KLU numerical factorisation
-    klu_common       klu_common;
-
-    void buildDtilde(
-        const std::vector<SubDomainDDM>& subdomains);  // D_tilde = D - sum(Ci_tilde * Bi)
-    void factoriseKLU();
-    void solveForDV(Eigen::VectorXd& rhs);             // in-place KLU back-solve
-    void refactoriseKLU();                             // klu_refactor (pattern unchanged)
-    bool needsSymbolicRefactor;  // set true only on topology change
-};
-```
-
-KLU symbolic analysis (ordering, fill-reduction via AMD/COLAMD) is performed once at `init()` and reused across all time steps and Newton iterations. Only numerical refactorisation (`klu_refactor`) is called when `D̃` changes.
-
-### 3.3 `SolverDDM` (top-level)
-
-```cpp
-class SolverDDM : public SolverImpl {
-public:
-    void init(shared_ptr<Model> model, const Timeline& timeline) override;
-    void step(double tStart, double tStop, double& tEnd) override;
-    void reinit() override;
-
-private:
-    std::vector<SubDomainDDM>   subdomains_;
-    SchurNetworkSolver          networkSolver_;
-    double                      hCurrent_;   // current step size (fixed-step mode)
-    int                         order_;      // BDF order (1 or 2)
-    int                         maxNewtonIter_ = 10;
-    double                      tolF_, tolX_;
-
-    void assembleJacobian();
-    void newtonIteration(double t, double h);
-    void applyBDFDiscretisation(double h, int order);
-    void buildSchurRHS(Eigen::VectorXd& rhs);  // g - sum(Ci_tilde * fi)
-};
-```
-
----
-
-## 4. Newton Iteration Algorithm
-
-Each call to `newtonIteration()` implements the following loop, corresponding to the "Accelerated Decomposed Dishonest Newton" (Scheme A) of Fabozzi (2012):
-
-```
-Initialise: evaluate fi for all i, evaluate g
-For k = 1, 2, ..., maxNewtonIter:
-    1. [PARALLEL, OpenMP] For each non-converged subdomain i:
-           if jacNeedsUpdate[i]: factorise Ai, compute Ci_tilde
-           compute fi(xi^{k-1}, zi, V^{k-1})   [or V^k if using variant 1']
-    2. buildSchurRHS: rhs = -g + sum_i(Ci_tilde * fi)
-    3. buildDtilde: D_tilde = D - sum_i(Ci_tilde * Bi)
-    4. SchurNetworkSolver::factoriseKLU / refactoriseKLU
-    5. Solve D_tilde * dV = rhs  →  obtain Delta_V
-    6. [PARALLEL, OpenMP] For each non-converged subdomain i:
-           solve Ai * dxi = -(fi + Bi * Delta_V)  →  obtain Delta_xi
-           update xi^k = xi^{k-1} + dxi
-    7. Update V^k = V^{k-1} + Delta_V
-    8. Check convergence for each subdomain i:
-           if ||dxi|| < tol_x AND ||fi|| < tol_f: mark i as converged
-    9. Check global network convergence: ||Delta_V|| and ||g||
-    10. If all converged: break
-```
-
-The injector factorisations in step 1 and back-solves in step 6 are independent across all i and are parallelised with `#pragma omp parallel for` over the subdomain vector. No shared mutable state exists between subdomain objects.
-
----
-
-## 5. Event Handling in the DDM Solver
-
-Event handling is the single most important source of solver stalls in large-scale power system DAE simulation: discrete events force the step size to decrease, trigger Jacobian refactorisations, and require algebraic re-initialisation.
-
-### 5.1 The Problem in Context
-
-When a zero-crossing function `gᵢ(x, t)` crosses zero, the solver must:
-(a) locate the event time `tₑ` with sufficient precision,
-(b) update the discrete state `zᵢ`,
-(c) resolve the algebraic jump `V(tₑ⁺)`, and
-(d) reinitialise the integration formula.
-
-In large systems with hundreds of controllers, limiters, and protection relays, events fire with high frequency — Fabozzi's PEGASE case P3 records events at nearly every time step over a 200 s simulation window — and this is identified as "the main factor preventing the step size to increase."
-
-The BBD decomposition makes event handling **cheaper** but introduces additional structure: a discrete event in injector i changes only Aᵢ, Bᵢ, and C̃ᵢ; it does not require a global `D̃` refactorisation, provided the lazy update strategy of Section 1.5 is respected.
-
-### 5.2 Zero-Crossing Detection
-
-Zero-crossing detection proceeds identically to `SolverIDA`: the solver evaluates all `gᵢ(x, t)` at each candidate step, and a sign change triggers bisection root-finding. Because all sub-domain `gᵢ` functions are independent, this step can be parallelised over injectors with OpenMP:
-
-```cpp
-// In SolverDDM::detectEvents():
-#pragma omp parallel for schedule(dynamic)
-for (int i = 0; i < subdomains_.size(); ++i) {
-    subdomains_[i].evalZeroCrossings(t, gBuffer_.segment(gOffset_[i], gSize_[i]));
+void SolverDDM::init(const std::shared_ptr<Model>& model, double t0, double tEnd) {
+    Solver::Impl::init(t0, model);        // sets up y[], yp[] via getY0
+    auto* mm = dynamic_cast<ModelMulti*>(model.get());
+    if (!mm) throw DYNError(Error::SOLVER_ALGO, SolverDDMInvalidModel);
+    buildDomainDecomposition(mm);
 }
 ```
 
-The network zero-crossing functions (e.g., bus voltage magnitude thresholds) are evaluated sequentially since they require the global voltage vector V.
+The **network sub-model** is identified by `subModel->modelType() == "ModelNetwork"`
+(or a dedicated API to be added — see Section 2.2).  All other sub-models are
+treated as injectors.
 
-### 5.3 Event-Time Location and Step Adjustment
+### 2.2 Required additions to DYNModelMulti.h
 
-When a sign change is detected in interval `[tₙ, tₙ₊₁]`, `SolverDDM` applies the **Illinois method** (a variant of regula falsi with guaranteed convergence) to locate `tₑ` to within a configurable tolerance (`eventLocTol`, default 1e-5 s). The step is then shortened to `h₁ = tₑ - tₙ`, the event is processed, and the integration continues from `tₑ` with step `h₂ = tₙ₊₁ - tₑ`.
+`ModelMulti` must expose a read-only view of its sub-model list.  Add:
 
-In the fixed-step BDF-1 mode, a step-size change invalidates the BDF coefficients. `SolverDDM` handles this by resetting the BDF order to 1 (BEM) at the time step immediately following any event:
+```cpp
+// DYNModelMulti.h — new public method (non-virtual, no ABI impact on Solver)
+const std::vector<std::shared_ptr<SubModel>>& getSubModels() const;
+```
 
-> *BEM allows integrating over a discontinuity because in the corresponding equation, if the discontinuity takes place at time tⱼ₊₁, the derivative w(tⱼ₊₁) is not used to compute w(tⱼ).*
+Implemented trivially in `DYNModelMulti.cpp` by returning the existing private
+`subModels_` vector.
 
-After one BEM step post-event, order can be raised back to 2 if the step size is stable.
+No changes to `DYNModel.h` (the virtual `Model` interface) are required because
+`SolverDDM::init()` explicitly targets `ModelMulti` — exactly as `SolverIDA`
+accesses SUNDIALS context without `Model` knowing about it.
 
-### 5.4 Algebraic Re-Initialisation After a Jump
+### 2.3 Extracting per-sub-model Jacobian blocks
 
-When a discrete variable `zᵢ` changes (state event), the algebraic variables may be discontinuous: `V(tₑ⁺) ≠ V(tₑ⁻)`. The algebraic solve at the event instant is handled by running a truncated Newton loop (1–3 iterations) using only the network equation and the event-affected injectors:
+`SubModel::evalJtSub(t, cj, rowOffset, jt)` fills rows
+`[fDeb(), fDeb()+sizeF())` of the global sparse `jt`.  To extract the local
+blocks `Aᵢ¹, Aᵢ², Aᵢ³, Aᵢ⁴, Bᵢ, Cᵢ`:
 
-1. Mark injector `iₑ` (the one that fired) as `jacNeedsUpdate = true`.
-2. Run one BBD Newton pass with `maxNewtonIter = 3` and tightened convergence.
-3. All non-event injectors reuse their previous Aᵢ, C̃ᵢ from the pre-event step (lazy update).
+1. **Allocate a local `SparseMatrix` of size `sizeF(i) × sizeY(i)`** (plus the
+   small coupling columns).
+2. Call `subModel->evalJt(t, cj, 0, localJt)` with `rowOffset = 0`.
+3. Extract the sub-blocks by column ranges:
+   - Columns `[0, nᵢᵢⁿᵗ)` → `Aᵢ¹` (interior–interior) and `Aᵢ³` (interface–interior).
+   - Columns `[nᵢᵢⁿᵗ, nᵢᵢⁿᵗ + nᵢᵉˣᵗ)` → `Aᵢ²` (interior–interface) and `Aᵢ⁴`.
+   - Columns corresponding to `busIdx[k]` in the **global** `y[]` → `Bᵢ` rows.
+4. `Cᵢ` is extracted from the **network** sub-model Jacobian: columns
+   `[yDeb(i), yDeb(i)+sizeY(i))` within the network block `D`.
 
-This is justified by the observation that solving the full algebraic system after a discontinuity provides "illusory accuracy" — the cost is dominated by the KLU back-solve on `D̃`, not by all injector factorisations.
+The interior/interface partition nᵢᵢⁿᵗ is determined by scanning `subModel->getYType()`
+for variables with property `DIFFERENTIAL` — these are the interior variables.
+Interface variables are `ALGEBRAIC` variables whose global index falls in the
+range `[yDeb(i), yDeb(i)+sizeY(i))` **and** also appear in bus-voltage rows of
+the network Jacobian.
 
-### 5.5 Injector-Local vs. Global Jacobian Updates
+```cpp
+struct SubDomainDDM {
+    std::shared_ptr<SubModel> subModel;
 
-The lazy Jacobian update strategy from Section 1.5 is critical around events. The update policy is:
+    // Global index ranges within the aggregated y[] buffer
+    int yGlobalOffset;       // = subModel->yDeb()
+    int nTotal;              // = subModel->sizeY()
+    int nInt;                // number of interior (DIFFERENTIAL) variables
+    int nExt;                // nTotal - nInt  (interface variables)
 
-| Event type | Aᵢ update | Bᵢ update | D̃ update |
+    // Bus connectivity (at most 2 bus indices for a two-port device)
+    int numPorts;            // 1 or 2
+    std::array<int,2> busVoltageIdx;  // global y[] indices of terminal Vr, Vi pairs
+
+    // Local dense blocks (small: nInt x nInt, nInt x nExt, nExt x nInt, nExt x nExt)
+    Eigen::MatrixXd A1;  // ∂fint/∂xint   (nInt x nInt)
+    Eigen::MatrixXd A2;  // ∂fint/∂xext   (nInt x nExt)
+    Eigen::MatrixXd A3;  // ∂fext/∂xint   (nExt x nInt)
+    Eigen::MatrixXd A4;  // ∂fext/∂xext   (nExt x nExt)
+
+    // Coupling matrices — stored as compact dense (nTotal x 2*numPorts), NOT nTotal x 2N
+    Eigen::MatrixXd Bi;      // rows: sizeF(i),  cols: 2*numPorts
+    Eigen::MatrixXd Ci;      // rows: 2*numPorts, cols: sizeF(i)
+
+    // Derived quantities
+    Eigen::MatrixXd Si;          // Schur complement (nExt x nExt)
+    Eigen::MatrixXd A1_inv_A2;   // (A1)^{-1} A2, pre-computed for back-sub
+
+    // LU factorisations (nInt x nInt and nExt x nExt — both small)
+    Eigen::FullPivLU<Eigen::MatrixXd> luA1;
+    Eigen::FullPivLU<Eigen::MatrixXd> luSi;
+
+    // Lazy-update flags
+    bool jacNeedsUpdate = true;
+    bool converged      = false;
+};
+```
+
+**Critical**: `Bi` and `Ci` are `nTotal × 2*numPorts` and `2*numPorts × nTotal`
+respectively — **not** `nTotal × 2N`.  The two (or four) non-zero entries per
+column/row are extracted from the global sparse Jacobian at positions
+`busVoltageIdx[k]`.
+
+### 2.4 Identifying interface variable partition
+
+```cpp
+void SolverDDM::classifyVariables(SubDomainDDM& sd) {
+    const propertyContinuousVar_t* yType = sd.subModel->getYType();
+    sd.nInt = 0;
+    for (int j = 0; j < sd.nTotal; ++j)
+        if (yType[j] == DIFFERENTIAL) ++sd.nInt;
+    sd.nExt = sd.nTotal - sd.nInt;
+    // Interior indices come first; reordering handled in extractLocalJacobian()
+}
+```
+
+---
+
+## 3. Full Newton Iteration Loop
+
+```
+for k = 0, 1, ..., kmax-1:
+
+  (3.1) Parallel per-injector:
+        For each non-converged injector i:
+          a. subModel[i]->evalF(t, UNDEFINED_EQ)
+             → fills fLocal_ in global f[] at offset fDeb(i)
+          b. If jacNeedsUpdate[i]:
+               extractLocalJacobian(i, t, cj, localJt)
+               factoriseBlocks(i)          // luA1, luSi
+               precomputeCouplings(i)      // C̃ᵢ = Cᵢ Sᵢ⁻¹ (or Cᵢ (A1)⁻¹ if nInt>0)
+               jacNeedsUpdate[i] = false
+
+  (3.2) Serial: build reduced network system
+        D̃ = D − Σᵢ C̃ᵢ Bᵢ   (accumulate rank-2/4 updates)
+        g̃ = g − Σᵢ C̃ᵢ fᵢ   (sign: g̃ is the RHS of (3), negated for KLU solve)
+
+        // KLU solves D̃ ΔV = −g̃
+        klu_refactor(D̃, klu_symbolic_, klu_numeric_, &klu_common_);
+        klu_solve(klu_numeric_, ΔV, −g̃, &klu_common_);
+
+  (3.3) Parallel per-injector back-substitution (Eqs. 4–5):
+        For each injector i:
+          Δxᵢᵉˣᵗ = luSi.solve(−fᵢᵉˣᵗ − A3ᵢ Δxᵢᵢⁿᵗ_prev − Bᵢ ΔV_local)
+          if nInt > 0:
+            Δxᵢᵢⁿᵗ = luA1.solve(−fᵢᵢⁿᵗ − A2ᵢ Δxᵢᵉˣᵗ)
+
+  (3.4) Update: y[yDeb(i)..yDeb(i)+nTotal) += Δxᵢ
+                y[network_range]           += ΔV
+
+  (3.5) Convergence check per injector:
+        ‖Δxᵢ‖ < tol_x  AND  ‖fᵢ(y_updated)‖ < tol_f  → mark converged
+        (even if converged, recompute ‖fᵢ‖ each subsequent iter using new V)
+
+  (3.6) Global convergence: all injectors converged AND ‖ΔV‖ < tol_V
+
+  (3.7) Step failure: if k == kmax-1 and not converged → halve h, retry
+```
+
+### 3.1 Scheme selection (Aristidou Schemes A and B)
+
+Two Newton variants are implemented (selected by PAR file parameter
+`scheme`, default `B`):
+
+- **Scheme A** (standard decomposed Newton, Thesis §4.3.1): after step 3.4,
+  proceed to check convergence.  `fᵢ` in step 3.1a is evaluated with the
+  state from the *previous* outer iteration.
+
+- **Scheme B** (updated-RHS, Thesis §4.3.2): after computing `ΔV` in step 3.2,
+  immediately re-evaluate `fᵢ(xᵢ, V_new)` for **all** non-converged injectors
+  before back-substitution.  This requires one extra `evalF` pass but improves
+  convergence for systems with tight voltage–machine coupling.
+
+### 3.2 Lazy Jacobian update policy
+
+| Trigger | Aᵢ¹/Aᵢ²/Aᵢ³/Aᵢ⁴ | Bᵢ, Cᵢ | D̃ rebuild |
 |---|---|---|---|
-| Discrete state change in injector i | Only injector i | Only injector i | Yes (single rank-2 correction to cached D̃) |
-| Network topology change (line trip) | No | All i (refresh Bᵢ) | Yes (full rebuild from cached C̃ᵢ) |
-| Step-size change (no event) | No | No | No (reuse D̃) |
-| BDF order change | No | No | Rebuild (BDF α coefficient changes) |
+| First step or restart | ✓ all | ✓ all | ✓ |
+| h changed (step-size change) | ✓ all | ✗ | ✓ |
+| Newton converged slowly (>N_slow iters) | ✓ all | ✗ | ✓ |
+| Injector i discrete event (local) | ✓ i only | ✓ i | ✓ |
+| Network topology change (line/transformer trip) | ✓ all | ✓ all | ✓ (D updated externally via reinit) |
+| Successful step, fast convergence | ✗ (age) | ✗ | ✗ |
 
-When injector i calls for an update of Aᵢ, this matrix is recomputed and factorised, and C̃ᵢ is recomputed since it depends on Aᵢ. However, neither Aⱼ for j ≠ i nor the other C̃ⱼ are updated.
+**Rationale for h-change row**: `cj = α/h` enters every Aᵢ block (BDF coefficient
+multiplies `∂fᵢ/∂ẋᵢ`).  The coupling matrices `Bᵢ` and `Cᵢ` contain
+`∂fᵢ/∂V` terms that are independent of `h`, so they do not need refresh.
 
-### 5.6 Post-Event Convergence Acceleration
-
-After an event, the Newton iteration often requires more iterations to converge because the system state is far from the linearisation point. The **updated RHS variant** (Section 1.3, equation 1') is therefore **always activated in the first Newton pass after any event**, regardless of the global setting. This re-evaluates `fᵢ(xᵢᵏ⁻¹, zᵢ, Vᵏ)` with the freshly solved Vᵏ rather than the stale Vᵏ⁻¹, providing a much better correction for injectors that have a nonlinear response to the voltage jump.
-
-### 5.7 Time Event Scheduling
-
-Time events (externally scheduled disturbances, e.g., fault clearing at t = 1.0 s) are handled by `SolverDDM` through a priority queue of scheduled event times, pre-populated at `init()` from the timeline. At each `step()` call, if a time event lies within `[tₙ, tₙ + h]`, the step is first shortened to `tₑ`, the event is imposed, and the solve proceeds from `tₑ`. This is identical to the mechanism in `SolverSIM` and requires no additional BBD-specific logic beyond the step-length adjustment.
-
-### 5.8 Chattering Prevention
-
-In systems with many limiters (e.g., OELs in long-term simulations), rapid successive events can cause chattering: the step size is reduced to ~1e-4 s and cannot grow. `SolverDDM` implements a **hysteresis counter**: if more than `maxChatterEvents` (default: 5) sign-changes occur in the same `gᵢ` function within a sliding window of `chatterWindow` (default: 0.02 s) of simulation time, the corresponding zero-crossing is temporarily disabled and an `eventSuppressed` flag is logged to the timeline. This mirrors the approach used in `SolverIDA` via SUNDIALS' event suppression API, adapted here for the BBD context.
-
-### 5.9 Re-initialisation After Large Disturbances
-
-After a fault inception (large voltage jump), the first post-event step is taken with `h = h_min` (default: 1e-3 s) and BDF order 1. The `SolverDDM::reinit()` method performs:
-
-1. Reset all sub-domain `isConverged = false`.
-2. Mark all Aᵢ and `D̃` as `needsUpdate = true`.
-3. Set BDF order to 1, set `h = h_min`.
-4. Run one full BBD Newton solve to compute the post-event consistent initial conditions.
-5. Resume step-size growth following the controller in Section 6.
-
----
-
-## 6. Step-Size and BDF Order Control
-
-`SolverDDM` supports two integration modes, switchable via solver parameters.
-
-### 6.1 Fixed-Step BEM (DynaWaltz compatible)
-
-When `fixedStep = true`, the solver uses a constant step size h with BDF order 1 (Backward Euler Method). This is the simplest mode and matches `SolverSIM`. Events trigger step truncation as in Section 5.3, but the step is immediately restored to h after the post-event BEM step.
-
-### 6.2 Variable-Step BDF-1/BDF-2 (DynaSwing compatible)
-
-When `fixedStep = false`, the solver uses a **local error estimator** to control step size:
-
-```
-err = ‖h⁻¹(yⁿ⁺¹_BDF2 - yⁿ⁺¹_BEM)‖₂ / tol
-```
-
-- If `err > 1`: reject step, retry with `h ← 0.7h`
-- If `err < 0.5`: accept step, grow with `h ← min(1.3h, h_max)`
-
-The Jacobian is not refactorised on a step rejection unless Newton itself has failed to converge. In long-term simulations, the maximum step size varies by orders of magnitude — from 1e-3 s near events to 0.5 s in quiescent periods — and the variable-step mode reduces total Newton solves by 3–10× relative to fixed-step.
-
----
-
-## 7. Parallelism Design
-
-### 7.1 OpenMP Over Sub-Domains
-
-The dominant parallel opportunity is the independence of all injector sub-solves in steps 1 and 6 of the Newton loop. With n injectors and p threads:
+**Topology change vs. local event**: a topology change is signalled by
+`ModeChange` in the solver state (set by `evalZMode` via `model_->modeChange()`).
+A local discrete event is signalled by the specific injector's
+`subModel->modeChange()` flag.  The two code paths must be distinguished:
 
 ```cpp
-#pragma omp parallel for schedule(dynamic, 4) num_threads(p)
-for (int i = 0; i < n; ++i) {
-    if (!subdomains_[i].isConverged) {
-        if (subdomains_[i].jacNeedsUpdate) subdomains_[i].factoriseAi();
-        subdomains_[i].solveForDxi(dV_current_);
-    }
+if (state_.getFlags(ModeChange)) {
+    // Network topology may have changed: full rebuild
+    markAllJacobiansDirty();
+    rebuildNetworkBlock();
+} else {
+    // Only affected injectors
+    for (auto& sd : injectors_)
+        if (sd.subModel->modeChange()) sd.jacNeedsUpdate = true;
 }
 ```
 
-Dynamic scheduling (`schedule(dynamic,4)`) is preferred over static because injector sizes `nᵢ` vary. A chunk size of 4 balances scheduling overhead with load imbalance.
+---
 
-### 7.2 Thread Safety
+## 4. BDF Time Integration
 
-All per-subdomain data (Aᵢ, Bᵢ, C̃ᵢ, fᵢ, dxᵢ, LU factorisation) is owned by the `SubDomainDDM` object and accessed only by its assigned thread. The accumulation of Schur corrections into `D̃` (step 3 of the Newton loop) is performed **sequentially after the parallel factorisations**.
+### 4.1 Step-size and order control
 
-For n > 500 injectors, per-thread partial `D̃` contributions can be accumulated in thread-local dense buffers and summed at a reduction step to avoid false sharing on the sparse `D̃` column entries.
+BDF-1 is used at the first step and after any discontinuity.  BDF-2 is
+activated after two consecutive accepted steps with `err < 0.5 * tol_step`.
 
-### 7.3 Network Solve (Sequential)
+The normalised local error estimate (Euclidean norm) is:
 
-The KLU solve on `D̃ ΔV = rhs` is inherently sequential (a single sparse LU back-solve). For N ≤ 5000 buses, this is not a bottleneck. For very large networks (N > 50,000), an iterative solver (GMRES with incomplete LU preconditioner) could be substituted, but this is outside the Phase 1 scope.
+    err = ‖ (y_{n+1}^{BDF1} − y_{n+1}^{BDF2} ) / (atol + rtol |y_{n+1}|) ‖₂ / √N
+
+Step accepted if `err ≤ 1`.  New step:
+
+    h_new = h · min(facmax, max(facmin, safety · err^{-1/(k+1)}))
+
+with `safety = 0.9`, `facmax = 5.0`, `facmin = 0.2`.
+
+Minimum acceptable step: `minimalAcceptableStep` from the common PAR parameters
+(already in `Solver::Impl::defineCommonParameters()`).
+
+### 4.2 `computeYP` integration
+
+Dynaωo's `Solver` interface requires `computeYP(const double* yy)`.  Under
+BDF-1 this is simply:
+
+```cpp
+void SolverDDM::computeYP(const double* yy) {
+    for (int i = 0; i < model_->sizeY(); ++i)
+        vectorYp_[i] = (yy[i] - ypHistory_[i]) * cj_;  // cj_ = 1/h
+}
+```
+
+where `ypHistory_` stores `y_n` (BDF-1) or the BDF-2 history combination.
 
 ---
 
-## 8. Implementation Phases
+## 5. Dynaωo Interface Implementation
 
-### Phase 1: Sequential Schur Baseline (Validation)
+### 5.1 Class hierarchy
 
-**Goal**: Numerically identical results to `SolverIDA` on all existing test cases (Nordic32, IEEE-39). No OpenMP yet.
+```
+DYN::Solver  (pure virtual, DYNSolver.h)
+  └── DYN::Solver::Impl  (DYNSolverImpl.{h,cpp})
+        └── DYN::SolverDDM  (DYNSolverDDM.{h,cpp})
+```
 
-- Implement `SubDomainDDM`, `SchurNetworkSolver`, and `SolverDDM::newtonIteration()` without skip-converged logic.
-- Validate `D̃` assembly against a reference full-Jacobian factorisation (`Eigen::SparseLU`).
-- Unit-test individual methods: `factoriseAi()`, `computeCiTilde()`, `buildDtilde()`.
-- Compare transient trajectories against `SolverIDA` using Dynamic Time Warping distance as accuracy metric.
+`SolverDDM` inherits `Solver::Impl` (exactly as `SolverIDA` does) and overrides:
 
-### Phase 2: OpenMP Parallelisation
+```cpp
+// Mandatory overrides
+void    init(const std::shared_ptr<Model>&, double t0, double tEnd) override;
+void    calculateIC(double tEnd) override;          // delegate to SolverKINSOL
+void    solve(double tAim, double& tNxt) override;  // outer time-step loop
+void    reinit() override;                          // algebraic restoration
+void    computeYP(const double* yy) override;
 
-**Goal**: Linear speedup with core count on injector factorisations and back-solves.
+// Informational
+const std::string& solverType() const override;
+void  defineSpecificParameters() override;
+void  setSolverSpecificParameters() override;
+void  printHeaderSpecific(std::stringstream&) const override;
+void  printSolveSpecific(std::stringstream&) const override;
+void  printEnd() const override;
+const std::string& getName() override;
+```
 
-- Add `#pragma omp parallel for` to the Newton iteration.
-- Validate thread safety of the Schur correction accumulation.
-- Strong-scaling study on the Nordic test network: 1, 2, 4, 8, 16 threads.
+### 5.2 `solve()` outer loop
 
-### Phase 3: Acceleration Strategies (Skip + Lazy Jacobian)
+```cpp
+void SolverDDM::solve(double tAim, double& tNxt) {
+    state_.reset();
+    model_->reinitMode();
+    model_->rotateBuffers();
 
-**Goal**: Match or exceed the Scheme A speedup reported in Fabozzi (2–7× on PEGASE).
+    double t = tSolve_;
+    while (t < tAim) {
+        double hTry = std::min(h_, tAim - t);
+        bool stepOk = tryStep(t, hTry);
+        if (stepOk) {
+            t += hTry;
+            ++stats_.nst_;
+            adaptStepSize(true);
+        } else {
+            adaptStepSize(false);
+            if (h_ < minimalAcceptableStep_)
+                throw DYNError(Error::SOLVER_ALGO, SolverDDMStepTooSmall, t);
+        }
+        // Discrete variable + mode update
+        std::vector<state_g> G0(model_->sizeG()), G1(model_->sizeG());
+        model_->evalG(t, G0);
+        if (evalZMode(G0, G1, t)) {
+            state_.setFlags(ModeChange);
+            // reinit() will be called by the Simulation layer if ALGEBRAIC_MODE
+        }
+    }
+    tNxt = t;
+    tSolve_ = tNxt;
+}
+```
 
-- Implement `isConverged` skip logic (Section 1.4).
-- Implement asymmetric lazy Jacobian update (Section 1.5).
-- Profile with `perf` / `callgrind` to confirm hotspot shift from Aᵢ factorisations to network solve.
+### 5.3 `reinit()` — algebraic restoration after mode change
 
-### Phase 4: Variable-Step BDF Integration
+Dynaωo's standard flow after a `ModeChange` is for the `Simulation` layer to
+call `solver->reinit()`.  `SolverDDM::reinit()` delegates to the shared KINSOL-
+based algebraic restoration (already in `Solver::Impl::setupNewAlgRestoration`):
 
-**Goal**: Enable `SolverDDM` as an alternative to `SolverIDA` for DynaSwing simulations.
+```cpp
+void SolverDDM::reinit() {
+    // Standard Dynaωo algebraic restoration via KINSOL
+    Solver::Impl::setupNewAlgRestoration(vectorY_.data());
+    // After convergence, mark all DDM caches dirty
+    markAllJacobiansDirty();
+    bdfOrder_ = 1;        // reset integration order
+    clearHistory();
+}
+```
 
-- Implement the BDF-1/BDF-2 error estimator and step controller of Section 6.2.
-- Implement `reinit()` for post-event consistent initial conditions.
-- Compare against `SolverIDA` on long-duration voltage stability cases (DynaWaltz scenarios).
+### 5.4 `calculateIC()` — initial conditions
+
+```cpp
+void SolverDDM::calculateIC(double tEnd) {
+    // Reuse the same KINSOL-based IC solve as SolverIDA
+    Solver::Impl::calculateIC(tEnd);
+    markAllJacobiansDirty();
+}
+```
+
+### 5.5 `SolverType` enum
+
+Add `SolverDDM = 3` to the `SolverType` enum in `DYNSolver.h`:
+
+```cpp
+typedef enum {
+    SolverSimplifie = 0,
+    SolverSundials1 = 1,
+    SolverSundials2 = 2,
+    SolverDDM       = 3    // <-- new
+} SolverType;
+```
 
 ---
 
-## 9. Key Design Choices and Trade-offs
+## 6. Numerical Robustness
 
-| Design Choice | Rationale | Risk / Caveat |
+### 6.1 Near-singular local Jacobians
+
+`Eigen::FullPivLU` is used for both `luA1` and `luSi` (instead of
+`PartialPivLU`) to detect rank deficiency:
+
+```cpp
+luA1.compute(A1);
+if (luA1.rank() < sd.nInt) {
+    Trace::warn() << DYNLog(SolverDDMSingularA1, sd.subModel->name()) << Trace::endline;
+    // Force full Jacobian update next iteration; try step-halving
+    sd.jacNeedsUpdate = true;
+    return STEP_FAILED;
+}
+```
+
+### 6.2 KLU thread safety
+
+`klu_common` contains mutable state (last error code, workspace pointers).  A
+single `klu_common` instance is allocated per `SolverDDM` object — not shared
+across threads.  If the network solve is later parallelised over multiple RHS,
+each thread must own its own `klu_common`.
+
+### 6.3 Jacobian aging reset on step-size change
+
+```cpp
+void SolverDDM::onStepSizeChange(double h_new) {
+    cj_ = computeCj(h_new, bdfOrder_);
+    markAllJacobiansDirty();   // cj enters all Aᵢ blocks
+    // Bᵢ, Cᵢ do NOT need update (no cj dependency)
+}
+```
+
+---
+
+## 7. CMake Integration
+
+### 7.1 `SolverDDM/CMakeLists.txt`
+
+```cmake
+set(SOLVER_DDM_VERSION_STRING ${DYNAWO_VERSION_STRING})
+set(SOLVER_DDM_VERSION_MAJOR  ${DYNAWO_VERSION_MAJOR})
+
+set(SOLVER_DDM_SOURCES
+    DYNSolverDDM.cpp
+)
+set(SOLVER_DDM_INCLUDE_HEADERS
+    DYNSolverDDM.h
+)
+
+add_library(dynawo_SolverDDM SHARED ${SOLVER_DDM_SOURCES})
+
+target_include_directories(dynawo_SolverDDM
+  INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<INSTALL_INTERFACE:${INCLUDEDIR_NAME}>
+    $<TARGET_PROPERTY:dynawo_SolverCommon,INTERFACE_INCLUDE_DIRECTORIES>
+  PRIVATE
+    $<TARGET_PROPERTY:dynawo_API_PAR,INTERFACE_INCLUDE_DIRECTORIES>
+    $<TARGET_PROPERTY:dynawo_ModelerCommon,INTERFACE_INCLUDE_DIRECTORIES>
+)
+target_include_directories(dynawo_SolverDDM SYSTEM
+  PRIVATE
+    $<TARGET_PROPERTY:Boost::boost,INTERFACE_INCLUDE_DIRECTORIES>
+    $<TARGET_PROPERTY:Eigen3::Eigen,INTERFACE_INCLUDE_DIRECTORIES>
+)
+
+target_link_libraries(dynawo_SolverDDM
+  PRIVATE
+    dynawo_Common
+    dynawo_SolverCommon
+    dynawo_SolverKINSOL        # algebraic restoration + IC
+    SuiteSparse::KLU           # network Schur solve
+    SuiteSparse::AMD
+    SuiteSparse::COLAMD
+    Eigen3::Eigen              # small dense blocks
+)
+
+set_target_properties(dynawo_SolverDDM
+    PROPERTIES
+        VERSION   ${SOLVER_DDM_VERSION_STRING}
+        SOVERSION ${SOLVER_DDM_VERSION_MAJOR}
+        PREFIX    "")
+
+install(TARGETS dynawo_SolverDDM EXPORT dynawo-targets DESTINATION ${LIBDIR_NAME})
+install(FILES ${SOLVER_DDM_INCLUDE_HEADERS}   DESTINATION ${INCLUDEDIR_NAME})
+
+desc_solver(dynawo_SolverDDM)
+
+if(BUILD_TESTS OR BUILD_TESTS_COVERAGE)
+    add_subdirectory(test)
+endif()
+```
+
+### 7.2 `VariableTimeStep/CMakeLists.txt` — addition
+
+```cmake
+add_subdirectory(SolverIDA)
+add_subdirectory(SolverDDM)   # <-- add this line
+```
+
+---
+
+## 8. Solver Parameters (PAR file)
+
+In addition to all **common** parameters inherited from `Solver::Impl`
+(`fnormtolAlg`, `minimalAcceptableStep`, etc.), `SolverDDM` adds:
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `hMin` | `double` | `1e-6` | Minimum time step (overrides common minimalAcceptableStep if set) |
+| `hMax` | `double` | `1.0` | Maximum time step |
+| `hStart` | `double` | `1e-3` | Initial time step |
+| `tolX` | `double` | `1e-6` | Per-injector Newton state tolerance |
+| `tolF` | `double` | `1e-4` | Per-injector residual tolerance |
+| `tolV` | `double` | `1e-6` | Network voltage Newton tolerance |
+| `maxNewtonIter` | `int` | `50` | Max BBD-Newton iterations per step |
+| `scheme` | `string` | `"B"` | Newton scheme: `"A"` or `"B"` (Aristidou §4.3) |
+| `jacAgeMax` | `int` | `5` | Max Newton steps before forced Jacobian refresh |
+| `bdfMaxOrder` | `int` | `2` | Maximum BDF order (1 or 2) |
+| `nSlowStepsBeforeJacUpdate` | `int` | `3` | Slow-convergence threshold |
+| `openmpThreads` | `int` | `0` | OMP threads (0 = auto) |
+
+---
+
+## 9. Statistics and Diagnostics
+
+`printEnd()` reports (in addition to the standard common stats):
+
+```
+--- SolverDDM Execution Statistics ---
+Time steps attempted   : nst_
+Time steps accepted    : nst_accepted_
+Newton iterations total: nni_
+Jacobian evaluations   : nje_
+Step rejections        : netf_
+Avg Newton iters/step  : nni_ / nst_accepted_
+Max injector backlog   : max_non_converged_injectors_
+```
+
+---
+
+## 10. Validation Strategy
+
+### 10.1 Accuracy metrics
+
+Comparison against a `SolverIDA` reference trajectory:
+
+1. **State variable trajectories**: normalised DTW distance < 0.01 per state.
+2. **Bus voltage trajectories**: magnitude and angle at all network buses, same DTW criterion.
+3. **Final steady-state mismatch**: `‖F(y_final)‖₂ < 1e-4`.
+4. **Algebraic variable consistency** at each saved time point.
+
+### 10.2 Performance metrics
+
+1. Total CPU time vs. SolverIDA baseline.
+2. Newton iteration count per time step (mean ± std).
+3. Jacobian evaluation count.
+4. Step rejection rate.
+
+### 10.3 Test cases by phase
+
+| Phase | Test case | Purpose |
 |---|---|---|
-| Dense Eigen for Aᵢ | Injectors are small (10–200 vars); DGETRF is faster than sparse KLU for dense blocks | For very large injector models (nᵢ > 300), switch to sparse |
-| KLU for D̃ | Already in Dynaωo's dependency stack; reuses existing `klu_analyze` from `SolverIDA` | KLU is sequential; for N > 50,000 may need iterative fallback |
-| OpenMP over injectors | Data-independent star topology → zero data races; lightweight vs. MPI | Load imbalance for heterogeneous injector sizes; mitigated by dynamic scheduling |
-| Fixed-step mode first | Simplifies validation; identical to `SolverSIM` semantics | No adaptive accuracy control; variable-step added in Phase 4 |
-| No spatial localisation (Chapter 5) | Preserves full accuracy; Chapter 5 explicitly excluded | Forfeits 2–7× additional speedup available from localisation |
-| Updated RHS variant post-event | Faster Newton convergence after discontinuities at cost of one extra fᵢ eval | Slight increase in residual evaluation count; negligible in practice |
+| 1 | IEEE 39-bus, 3-phase fault | Basic BBD Newton, Schemes A & B |
+| 1 | IEEE 39-bus, generator trip | Local event update path |
+| 2 | Nordic32, voltage collapse | Slow dynamics, step-control |
+| 2 | Nordic32, line trip | Topology change → full Jacobian rebuild |
+| 3 | IEEE 39-bus, OEL activation | Chattering / rapid discrete events |
+| 3 | Nordic32, OEL activation | Multiple simultaneous discrete events |
+| 4 | IEEE 39-bus, 4/8/16 OMP threads | Parallel scaling |
 
 ---
 
-## 10. Testing and Validation Strategy
+## 11. References
 
-All phases should be validated against `SolverIDA` on the standard Dynaωo test cases:
-
-- **Nordic32**: Short-term voltage stability, long-term voltage collapse. Compare DTW distance of rotor angle and bus voltage trajectories.
-- **IEEE-39**: Rotor angle stability with fault and line-trip events.
-- **ScalableTestGrids**: Scaling study using the open-source Modelica benchmark library, parameterised to generate 2N×2N EHV/HV networks from N=10 to N=200.
-
-For event-handling correctness, specific test cases should include:
-
-- A **fault with clearing** (voltage jump + topology change): validates Sections 5.4 and 5.9.
-- An **OEL activation sequence** (rapid discrete events): validates Section 5.8 chattering prevention.
-- An **OLTC tap-changer sequence** (time-event driven): validates Section 5.7.
-
-Accuracy acceptance criterion: normalised DTW distance < 0.01 for all continuous state trajectories, consistent with the thresholds used by Fabozzi for Scheme A validation.
-
----
-
-## References
-
-- P. Fabozzi, *Contributions to time-domain simulation of large power systems*, PhD thesis, University of Liège, 2012.
-- P. Aristidou and T. Van Cutsem, "A parallel processing approach to dynamic simulations of combined transmission and distribution systems," *Int. J. Elect. Power Energy Syst.*, vol. 72, pp. 58–65, 2015.
-- P. Aristidou and T. Van Cutsem, "Dynamic simulations of combined transmission and distribution systems using parallel processing techniques," *IEEE Trans. Power Syst.*, vol. 31, no. 6, pp. 5014–5025, 2016.
-- A. Hindmarsh et al., "SUNDIALS: Suite of nonlinear and differential-algebraic equation solvers," *ACM Trans. Math. Softw.*, vol. 31, no. 3, pp. 363–396, 2005.
-- T. A. Davis and E. Palamadai Natarajan, "Algorithm 907: KLU, a direct sparse solver for circuit simulation problems," *ACM Trans. Math. Softw.*, vol. 37, no. 3, 2010.
+1. Aristidou, P. (2015). *Dynamic Simulations of Large-Scale Power Systems Using
+   Parallel Processing Techniques*. PhD thesis, Université de Liège. **Chapter 4**.
+2. Fabozzi, D. et al. (2012). "Decomposed solution of the ordinary differential
+   equations characterizing large-scale power system dynamics." *PSCC 2012*.
+3. Davis, T. A. (2010). "Algorithm 907: KLU, a direct sparse solver for
+   circuit simulation problems." *ACM TOMS* 37(3).
+4. Hindmarsh, A. C. et al. (2005). "SUNDIALS: Suite of Nonlinear and
+   Differential/Algebraic Equation Solvers." *ACM TOMS* 31(3).
+5. Eigen library: https://eigen.tuxfamily.org
