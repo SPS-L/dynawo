@@ -68,7 +68,7 @@ The current `myEnvDynawo.sh` has profiling enabled (`-DDYNAWO_PROFILING=ON`), de
 Core source is under `dynawo/sources/` with these component boundaries:
 
 - **Simulation/** — Main simulation loop orchestration and lifecycle
-- **Solvers/** — Numerical solvers (IDA variable-step, KINSOL fixed-step, algebraic solvers, DDM distributed solver) with shared profiling in `Common/`
+- **Solvers/** — Numerical solvers (IDA variable-step, SIM/TRAP fixed-step, KINSOL-based algebraic solvers) with shared profiling in `Common/`. `VariableTimeStep/SolverDDM/` contains only `DESIGN.md` — a Schur-complement domain-decomposition solver **proposal**, no implementation yet
 - **Modeler/** and **Models/** — Model interfaces and implementations (C++ and Modelica)
 - **ModelicaCompiler/** — Modelica `.mo` → shared library compilation pipeline
 - **API/** — Public data interfaces (jobs, curves, parameters, timelines, constraints)
@@ -99,11 +99,12 @@ Profiling is already enabled in `myEnvDynawo.sh` (`-DDYNAWO_PROFILING=ON` + debu
 ### Profiling Workflow
 ```bash
 # Run a simulation with profiling output
-export DYNAWO_PROFILE_OUTPUT=profile.csv   # or .json
+export DYNAWO_PROFILE_OUTPUT=profile.csv   # written at process exit; lost on crash/kill -9
 ./myEnvDynawo.sh jobs path/to/config.jobs
 
-# Analyze results (Python venv in performance-analysis/venv/)
+# Analyze results (create the venv first if absent)
 cd performance-analysis
+python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
 python analyze_profile.py profile.csv --output-dir results/
 python bottleneck_detector.py profile.csv
 python compare_runs.py baseline.csv optimized.csv --output comparison.html
@@ -124,29 +125,35 @@ python memory_analyzer.py profile.csv --output-dir results/memory/
 | `performance-analysis/README.md` | Overview, tool docs, adding new instrumentation points |
 | `performance-analysis/INSTALL_UBUNTU24.md` | Build setup guide with troubleshooting |
 | `performance-analysis/TRAISIM_future_plans.md` | Executive summary presentation (Marp slides) |
+| `performance-analysis/README_timing_feature.md` | `enableRealTimeTracking` per-timestep `simRT.csv` feature |
+| `dynawo/sources/Solvers/VariableTimeStep/SolverDDM/DESIGN.md` | Domain-decomposition solver design (proposal only, no code) |
+| `../reports/` (TRAISIM root) | A7 baselines (current RTR numbers), A7 superset-sparsity plan, fork code review |
 
 ### Analysis Tools
 | Script | Purpose |
 |--------|---------|
-| `analyze_profile.py` | Parse CSV/JSON profiles, generate pie/bar/timeseries charts |
+| `analyze_profile.py` | Parse CSV profiles (JSON is not supported by any tool), generate pie/bar/timeseries charts |
 | `bottleneck_detector.py` | Automated hotspot identification with severity-ranked findings |
 | `compare_runs.py` | Baseline vs. optimized comparison with HTML report |
 | `memory_analyzer.py` | Peak memory analysis and leak detection via regression |
-| `benchmark_solvers.py` | Multi-configuration benchmarking (IDA vs SIM, parameter sweeps) |
+| `benchmark_solvers.py` | Multi-configuration benchmarking (writes a rewired temp copy of the case's .jobs per config) |
+
+Percentages and "overall speedup" are computed against the SimulationLoop row (wall-clock), never the sum of nested phases — keep it that way when extending the tools; regression tests are in `performance-analysis/tests/` (`venv/bin/python -m pytest tests/`). **Remaining caveats** (full list in `../reports/dynawo_code_review_2026-07-09.md`): the profiler report's "exclusive times" subtract outdated child sets. Profiles recorded before 2026-07-09 double-count `CalculateIC` on SIM/TRAP and may be missing `KLUSetup` time after algebraic restorations (both fixed).
 
 ### Test Cases for Benchmarking
+All under `../testcases/` (TRAISIM repo root):
 - **Nordic** (74 buses) — fast iteration during development
-- **RTNordic** — medium-scale validation
-- **PFR_20240605_N_NB** — large RTE EHV-HV network
-- **PFR_20240605_N_NB_all_retained** — primary real-time target (6000+ buses, 4000s sim, fixed-step SIM)
-- **PFR_20240605_events** — event-heavy stress test
+- **RTNordic** — medium-scale validation (Nordic with RTE models)
+- **PFR_20240605_N_NB** — large RTE EHV-HV network (4000s)
+- **PFR_20240605_N_NB_all_retained** — primary real-time target (6000+ buses, fixed-step SIM); `PFR_20240605_N_NB.jobs` runs 400s, `PFR_20240605_N_NB_4000s.jobs` runs 4000s with 8 events
+- **RTE_snapshots/** — 61 operating points, identical 6-event contingency, varying network state
 
 ## Key Entry Points
 
 | File | Purpose |
 |------|---------|
 | `myEnvDynawo.sh` | Local entry point — sets env vars, delegates to `util/envDynawo.sh` (gitignored, per-developer) |
-| `util/envDynawo.sh` | Underlying build/test/deploy wrapper (~3000 lines, all commands) |
+| `util/envDynawo.sh` | Underlying build/test/deploy wrapper (~2700 lines, all commands) |
 | `dynawo/CMakeLists.txt` | Root CMake config |
 | `dynawo/sources/Simulation/DYNSimulation.cpp` | Main simulation loop |
 | `dynawo/sources/Solvers/Common/DYNSolverProfiler.h` | Profiler singleton + PhaseTimer RAII |

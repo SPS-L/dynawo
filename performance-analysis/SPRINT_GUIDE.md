@@ -130,7 +130,7 @@ sudo sh -c 'echo 0 > /proc/sys/kernel/kptr_restrict'
 | `RTNordic/` | Medium | Intermediate scale |
 | `PFR_20240605_N_NB/` | Large RTE EHV-HV | Secondary target |
 | `PFR_20240605_N_NB_all_retained/` | Large (all branches retained) | **Primary real-time target** |
-| `PFR_20240605_events/` | Large + event-heavy | Discrete-event stress |
+| `PFR_20240605_N_NB_all_retained/PFR_20240605_N_NB_4000s.jobs` | Large + 8 scheduled events, 4000 s | Discrete-event stress |
 
 The PFR cases use `dynawo_SolverSIM` (fixed-step), `stopTime="4000"`, `useStandardModels="true"`, and must be launched from their own directory via `myEnvDynawoRTE.sh`.
 

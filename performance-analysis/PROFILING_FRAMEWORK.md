@@ -1,6 +1,6 @@
 # Dynaωo Performance Profiling Framework
 
-> **Branch:** `3_performance-analysis-framework`  
+> **Branch:** `3_performance-analysis-framework`
 > **Scope:** `DYNSolverProfiler` — build-time instrumentation framework spanning the Simulation, Solver, and KLU linear-algebra layers
 
 ---
@@ -39,8 +39,9 @@ The profiling framework is a lightweight, zero-overhead-when-disabled system bui
 │  ├─ DYN_PROFILE_PHASE(PHASE_JACOBIAN_EVAL)     [evalJ() callback]    │
 │  ├─ DYN_PROFILE_PHASE(PHASE_ROOT_EVAL)         [evalG() callback]    │
 │  └─ DYN_PROFILE_PHASE(PHASE_SOLVER_STEP)       [solveStep()]         │
+│  DYNSolverSIM.cpp / DYNSolverTRAP.cpp                                │
+│  ├─ DYN_PROFILE_PHASE_MEM(PHASE_CALCULATE_IC)  [calculateIC()]       │
 │  DYNSolverCommonFixedTimeStep.cpp                                    │
-│  ├─ DYN_PROFILE_PHASE_MEM(PHASE_CALCULATE_IC)  [calculateICCommon()] │
 │  ├─ DYN_PROFILE_PHASE(PHASE_ROOT_EVAL)         [calculateICCommon()] │
 │  ├─ DYN_PROFILE_PHASE(PHASE_ROOT_EVAL)         [updateZAndMode()]    │
 │  ├─ DYN_PROFILE_PHASE(PHASE_ROOT_EVAL)         [reinit() ×2]         │
@@ -147,7 +148,7 @@ SIMULATION_LOOP  (memory-tracked, RAII scope in simulate())
 |---|---|---|---|
 | `PHASE_SIMULATION_LOOP` | `SimulationLoop` | `DYNSimulation.cpp` | Outer `simulate()` loop — memory-tracked |
 | `PHASE_SOLVER_SOLVE` | `SolverSolve` | `DYNSolverCommon.cpp` | `solveStepCommon()` entry |
-| `PHASE_CALCULATE_IC` | `CalculateIC` | `DYNSolverIDA.cpp` (IDA) · `DYNSolverCommonFixedTimeStep.cpp` (SIM/TRAP) | `SolverIDA::calculateIC()` · `calculateICCommon()` |
+| `PHASE_CALCULATE_IC` | `CalculateIC` | `DYNSolverIDA.cpp` (IDA) · `DYNSolverSIM.cpp` / `DYNSolverTRAP.cpp` (SIM/TRAP) | `calculateIC()` overrides only — `calculateICCommon()` deliberately carries no timer (it would self-nest and double-count) |
 | `PHASE_SOLVER_STEP` | `SolverStep` | `DYNSolverIDA.cpp` · `DYNSolverCommonFixedTimeStep.cpp` | Per IDA/Euler step |
 | `PHASE_JACOBIAN_EVAL` | `JacobianEval` | `DYNSolverIDA.cpp` (`evalJ` callback) | Jacobian callback |
 | `PHASE_RESIDUAL_EVAL` | `ResidualEval` | `DYNSolverIDA.cpp` (`evalF` callback) | Residual callback |
@@ -485,6 +486,17 @@ Second audit pass 2026-04-04 against `DYNSolverCommonFixedTimeStep.cpp`.
 
 ### Open Issues (Prioritized)
 
+A full external review of the profiler and analysis tooling lives in the
+TRAISIM repository at `reports/dynawo_code_review_2026-07-09.md`; the open
+items below are complemented there by (among others):
+**B-EXCL-CHILDSETS** — the report's "exclusive times" subtract hand-written
+child sets that no longer match the runtime call graph, overstating
+SolverStep/KINSOLSolve self-cost (fix: derive exclusives from the
+`parentChildTime_` matrix); **B-EXPORT-AT-EXIT** — CSV/JSON export happens
+only in the singleton destructor, so crashes lose the profile; and
+**B-MAXCALLS-REWRITE** — the `MAX_PLAUSIBLE_CALLS` workaround silently
+fabricates `call_count`/`avg_ms` with no warning marker.
+
 1. **B-STEPTIME-DOUBLE (medium)**
 : `stepEndTime` is captured twice per timestep when both real-time tracking and profiler timestep recording are enabled, slightly inflating both metrics.
 : Location: `Simulation::simulate()` in `DYNSimulation.cpp`.
@@ -502,6 +514,8 @@ Second audit pass 2026-04-04 against `DYNSolverCommonFixedTimeStep.cpp`.
 
 ### Recently Resolved (kept for traceability)
 
+- `B-KLU-DEDUP` (2026-07-09): `installKLUProfiler` dedup'd on `SUNLinearSolver` pointer identity, so a solver freed and recreated at the same heap address (routine when `setupNewAlgebraicRestoration` resizes) matched its stale registry entry and was left unpatched — all subsequent klu_factor/refactor time silently vanished from `PHASE_KLU_SETUP`. Fixed: dedup on `ops->setup == profiledKLUSetup` and reuse stale slots in place (also stops registry growth on recreation). Verified with a standalone free/recreate harness (red → green).
+- `B-CALC_IC-SELF-NEST` (2026-07-09): `PHASE_CALCULATE_IC` was opened both in `SolverSIM/TRAP::calculateIC()` and again in `calculateICCommon()`, self-nesting and double-counting the phase (call_count 2, up to ~2x time). Fixed by removing the inner timer; verified on a profiled Nordic run (call_count 2 → 1). Profiles recorded before this date carry the inflated values.
 - `W-SHARED-PHASE-DOUBLE-COUNT`: fixed via runtime parent-child attribution in profiler timing core.
 - `B-EXCL-REINIT-PARENT-MISMATCH`: fixed by contextual subtraction (not global child subtraction).
 - `B-EXCL-CALC_IC`: fixed by correct SimulationLoop child mapping.
@@ -599,4 +613,4 @@ Then also set `DYNAWO_PROFILE_OUTPUT`. Both outputs will be generated independen
 
 ---
 
-*Last updated: 2026-04-04 — implemented context-aware parent-child attribution in `DYNSolverProfiler` to resolve W-SHARED-PHASE-DOUBLE-COUNT (and related SolverSolve/Reinit attribution bias) for fixed-step DynaWaltz reporting.*
+*Last updated: 2026-07-09 — resolved B-CALC_IC-SELF-NEST (CalculateIC double-count on SIM/TRAP) and B-KLU-DEDUP (KLUSetup timing lost after solver recreation at a reused heap address); fixed the Python tools' percentage denominators (SimulationLoop wall time, not sum of nested phases) and benchmark_solvers.py jobs-file rewiring; added the regression test suite under `performance-analysis/tests/`. See `reports/dynawo_code_review_2026-07-09.md` in the TRAISIM repository for the full review and remaining open findings.*

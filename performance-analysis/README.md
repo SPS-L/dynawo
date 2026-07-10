@@ -74,9 +74,9 @@ The performance analysis framework operates at three levels:
 
 **C++ Profiler Layer:** The `SolverProfiler` singleton and `PhaseTimer` RAII class live in the Dynawo solver source code (`dynawo/sources/Solvers/Common/`). When enabled, they measure wall-clock time and RSS memory for each solver phase using `std::chrono::high_resolution_clock` and `/proc/self/status`. All data collection is guarded by preprocessor macros that compile to no-ops when profiling is disabled, ensuring zero overhead in production builds.
 
-**Python Analysis Layer:** Python scripts load the exported CSV or JSON files, compute statistics, generate visualizations (phase pie charts, time-series plots, memory growth curves), and produce HTML reports. Dependencies are listed in `requirements.txt`.
+**Python Analysis Layer:** Python scripts load the exported CSV files (the profiler can also export JSON, but no analysis tool consumes it), compute statistics, generate visualizations (phase pie charts, time-series plots, memory growth curves), and produce HTML reports. Dependencies are listed in `requirements.txt`.
 
-**Benchmark Layer:** Shell scripts and solver configuration files automate running standardized test cases with consistent solver settings, collecting profiling data across runs for comparison. The primary benchmark is the Nordic test system (74 buses, 52 lines, 20 generators, 22 loads, 41 dynamic models, 175s DynaWaltz simulation with fault event), with NordicTCB as a secondary case.
+**Benchmark Layer:** Shell scripts and solver configuration files automate running standardized test cases with consistent solver settings, collecting profiling data across runs for comparison. The default case for these scripts is the Nordic test system (74 buses, 52 lines, 20 generators, 22 loads, 41 dynamic models, 175s DynaWaltz simulation with fault event), with NordicTCB as a secondary case. The project-wide primary benchmark is `testcases/PFR_20240605_N_NB_all_retained` in the TRAISIM repository root.
 
 ---
 
@@ -101,6 +101,9 @@ Located at `dynawo/sources/Solvers/Common/`:
   - `PHASE_KINSOL_SOLVE` -- KINSOL nonlinear solve
   - `PHASE_REINIT` -- solver reinitialization after events
   - `PHASE_IO` -- file I/O operations (output writing in terminate())
+  - `PHASE_KLU_SYMBOLIC` -- KLU symbolic (re)factorization (`SUNLinSol_KLUReInit`)
+  - `PHASE_KLU_SETUP` -- KLU numeric factorization (patched SUNDIALS setup vtable)
+  - `PHASE_CURVES_UPDATE` -- curve collection update per accepted step
 
 - **`PhaseStats` struct:** Stores per-phase statistics (total time, min/max/avg call time, call count, peak memory).
 
@@ -122,10 +125,23 @@ Located in `performance-analysis/`. Install dependencies first:
 
 ```bash
 cd /path/to/dynawo/performance-analysis
-python3 -m venv .dynawo-profiling-env
-source .dynawo-profiling-env/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt   # matplotlib, pandas, numpy, jinja2
 ```
+
+The tools have a regression test suite in `tests/` (percentage denominators,
+benchmark jobs-file rewiring). Run it after any change:
+
+```bash
+pip install pytest
+python -m pytest tests/
+```
+
+All percentages and speedups reported by the tools are computed against the
+`SimulationLoop` row (wall-clock time). Phase timings in the profiler CSV are
+*inclusive and nested*, so summing rows counts the same wall-clock time 2-3x
+over — never use the column sum as a denominator when extending the tools.
 
 #### `analyze_profile.py` — Profile Visualization
 
@@ -196,6 +212,12 @@ Automates running the same simulation case under multiple solver configurations
 (IDA, SIM, TRAP with various tolerances), collects profiling data, and produces
 a comparison table. Optionally runs parameter sensitivity sweeps.
 
+For each configuration the script generates a `solver.par` in the run directory
+and executes a temporary copy of the case's `.jobs` file whose `dyn:solver`
+element is rewired to it (written next to the original so relative paths
+resolve, removed after the run) — this is what makes the configuration
+actually take effect.
+
 **Usage:**
 
 ```bash
@@ -239,7 +261,7 @@ Applies heuristic rules to a profiling CSV to automatically identify performance
 bottlenecks and produce prioritised recommendations with severity levels.
 
 **Checks performed:**
-1. Dominant hotspots — phases consuming >10% of total time
+1. Dominant hotspots — phases consuming >10% of wall-clock (SimulationLoop) time; container phases (SimulationLoop, SolverSolve, SolverStep) are excluded since their inclusive timings trivially dominate
 2. Excessive Jacobian rebuilds relative to solver steps
 3. Linear solver efficiency — factorisation-to-solve ratio
 4. Convergence issues — too many KINSOL solves per solver step
@@ -348,7 +370,7 @@ performance-analysis/
 |-- OPTIMIZATION_ROADMAP.md      # Detailed optimization roadmap (16 items, phased)
 |-- TRAISIM_future_plans.md      # Marp slide deck — optimization roadmap presentation
 |-- requirements.txt             # Python dependencies
-|-- analyze_profile.py           # CSV/JSON parser, charts, statistics
+|-- analyze_profile.py           # CSV parser, charts, statistics
 |-- compare_runs.py              # Side-by-side run comparison, HTML report
 |-- benchmark_solvers.py         # Automated multi-config benchmarking
 |-- bottleneck_detector.py       # Automatic bottleneck identification
@@ -847,8 +869,8 @@ cd /path/to/dynawo
 ```bash
 cd /path/to/dynawo/performance-analysis
 
-python3 -m venv .dynawo-profiling-env
-source .dynawo-profiling-env/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -859,7 +881,7 @@ cd $DYNAWO_HOME
 
 mkdir -p results/nordic
 
-export DYNAWO_PROFILE_OUTPUT=results/nordic/profile.json
+export DYNAWO_PROFILE_OUTPUT=results/nordic/profile.csv
 ./myEnvDynawo.sh jobs examples/DynaWaltz/Nordic/Nordic.jobs
 ```
 
@@ -886,7 +908,7 @@ NRSolve                   3.210      850      3.7765      1.5600     12.3400    
 
 ```bash
 cd /path/to/dynawo/performance-analysis
-source .dynawo-profiling-env/bin/activate
+source venv/bin/activate
 
 # Generate charts and console summary
 python analyze_profile.py $DYNAWO_HOME/results/nordic/profile.csv \

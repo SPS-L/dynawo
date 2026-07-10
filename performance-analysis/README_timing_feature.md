@@ -33,22 +33,16 @@ simulation_time,computation_time_ms,accumulated_computation_time_s
 
 ### CSV Format:
 - **simulation_time**: Current simulation time (6 decimal places)
-- **computation_time_ms**: Timestep computation time in milliseconds (3 decimal places)
-- **accumulated_computation_time_s**: Total accumulated computation time from simulation start in seconds (3 decimal places)
+- **computation_time_ms**: Timestep computation time in milliseconds (3 decimal places), measured from just before `solver_->solve()` to just after `model_->notifyTimeStep()`
+- **accumulated_computation_time_s**: Wall-clock time elapsed since the main simulation loop started, in seconds (3 decimal places)
 
 ### Understanding Accumulated Time
 
-The **accumulated_computation_time_s** column provides the total computational cost from the beginning of the simulation until each measurement point:
+The **accumulated_computation_time_s** column is the wall-clock time since the main loop began — **not** the running sum of the `computation_time_ms` column:
 
 - **Scope**: Excludes model compilation, initialization, and setup phases
 - **Start Point**: Begins when the main simulation loop starts executing timesteps
-- **Purpose**: Shows cumulative computational expense for performance analysis
-- **Use Cases**:
-  - Track total computational resources used over simulation duration
-  - Identify performance trends and optimization opportunities
-  - Compare computational efficiency across different simulation scenarios
-
-**Example**: If the first timestep takes 0.001s, the accumulated time will be 0.001s. If the second timestep takes 0.002s, the accumulated time becomes 0.003s, and so on.
+- **Caveat**: It also includes per-iteration work outside the per-step window — intermediate state/IIDM dumps, the timeout check, and (in profiling builds) the profiler's own per-step record. On dump-heavy runs, `sum(computation_time_ms)` and this column diverge systematically; use this column for RTR (real-time ratio) calculations, and column 2 for per-step analysis.
 
 ## Performance Impact
 
@@ -56,19 +50,12 @@ The **accumulated_computation_time_s** column provides the total computational c
 - **Minimal overhead when enabled**: High-precision timing with pre-allocated memory
 - **Automatic memory optimization**: Vector pre-allocation based on estimated simulation length
 
-## Test Files
-
-- `test_timing_job.jobs` - Example with timing enabled
-- `test_timing_disabled.jobs` - Example with timing explicitly disabled  
-- `test_timing_default.jobs` - Example with default behavior (no attribute)
-- `test_timing_output/simRT.csv` - Example output file
-
 ## Implementation Details
 
-- Uses C++ `std::chrono::high_resolution_clock` for maximum precision
+- Implemented in `dynawo/sources/Simulation/DYNSimulation.cpp` (timing capture in the main loop, export in `writeRealTimeTrackingFile()` called from `terminate()`); the `.jobs` attribute is declared in `dynawo/sources/API/JOB/xsd/jobs.xsd`
+- Uses C++ `std::chrono::high_resolution_clock` (note: on libstdc++ this aliases the non-monotonic `system_clock`; NTP adjustments during long runs can skew results)
 - Measures time from solver start to timestep completion
 - **Accumulated timing excludes initialization phases** - starts when entering the main simulation loop
-- **Total elapsed time tracking** - provides cumulative computation cost from simulation start
-- Integrates with existing Dynawo error handling and file management
-- Follows Dynawo XML schema validation patterns
+- Jobs files carrying the attribute fail XSD validation on stock upstream Dynawo (the attribute only exists in this fork's schema)
+- `SimulationRT` (the real-time co-simulation loop) does **not** produce `simRT.csv`; the feature applies to the standard `Simulation` loop only
 - Maintains backward compatibility with existing CSV parsers (first two columns unchanged)
