@@ -89,6 +89,21 @@ def parse_profile_csv(filepath):
 # Helper: safe lookup of a phase row
 # ---------------------------------------------------------------------------
 
+# Inclusive timings: container phases contain the leaves, so they are never
+# summed with their children nor flagged as hotspots.
+CONTAINER_PHASES = {"simulationloop", "solversolve", "solverstep"}
+
+
+def get_wall_time(phase_df):
+    """Wall-clock reference: the SimulationLoop row, else the column sum."""
+    if phase_df is None or phase_df.empty:
+        return 0.0
+    matches = phase_df[phase_df["phase"].str.lower() == "simulationloop"]
+    if not matches.empty:
+        return float(matches.iloc[0]["total_seconds"])
+    return float(phase_df["total_seconds"].sum())
+
+
 def get_phase(phase_df, name):
     """Return the row for a given phase name, or None."""
     if phase_df is None:
@@ -112,26 +127,29 @@ def get_phase_value(phase_df, name, column, default=0):
 # ---------------------------------------------------------------------------
 
 def check_dominant_hotspots(phase_df, findings):
-    """Flag phases that consume >10% of total profiled time."""
+    """Flag non-container phases consuming >10% of wall-clock time."""
     if phase_df is None or phase_df.empty:
         return
 
-    total = phase_df["total_seconds"].sum()
+    total = get_wall_time(phase_df)
     if total <= 0:
         return
 
     for _, row in phase_df.iterrows():
+        if row["phase"].lower().replace(" ", "") in CONTAINER_PHASES:
+            continue
         fraction = row["total_seconds"] / total
         if fraction > 0.10:
             pct = fraction * 100
-            severity = CRITICAL if fraction > 0.40 else WARNING
+            severity = CRITICAL if fraction >= 0.40 else WARNING
             findings.append({
                 "severity": severity,
                 "category": "Hotspot",
                 "phase": row["phase"],
                 "message": (
-                    f"Phase '{row['phase']}' consumes {pct:.1f}% of total "
-                    f"time ({row['total_seconds']:.4f}s / {total:.4f}s)."
+                    f"Phase '{row['phase']}' consumes {pct:.1f}% of "
+                    f"wall-clock time ({row['total_seconds']:.4f}s / "
+                    f"{total:.4f}s SimulationLoop)."
                 ),
                 "recommendation": _hotspot_recommendation(row["phase"]),
             })
@@ -391,11 +409,11 @@ def check_timestep_variability(timestep_df, findings):
 
 
 def check_io_overhead(phase_df, findings):
-    """Flag if I/O is a significant fraction of total time."""
+    """Flag if I/O is a significant fraction of wall-clock time."""
     io_time = get_phase_value(phase_df, "IO", "total_seconds", 0)
     if phase_df is None:
         return
-    total = phase_df["total_seconds"].sum()
+    total = get_wall_time(phase_df)
     if total <= 0 or io_time <= 0:
         return
 
@@ -406,8 +424,8 @@ def check_io_overhead(phase_df, findings):
             "category": "I/O Overhead",
             "phase": "IO",
             "message": (
-                f"I/O accounts for {fraction * 100:.1f}% of total time "
-                f"({io_time:.4f}s)."
+                f"I/O accounts for {fraction * 100:.1f}% of wall-clock "
+                f"time ({io_time:.4f}s)."
             ),
             "recommendation": (
                 "Reduce output frequency or switch to binary output "

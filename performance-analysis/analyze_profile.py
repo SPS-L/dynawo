@@ -137,35 +137,70 @@ def _parse_legacy(raw):
 # Chart generation
 # ---------------------------------------------------------------------------
 
-def plot_time_breakdown_pie(phase_df, output_dir):
-    """Pie chart of phase time distribution."""
+# Inclusive timings: plotting container phases as sibling wedges would count
+# the same wall-clock time 2-3x over.
+CONTAINER_PHASES = {"simulationloop", "solversolve", "solverstep",
+                    "nrsolve", "kinsolsolve"}
+
+
+def get_wall_time(phase_df):
+    """Wall-clock reference: the SimulationLoop row, else the column sum."""
     if phase_df is None or phase_df.empty:
-        print("Skipping pie chart: no phase data available.")
-        return
+        return 0.0
+    matches = phase_df[phase_df["phase"].str.lower() == "simulationloop"]
+    if not matches.empty:
+        return float(matches.iloc[0]["total_seconds"])
+    return float(phase_df["total_seconds"].sum())
 
-    df = phase_df.sort_values("total_seconds", ascending=False)
-    # Collapse phases with < 2% share into "Other"
-    total = df["total_seconds"].sum()
-    if total <= 0:
-        print("Skipping pie chart: total time is zero.")
-        return
 
-    threshold = 0.02 * total
+def prepare_pie_data(phase_df):
+    """Return (labels, sizes) pie wedges as fractions of wall-clock time.
+
+    Excludes container phases, collapses <2% wedges into "Other", and adds
+    an "Unattributed" wedge for the gap to SimulationLoop.
+    """
+    if phase_df is None or phase_df.empty:
+        return [], []
+
+    wall = get_wall_time(phase_df)
+    if wall <= 0:
+        return [], []
+
+    df = phase_df[~phase_df["phase"].str.lower()
+                  .str.replace(" ", "").isin(CONTAINER_PHASES)]
+    df = df.sort_values("total_seconds", ascending=False)
+
+    threshold = 0.02 * wall
     main = df[df["total_seconds"] >= threshold]
     other_sum = df[df["total_seconds"] < threshold]["total_seconds"].sum()
 
     labels = list(main["phase"])
-    sizes = list(main["total_seconds"])
+    sizes = [float(v) for v in main["total_seconds"]]
     if other_sum > 0:
         labels.append("Other")
-        sizes.append(other_sum)
+        sizes.append(float(other_sum))
+
+    unattributed = wall - sum(sizes)
+    if unattributed > 0:
+        labels.append("Unattributed")
+        sizes.append(unattributed)
+
+    return labels, sizes
+
+
+def plot_time_breakdown_pie(phase_df, output_dir):
+    """Pie chart of phase time distribution (fractions of wall-clock time)."""
+    labels, sizes = prepare_pie_data(phase_df)
+    if not labels:
+        print("Skipping pie chart: no phase data available.")
+        return
 
     fig, ax = plt.subplots(figsize=(8, 8))
     wedges, texts, autotexts = ax.pie(
         sizes, labels=labels, autopct="%1.1f%%", startangle=140,
         textprops={"fontsize": 9},
     )
-    ax.set_title("Time Breakdown by Phase")
+    ax.set_title("Time Breakdown by Phase (% of wall-clock time)")
     fig.tight_layout()
     path = os.path.join(output_dir, "time_breakdown_pie.png")
     fig.savefig(path, dpi=150)
@@ -250,8 +285,8 @@ def print_summary(phase_df, timestep_df):
     print("=" * 70)
 
     if phase_df is not None and not phase_df.empty:
-        total_time = phase_df["total_seconds"].sum()
-        print(f"\nTotal profiled time: {total_time:.3f} s")
+        wall_time = get_wall_time(phase_df)
+        print(f"\nWall-clock time (SimulationLoop): {wall_time:.3f} s")
         print(f"Number of phases:   {len(phase_df)}")
 
         print(f"\n{'Phase':<20s} {'Total(s)':>10s} {'Calls':>10s} "

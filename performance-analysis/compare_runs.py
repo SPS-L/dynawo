@@ -125,6 +125,21 @@ def build_comparison(baseline_df, optimized_df):
     return rows
 
 
+def _wall_time(phase_df):
+    """Wall-clock reference: the SimulationLoop row, else the column sum."""
+    if phase_df is None or phase_df.empty:
+        return 0.0
+    matches = phase_df[phase_df["phase"].str.lower() == "simulationloop"]
+    if not matches.empty:
+        return float(matches.iloc[0]["total_seconds"])
+    return float(phase_df["total_seconds"].sum())
+
+
+def wall_times(baseline_df, optimized_df):
+    """Return (baseline_wall, optimized_wall) wall-clock times."""
+    return _wall_time(baseline_df), _wall_time(optimized_df)
+
+
 def build_timestep_summary(timestep_df, label):
     """Return a dict summarising a timestep DataFrame."""
     if timestep_df is None or timestep_df.empty:
@@ -216,12 +231,10 @@ REPORT_TEMPLATE = Template("""\
 {% endfor %}
 </table>
 
-{% set total_base = comparison | map(attribute='base_time') | sum %}
-{% set total_opt  = comparison | map(attribute='opt_time')  | sum %}
-<p><strong>Overall:</strong>
-   Baseline total = {{ "%.4f"|format(total_base) }}s,
-   Optimised total = {{ "%.4f"|format(total_opt) }}s,
-   Overall speedup = {{ "%.2f"|format(total_base / total_opt if total_opt > 0 else 0) }}x
+<p><strong>Overall (wall-clock, SimulationLoop):</strong>
+   Baseline = {{ "%.4f"|format(base_wall) }}s,
+   Optimised = {{ "%.4f"|format(opt_wall) }}s,
+   Overall speedup = {{ "%.2f"|format(base_wall / opt_wall if opt_wall > 0 else 0) }}x
 </p>
 {% else %}
 <p>No phase data available for comparison.</p>
@@ -270,12 +283,14 @@ REPORT_TEMPLATE = Template("""\
 
 
 def generate_report(comparison, baseline_file, optimized_file,
-                    ts_summaries, output_path):
+                    ts_summaries, output_path, base_wall, opt_wall):
     """Render the HTML report and write to disk."""
     html = REPORT_TEMPLATE.render(
         comparison=comparison,
         baseline_file=os.path.basename(baseline_file),
         optimized_file=os.path.basename(optimized_file),
+        base_wall=base_wall,
+        opt_wall=opt_wall,
         timestep_summaries=ts_summaries,
     )
     with open(output_path, "w") as fh:
@@ -287,7 +302,7 @@ def generate_report(comparison, baseline_file, optimized_file,
 # Console output
 # ---------------------------------------------------------------------------
 
-def print_comparison(comparison):
+def print_comparison(comparison, base_wall, opt_wall):
     """Print a comparison table to the console."""
     if not comparison:
         print("No phase data available for comparison.")
@@ -303,10 +318,9 @@ def print_comparison(comparison):
               f"{row['opt_time']:>10.4f} {row['diff']:>+10.4f} "
               f"{row['speedup']:>7.2f}x {status:>12s}")
 
-    total_base = sum(r["base_time"] for r in comparison)
-    total_opt = sum(r["opt_time"] for r in comparison)
-    overall = total_base / total_opt if total_opt > 0 else 0.0
-    print(f"\nOverall: {total_base:.4f}s -> {total_opt:.4f}s "
+    overall = base_wall / opt_wall if opt_wall > 0 else 0.0
+    print(f"\nOverall (wall-clock, SimulationLoop): "
+          f"{base_wall:.4f}s -> {opt_wall:.4f}s "
           f"(speedup {overall:.2f}x)")
 
 
@@ -338,7 +352,8 @@ def main():
     opt_phase, opt_ts = parse_profile_csv(args.optimized_csv)
 
     comparison = build_comparison(base_phase, opt_phase)
-    print_comparison(comparison)
+    base_wall, opt_wall = wall_times(base_phase, opt_phase)
+    print_comparison(comparison, base_wall, opt_wall)
 
     ts_summaries = [
         build_timestep_summary(base_ts, "Baseline"),
@@ -347,7 +362,7 @@ def main():
 
     generate_report(
         comparison, args.baseline_csv, args.optimized_csv,
-        ts_summaries, args.output,
+        ts_summaries, args.output, base_wall, opt_wall,
     )
 
 

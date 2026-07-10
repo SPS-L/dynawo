@@ -10,10 +10,9 @@ The script invokes Dynawo via its standard CLI:
     <dynawo-bin> jobs <path-to-jobs-file>
 
 Profiling output is captured via the DYNAWO_PROFILE_OUTPUT environment
-variable.  A solver .par file is generated for each configuration, but
-the .jobs XML must reference it for the parameters to take effect.
-For fully automated parameter sweeps, the .jobs file should be
-templated or modified before each run.
+variable.  For each configuration a solver .par file is generated and a
+temporary copy of the case's .jobs file is written with its dyn:solver
+element rewired to that .par, so the configuration actually takes effect.
 
 CSV format expected from each run:
     Phase summary section:
@@ -31,13 +30,15 @@ Usage:
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
 from io import StringIO
 
 import pandas as pd
+
+DYNAWO_XML_NS = "http://www.rte-france.com/dynawo"
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +237,29 @@ def generate_solver_par(config, output_path):
         fh.write("\n".join(lines) + "\n")
 
 
+def prepare_jobs_file(jobs_file, config, par_path):
+    """Write a copy of ``jobs_file`` with dyn:solver rewired to ``par_path``
+    (lib from config, parId "solver"). The copy sits next to the original so
+    relative paths resolve; the caller deletes it after the run.
+    """
+    ET.register_namespace("dyn", DYNAWO_XML_NS)
+    tree = ET.parse(jobs_file)
+    solvers = tree.getroot().findall(f".//{{{DYNAWO_XML_NS}}}solver")
+    if not solvers:
+        raise ValueError(f"no dyn:solver element found in {jobs_file}")
+
+    for solver in solvers:
+        solver.set("lib", f"dynawo_Solver{config['solver']}")
+        solver.set("parFile", os.path.abspath(par_path))
+        solver.set("parId", "solver")
+
+    base_dir = os.path.dirname(os.path.abspath(jobs_file))
+    stem = os.path.splitext(os.path.basename(jobs_file))[0]
+    prepared = os.path.join(base_dir, f"{stem}__bench_{config['name']}.jobs")
+    tree.write(prepared, xml_declaration=True, encoding="UTF-8")
+    return prepared
+
+
 def _find_jobs_file(case_dir):
     """Find the .jobs file inside a case directory.
 
@@ -249,13 +273,9 @@ def _find_jobs_file(case_dir):
 
 
 def run_single_benchmark(dynawo_bin, case_dir, config, output_dir):
-    """Run a single Dynawo simulation with a given solver configuration.
-
-    The solver parameter file is generated and placed in the case directory
-    so that the .jobs XML can reference it.  Profiling output is controlled
-    via the DYNAWO_PROFILE_OUTPUT environment variable.
-
-    Returns the path to the generated profile CSV, or None on failure.
+    """Run one Dynawo simulation with the given solver configuration by
+    executing a temporary jobs copy rewired to the generated solver .par.
+    Returns the path to the profile CSV, or None on failure.
     """
     run_dir = os.path.join(output_dir, config["name"])
     os.makedirs(run_dir, exist_ok=True)
@@ -273,19 +293,23 @@ def run_single_benchmark(dynawo_bin, case_dir, config, output_dir):
     # Profile output path for this run
     profile_csv = os.path.join(run_dir, "profile.csv")
 
+    # Temporary jobs copy rewired to the generated solver .par.
+    try:
+        prepared_jobs = prepare_jobs_file(jobs_file, config, par_path)
+    except (ET.ParseError, ValueError) as exc:
+        print(f"    ERROR: could not prepare jobs file: {exc}", file=sys.stderr)
+        return None
+
     # Build the command.  Dynawo's CLI is:
     #   myEnvDynawo.sh jobs <path-to-jobs-file>
     # Profiling output is controlled by DYNAWO_PROFILE_OUTPUT env var.
-    # NOTE: The solver .par file generated above must be referenced from
-    # the .jobs XML to take effect.  For automated parameter sweeps,
-    # the .jobs file should be modified or templated before each run.
-    cmd = [dynawo_bin, "jobs", jobs_file]
+    cmd = [dynawo_bin, "jobs", prepared_jobs]
 
     env = os.environ.copy()
     env["DYNAWO_PROFILE_OUTPUT"] = profile_csv
 
     print(f"  Running config '{config['name']}' ...")
-    print(f"    Jobs file: {jobs_file}")
+    print(f"    Jobs file: {jobs_file} (rewired copy: {prepared_jobs})")
     print(f"    Solver .par: {par_path}")
     print(f"    Profile output: {profile_csv}")
     print(f"    Command: {' '.join(cmd)}")
@@ -308,6 +332,9 @@ def run_single_benchmark(dynawo_bin, case_dir, config, output_dir):
     except subprocess.TimeoutExpired:
         print(f"    ERROR: simulation timed out after 3600s", file=sys.stderr)
         return None
+    finally:
+        if os.path.isfile(prepared_jobs):
+            os.remove(prepared_jobs)
 
     # Check for profile CSV
     if os.path.isfile(profile_csv):
@@ -320,6 +347,15 @@ def run_single_benchmark(dynawo_bin, case_dir, config, output_dir):
 # ---------------------------------------------------------------------------
 # Aggregation and reporting
 # ---------------------------------------------------------------------------
+
+def wall_time_from_phases(phases):
+    """Wall-clock time from a {phase: total_seconds} dict: the
+    SimulationLoop entry, else the sum."""
+    for name, value in phases.items():
+        if name.lower() == "simulationloop":
+            return float(value)
+    return float(sum(phases.values()))
+
 
 def collect_results(profile_paths):
     """Collect phase summaries from multiple runs into a comparison dict."""
@@ -364,11 +400,11 @@ def print_benchmark_report(results, configs):
             row += f" {val:>14.4f}"
         print(row)
 
-    # Totals
+    # Wall-clock totals per configuration
     print("-" * len(header))
-    row = f"{'TOTAL':<20s}"
+    row = f"{'WALL-CLOCK':<20s}"
     for name in config_names:
-        total = sum(results[name].values())
+        total = wall_time_from_phases(results[name])
         row += f" {total:>14.4f}"
     print(row)
     print("=" * 80)
@@ -479,9 +515,11 @@ def main():
                 if path:
                     phase_df, _ = parse_profile_csv(path)
                     if phase_df is not None:
-                        total = phase_df["total_seconds"].sum()
+                        total = wall_time_from_phases(
+                            dict(zip(phase_df["phase"],
+                                     phase_df["total_seconds"])))
                         sweep_results[val] = total
-                        print(f"    {param}={val}: total={total:.4f}s")
+                        print(f"    {param}={val}: wall-clock={total:.4f}s")
 
             if sweep_results:
                 best_val = min(sweep_results, key=sweep_results.get)
