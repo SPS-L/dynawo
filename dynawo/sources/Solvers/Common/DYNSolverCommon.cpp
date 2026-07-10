@@ -34,49 +34,11 @@
 
 #ifdef DYNAWO_PROFILING
 /**
- * @brief Per-instance wrapper node for the KLU SUNLinSolSetup profiling hook.
- *
- * Instead of a single global function pointer, each call to installKLUProfiler()
- * allocates one KLUSetupHook on the heap.  The wrapper function stored in
- * ops->setup reads the original pointer from the hook object, so multiple
- * concurrent SUNLinearSolver instances (e.g. KINSOL + IDA) each carry their
- * own captured original — eliminating the global-singleton coupling.
- *
- * Lifetime: the hook is allocated in installKLUProfiler() and intentionally
- * never freed (it must outlive the solver).  Its size is two pointers (~16 B)
- * so the leak is negligible and matches the lifetime of the process.
+ * @brief Maps each KLU SUNLinearSolver to the original ops->setup that
+ * profiledKLUSetup() delegates to (SUNDIALS has no per-solver user slot).
+ * Keys are only valid while the instance is alive; installKLUProfiler()
+ * reuses stale slots in place.
  */
-struct KLUSetupHook {
-  /// The original SUNLinSolSetup_KLU function pointer captured at install time.
-  int (*origSetup)(SUNLinearSolver, SUNMatrix);
-};
-
-/**
- * @brief Profiling wrapper stored in ops->setup.
- *
- * Recovers the per-instance KLUSetupHook from the solver's content pointer
- * (stored in the padding slot ops->setup itself used to be), times the call
- * as PHASE_KLU_SETUP, then delegates to the real SUNLinSolSetup_KLU.
- *
- * SUNDIALS stores user-supplied data in S->content; we piggyback the hook
- * pointer in the unused s_content slot that SUNDIALS reserves for the
- * implementation — specifically, the first word of the KLU content struct
- * is the klu_common pointer, so we cannot reuse content.  Instead we store
- * the hook pointer in the ops->solve slot momentarily… actually the cleanest
- * approach is to embed it as a static per-call-site via a trampoline table.
- *
- * Simplest correct approach that stays minimally invasive:
- * store the hook pointer in a global array indexed by a small integer stamped
- * into S->content->last_flag (an int field that SUNDIALS does not read between
- * setup calls).  However, that requires SUNDIALS internals knowledge.
- *
- * CHOSEN APPROACH (safest, no SUNDIALS internals):
- * Keep one pointer per slot in a fixed-size table (max 8 KLU instances,
- * more than enough for Dynawo's single-threaded use).  The wrapper scans
- * the table to find the matching origSetup for this S, falling back to the
- * first entry if not found (original single-instance behaviour preserved).
- */
-
 struct KLUProfilerTable {
   SUNLinearSolver solver;                     ///< Identity key: the solver pointer
   int (*origSetup)(SUNLinearSolver, SUNMatrix);  ///< Original ops->setup for this instance
@@ -181,12 +143,17 @@ void SolverCommon::installKLUProfiler(SUNLinearSolver& LS) {
   assert(LS != NULL && LS->ops != NULL && LS->ops->setup != NULL &&
          "installKLUProfiler called before SUNLinSol_KLU has populated ops->setup");
 
-  // Avoid double-wrapping if called again for the same instance (e.g. after
-  // resetAlgebraicRestoration recreates KINSOL with the same LS pointer).
+  // Wrapped state is detected via ops->setup itself; registry entries can be
+  // stale when a freed solver is recreated at the same address.
+  if (LS->ops->setup == profiledKLUSetup)
+    return;
+
   std::vector<KLUProfilerTable>& table = kluTable();
   for (size_t i = 0; i < table.size(); ++i) {
     if (table[i].solver == LS) {
-      // Already registered; the wrapper is already in ops->setup — nothing to do.
+      // Stale entry from a previous instance at this address: reuse the slot.
+      table[i].origSetup = LS->ops->setup;
+      LS->ops->setup = profiledKLUSetup;
       return;
     }
   }

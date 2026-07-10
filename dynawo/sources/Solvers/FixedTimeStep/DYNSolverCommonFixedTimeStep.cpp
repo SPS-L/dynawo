@@ -247,7 +247,7 @@ void SolverCommonFixedTimeStep::solveStepCommon(double /*tAim*/, double& tNxt) {
 
 void
 SolverCommonFixedTimeStep::calculateICCommon() {
-  DYN_PROFILE_PHASE_MEM(PHASE_CALCULATE_IC);  // B2: instrument IC calculation cost + peak RSS (symmetric with SolverIDA)
+  // PHASE_CALCULATE_IC is timed in the calculateIC() overrides, which wrap this call.
   Trace::debug() << DYNLog(CalculateIC) << Trace::endline;
   // Root evaluation before the initialization
   // --------------------------------
