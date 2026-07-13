@@ -132,7 +132,7 @@ sudo sh -c 'echo 0 > /proc/sys/kernel/kptr_restrict'
 | `PFR_20240605_N_NB_all_retained/` | Large (all branches retained) | **Primary real-time target** |
 | `PFR_20240605_N_NB_all_retained/PFR_20240605_N_NB_4000s.jobs` | Large + 8 scheduled events, 4000 s | Discrete-event stress |
 
-The PFR cases use `dynawo_SolverSIM` (fixed-step), `stopTime="4000"`, `useStandardModels="true"`, and must be launched from their own directory via `myEnvDynawoRTE.sh`.
+The PFR cases use `dynawo_SolverSIM` (fixed-step), `useStandardModels="true"`, and must be launched from their own directory via `myEnvDynawoRTE.sh`. The `all_retained` directory ships two jobs files: `PFR_20240605_N_NB.jobs` (`stopTime="400"`, real-time tracking on) and `PFR_20240605_N_NB_4000s.jobs` (`stopTime="4000"`, 8 scheduled events); the plain `PFR_20240605_N_NB/` variant is 4000 s.
 
 ---
 
@@ -289,7 +289,7 @@ perf report \
     | tee results/perf/top_symbols_dynawo.txt
 ```
 
-> Use `--dsos` (plural) — the singular `--dso` is not a valid flag and is silently ignored.
+> `--dsos` (plural) is the canonical flag name; perf also accepts `--dso` as an unambiguous prefix abbreviation.
 
 If the dominant symbols match a Phase Z finding, the hypothesis is confirmed. If they do not, the discrepancy is itself informative — investigate it before continuing.
 
@@ -481,9 +481,12 @@ EOF
 ### V.4 — Real-Time Progress Tracking
 
 ```
-RTR_k = 4000 / T_k     (T_sim = 4000 s, T_k = SimulationLoop median after change k)
+RTR_k = T_sim / T_k    (T_k = SimulationLoop median after change k)
 Target: RTR ≥ 1.0
 ```
+
+Use the T_sim matching the jobs file you ran in Z.1/V.1: 400 for
+`PFR_20240605_N_NB.jobs`, 4000 for `PFR_20240605_N_NB_4000s.jobs`.
 
 Sprint objective is met when RTR ≥ 1.0 on `PFR_20240605_N_NB_all_retained`.
 

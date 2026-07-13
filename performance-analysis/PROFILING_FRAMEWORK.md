@@ -541,6 +541,9 @@ python3 performance-analysis/analyze_profile.py /tmp/dynawo_profile.csv
 
 ### JSON Export for Programmatic Analysis
 
+None of the bundled analysis tools consume the JSON export — they parse CSV
+only. Prefer CSV unless you are writing your own ad-hoc script, as below:
+
 ```bash
 export DYNAWO_PROFILE_OUTPUT=/tmp/dynawo_profile.json
 dynawo.sh jobs mySimulation.jobs
@@ -572,7 +575,7 @@ perf record \
 perf report \
   -i results/nordic/perf/perf.data \
   --stdio \
-  --dso dynawo-1.8.0 \
+  --dsos dynawo-1.8.0 \
   --call-graph graph,0.5 \
   > results/nordic/perf/graph_fp.txt
 

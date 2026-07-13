@@ -242,9 +242,11 @@ export DYNAWO_PROFILE_OUTPUT=$(pwd)/results/nordic/profile.csv
 
 The profiler will:
 
-1. Print a summary table to stdout showing per-phase timing.
+1. Write a summary table with per-phase timing to the Dynawo log
+   (`outputs/logs/dynawo.log`).
 2. Write detailed data to the CSV (or JSON) file specified by
-   `DYNAWO_PROFILE_OUTPUT`.
+   `DYNAWO_PROFILE_OUTPUT` at process exit. Note that only the CSV format
+   is consumed by the Python analysis tools.
 
 Example output:
 
@@ -267,14 +269,14 @@ ResidualEval              2.345    3200      0.73      0.41      3.21    19.0
 
 ## Set Up Python Analysis Tools
 
-The Python scripts in `performance-analysis/` parse the CSV/JSON output and
+The Python scripts in `performance-analysis/` parse the CSV output and
 generate charts, HTML comparison reports, and bottleneck summaries.
 
 ```bash
 cd performance-analysis
 
-python3 -m venv .dynawo-profiling-env
-source .dynawo-profiling-env/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -408,5 +410,5 @@ This takes longer but ensures all dependencies are consistent.
 
 ---
 
-*Author: Petros Aristidou, Sustainable Power Systems Lab (SPS-L) — https://sps-lab.org | info@sps-lab.org*  
-*Last edited: March 2025*
+*Author: Petros Aristidou, Sustainable Power Systems Lab (SPS-L) — https://sps-lab.org | info@sps-lab.org*
+*Last edited: July 2026*
