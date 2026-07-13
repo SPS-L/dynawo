@@ -8,14 +8,8 @@ Analyses memory usage patterns from the profiler CSV export:
     - Jacobian matrix memory footprint estimation
     - Memory usage timeline plot
 
-CSV format expected:
-    Phase summary section:
-        phase,total_seconds,call_count,avg_ms,min_ms,max_ms,peak_memory_kb
-
-    Blank line separator
-
-    Timestep time-series section:
-        sim_time,step_duration_ms,memory_kb
+CSV format: see profile_parser.py (marker-delimited ``# PHASES`` /
+``# TIMESTEPS`` sections, with legacy blank-line-separated fallback).
 
 Usage:
     python memory_analyzer.py <profile.csv> [--output-dir <dir>]
@@ -24,7 +18,6 @@ Usage:
 import argparse
 import os
 import sys
-from io import StringIO
 
 import matplotlib
 matplotlib.use("Agg")
@@ -32,48 +25,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-
-# ---------------------------------------------------------------------------
-# Parsing
-# ---------------------------------------------------------------------------
-
-def parse_profile_csv(filepath):
-    """Parse a Dynawo profiler CSV export.
-
-    Returns
-    -------
-    phase_df : pd.DataFrame or None
-        Phase summary data.
-    timestep_df : pd.DataFrame or None
-        Timestep time-series data.
-    """
-    with open(filepath, "r") as fh:
-        raw = fh.read()
-
-    sections = raw.split("\n\n", 1)
-    phase_df = None
-    timestep_df = None
-
-    phase_text = sections[0].strip()
-    if phase_text:
-        try:
-            phase_df = pd.read_csv(StringIO(phase_text), comment="#")
-            phase_df.columns = [c.strip().lower() for c in phase_df.columns]
-        except Exception as exc:
-            print(f"Warning: could not parse phase summary: {exc}",
-                  file=sys.stderr)
-
-    if len(sections) > 1:
-        ts_text = sections[1].strip()
-        if ts_text:
-            try:
-                timestep_df = pd.read_csv(StringIO(ts_text), comment="#")
-                timestep_df.columns = [c.strip().lower() for c in timestep_df.columns]
-            except Exception as exc:
-                print(f"Warning: could not parse timestep section: {exc}",
-                      file=sys.stderr)
-
-    return phase_df, timestep_df
+from profile_parser import parse_profile_csv
 
 
 # ---------------------------------------------------------------------------
@@ -153,9 +105,17 @@ def detect_memory_leak(timestep_df, output_dir=None):
         mem = np.clip(mem, 0.0, None)
 
     # Linear regression: memory_kb = slope * sim_time + intercept
+    if np.ptp(sim_time) == 0:
+        print("\nCould not fit a memory trend: all timestep records share "
+              "the same sim_time value.")
+        return None
     coeffs = np.polyfit(sim_time, mem, 1)
     slope = coeffs[0]  # KB per simulation-second
     intercept = coeffs[1]
+    if not np.isfinite(slope):
+        print("\nCould not fit a memory trend: regression is degenerate "
+              "(non-finite slope).")
+        return None
 
     sim_span = sim_time[-1] - sim_time[0]
     initial_mem = mem[0] if mem[0] > 0 else 1.0

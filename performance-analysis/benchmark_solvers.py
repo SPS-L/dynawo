@@ -14,14 +14,8 @@ variable.  For each configuration a solver .par file is generated and a
 temporary copy of the case's .jobs file is written with its dyn:solver
 element rewired to that .par, so the configuration actually takes effect.
 
-CSV format expected from each run:
-    Phase summary section:
-        phase,total_seconds,call_count,avg_ms,min_ms,max_ms,peak_memory_kb
-
-    Blank line separator
-
-    Timestep time-series section:
-        sim_time,step_duration_ms,memory_kb
+CSV format: see profile_parser.py (marker-delimited ``# PHASES`` /
+``# TIMESTEPS`` sections, with legacy blank-line-separated fallback).
 
 Usage:
     python benchmark_solvers.py --dynawo-bin <path> --case <case_dir> [--output-dir <dir>]
@@ -34,9 +28,8 @@ import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
-from io import StringIO
 
-import pandas as pd
+from profile_parser import parse_profile_csv
 
 DYNAWO_XML_NS = "http://www.rte-france.com/dynawo"
 
@@ -147,39 +140,6 @@ SENSITIVITY_SWEEPS = [
 
 
 # ---------------------------------------------------------------------------
-# Parsing (duplicated for standalone use)
-# ---------------------------------------------------------------------------
-
-def parse_profile_csv(filepath):
-    """Parse a Dynawo profiler CSV export."""
-    with open(filepath, "r") as fh:
-        raw = fh.read()
-
-    sections = raw.split("\n\n", 1)
-    phase_df = None
-    timestep_df = None
-
-    phase_text = sections[0].strip()
-    if phase_text:
-        try:
-            phase_df = pd.read_csv(StringIO(phase_text), comment="#")
-            phase_df.columns = [c.strip().lower() for c in phase_df.columns]
-        except Exception:
-            pass
-
-    if len(sections) > 1:
-        ts_text = sections[1].strip()
-        if ts_text:
-            try:
-                timestep_df = pd.read_csv(StringIO(ts_text), comment="#")
-                timestep_df.columns = [c.strip().lower() for c in timestep_df.columns]
-            except Exception:
-                pass
-
-    return phase_df, timestep_df
-
-
-# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -272,7 +232,8 @@ def _find_jobs_file(case_dir):
     return None
 
 
-def run_single_benchmark(dynawo_bin, case_dir, config, output_dir):
+def run_single_benchmark(dynawo_bin, case_dir, config, output_dir,
+                         timeout=3600):
     """Run one Dynawo simulation with the given solver configuration by
     executing a temporary jobs copy rewired to the generated solver .par.
     Returns the path to the profile CSV, or None on failure.
@@ -317,7 +278,7 @@ def run_single_benchmark(dynawo_bin, case_dir, config, output_dir):
     start = time.time()
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=3600, env=env,
+            cmd, capture_output=True, text=True, timeout=timeout, env=env,
         )
         elapsed = time.time() - start
         print(f"    Finished in {elapsed:.1f}s (exit code {result.returncode})")
@@ -330,7 +291,7 @@ def run_single_benchmark(dynawo_bin, case_dir, config, output_dir):
         print(f"    ERROR: could not execute '{dynawo_bin}'", file=sys.stderr)
         return None
     except subprocess.TimeoutExpired:
-        print(f"    ERROR: simulation timed out after 3600s", file=sys.stderr)
+        print(f"    ERROR: simulation timed out after {timeout}s", file=sys.stderr)
         return None
     finally:
         if os.path.isfile(prepared_jobs):
@@ -369,7 +330,7 @@ def collect_results(profile_paths):
     return results
 
 
-def print_benchmark_report(results, configs):
+def print_benchmark_report(results):
     """Print a summary table comparing all configurations."""
     if not results:
         print("\nNo results to report.")
@@ -447,6 +408,11 @@ def main():
         "--sensitivity", action="store_true",
         help="Also run parameter sensitivity sweeps.",
     )
+    parser.add_argument(
+        "--timeout", type=int, default=3600,
+        help="Per-run simulation timeout in seconds (default: 3600). "
+             "Increase for long cases such as PFR 4000s.",
+    )
     args = parser.parse_args()
 
     # Validate binary
@@ -476,11 +442,12 @@ def main():
     for config in configs:
         path = run_single_benchmark(
             args.dynawo_bin, args.case, config, args.output_dir,
+            timeout=args.timeout,
         )
         profile_paths[config["name"]] = path
 
     results = collect_results(profile_paths)
-    print_benchmark_report(results, configs)
+    print_benchmark_report(results)
     save_results_json(results, args.output_dir)
 
     # --- Sensitivity sweeps ---
@@ -511,6 +478,7 @@ def main():
                 }
                 path = run_single_benchmark(
                     args.dynawo_bin, args.case, config, args.output_dir,
+                    timeout=args.timeout,
                 )
                 if path:
                     phase_df, _ = parse_profile_csv(path)

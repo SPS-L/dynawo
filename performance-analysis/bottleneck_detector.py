@@ -17,14 +17,8 @@ Severity levels:
     WARNING   - Notable issue worth investigating
     INFO      - Observation that may help with tuning
 
-CSV format expected:
-    Phase summary section:
-        phase,total_seconds,call_count,avg_ms,min_ms,max_ms,peak_memory_kb
-
-    Blank line separator
-
-    Timestep time-series section:
-        sim_time,step_duration_ms,memory_kb
+CSV format: see profile_parser.py (marker-delimited ``# PHASES`` /
+``# TIMESTEPS`` sections, with legacy blank-line-separated fallback).
 
 Usage:
     python bottleneck_detector.py <profile.csv>
@@ -33,10 +27,8 @@ Usage:
 import argparse
 import os
 import sys
-from io import StringIO
 
-import numpy as np
-import pandas as pd
+from profile_parser import parse_profile_csv, get_wall_time
 
 
 # ---------------------------------------------------------------------------
@@ -51,57 +43,14 @@ SEVERITY_ORDER = {CRITICAL: 0, WARNING: 1, INFO: 2}
 
 
 # ---------------------------------------------------------------------------
-# Parsing
-# ---------------------------------------------------------------------------
-
-def parse_profile_csv(filepath):
-    """Parse a Dynawo profiler CSV export."""
-    with open(filepath, "r") as fh:
-        raw = fh.read()
-
-    sections = raw.split("\n\n", 1)
-    phase_df = None
-    timestep_df = None
-
-    phase_text = sections[0].strip()
-    if phase_text:
-        try:
-            phase_df = pd.read_csv(StringIO(phase_text), comment="#")
-            phase_df.columns = [c.strip().lower() for c in phase_df.columns]
-        except Exception as exc:
-            print(f"Warning: could not parse phase summary: {exc}",
-                  file=sys.stderr)
-
-    if len(sections) > 1:
-        ts_text = sections[1].strip()
-        if ts_text:
-            try:
-                timestep_df = pd.read_csv(StringIO(ts_text), comment="#")
-                timestep_df.columns = [c.strip().lower() for c in timestep_df.columns]
-            except Exception as exc:
-                print(f"Warning: could not parse timestep section: {exc}",
-                      file=sys.stderr)
-
-    return phase_df, timestep_df
-
-
-# ---------------------------------------------------------------------------
 # Helper: safe lookup of a phase row
 # ---------------------------------------------------------------------------
 
 # Inclusive timings: container phases contain the leaves, so they are never
-# summed with their children nor flagged as hotspots.
-CONTAINER_PHASES = {"simulationloop", "solversolve", "solverstep"}
-
-
-def get_wall_time(phase_df):
-    """Wall-clock reference: the SimulationLoop row, else the column sum."""
-    if phase_df is None or phase_df.empty:
-        return 0.0
-    matches = phase_df[phase_df["phase"].str.lower() == "simulationloop"]
-    if not matches.empty:
-        return float(matches.iloc[0]["total_seconds"])
-    return float(phase_df["total_seconds"].sum())
+# summed with their children nor flagged as hotspots. NRSolve and KINSOLSolve
+# are drill-down containers too (they hold JacobianEval/ResidualEval time).
+CONTAINER_PHASES = {"simulationloop", "solversolve", "solverstep",
+                    "nrsolve", "kinsolsolve"}
 
 
 def get_phase(phase_df, name):
@@ -204,6 +153,16 @@ def _hotspot_recommendation(phase):
             "significant time. Consider reducing output frequency or "
             "the number of exported variables."
         ),
+        "klusetup": (
+            "KLU numeric factorisation dominates. Check whether symbolic "
+            "refactorizations (KLUSymbolic) are being triggered by "
+            "topology events; see the A7 superset-sparsity plan."
+        ),
+        "klusymbolic": (
+            "Frequent klu_analyze calls mean the Jacobian sparsity "
+            "pattern keeps changing (topology events). A structure-"
+            "invariant (superset) sparsity pattern avoids these."
+        ),
     }
     key = phase.lower().replace(" ", "")
     return tips.get(key, "Investigate this phase for optimisation opportunities.")
@@ -227,8 +186,8 @@ def check_jacobian_rebuilds(phase_df, findings):
             "phase": "JacobianEval",
             "message": (
                 f"Jacobian evaluated {jac_calls} times for {solver_steps} "
-                f"solver steps (ratio {ratio:.2f}). "
-                f"Ideally this should be close to 1.0."
+                f"solver steps (ratio {ratio:.2f}). With working Jacobian "
+                f"reuse this ratio should be well below 1.0."
             ),
             "recommendation": (
                 "Increase the maximum Jacobian reuse count in the solver "
@@ -272,12 +231,13 @@ def check_linear_solver_efficiency(phase_df, findings):
             "phase": "NRSolve",
             "message": (
                 f"Only {ratio:.1f} NR solves per Jacobian evaluation "
-                f"({linear_calls} solves, {jac_calls} factorisations). "
-                f"The factorisation cost is not being amortised well."
+                f"({linear_calls} solves, {jac_calls} Jacobian evaluations). "
+                f"The Jacobian build + factorisation cost is not being "
+                f"amortised well."
             ),
             "recommendation": (
                 "Increase the Jacobian reuse count so that each "
-                "factorisation is used for more NR solves."
+                "evaluation is used for more NR solves."
             ),
         })
     elif ratio > 50:

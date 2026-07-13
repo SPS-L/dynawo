@@ -22,7 +22,6 @@ set -euo pipefail
 DYNAWO_HOME="${DYNAWO_HOME:-$(cd "$(dirname "$0")/../.." && pwd)}"
 BUILD_DIR="${BUILD_DIR:-${DYNAWO_HOME}/build}"
 RESULTS_DIR="${RESULTS_DIR:-${DYNAWO_HOME}/performance-analysis/benchmarks/results}"
-SOLVER_CONFIGS_DIR="$(cd "$(dirname "$0")" && pwd)/solver_configs"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 RUN_DIR="${RESULTS_DIR}/run_${TIMESTAMP}"
 SKIP_BUILD=false
@@ -215,11 +214,15 @@ for jobs_file in "${SIMULATION_CASES[@]}"; do
 
     # Run using myEnvDynawo.sh (the standard Dynawo CLI)
     if [ -x "${DYNAWO_HOME}/myEnvDynawo.sh" ]; then
+        sim_start=$(date +%s.%N)
         ./myEnvDynawo.sh jobs "${jobs_file}" \
             2>&1 | tee "${case_dir}/simulation.log" || {
                 log_error "    Simulation failed for ${case_name}"
                 continue
             }
+        sim_end=$(date +%s.%N)
+        awk -v s="${sim_start}" -v e="${sim_end}" 'BEGIN{printf "%.2f\n", e - s}' \
+            > "${case_dir}/wall_clock_seconds.txt"
     else
         log_error "    myEnvDynawo.sh not found at ${DYNAWO_HOME}"
         log_error "    Please ensure Dynawo is properly set up."
@@ -229,7 +232,7 @@ done
 
 log_info "Step 2: Simulations complete."
 
-# ---- Step 3: Collect Profiling CSV/JSON Data ----
+# ---- Step 3: Collect Profiling CSV Data ----
 log_info "Step 3: Collecting profiling data..."
 
 profiling_summary="${RUN_DIR}/profiling_data/profiling_summary.csv"
@@ -238,14 +241,17 @@ echo "case,metric,value" > "${profiling_summary}"
 for case_dir in "${RUN_DIR}"/profiling_data/*/; do
     case_name="$(basename "${case_dir}")"
 
-    # Collect timing data from simulation logs
-    if [ -f "${case_dir}/simulation.log" ]; then
-        wall_time=$(grep -oP 'wall.?clock.*?(\d+\.?\d*)' "${case_dir}/simulation.log" | grep -oP '\d+\.?\d*' | tail -1 || echo "N/A")
-        echo "${case_name},wall_clock_seconds,${wall_time}" >> "${profiling_summary}"
+    # Wall time measured around the simulation run in Step 2
+    if [ -f "${case_dir}/wall_clock_seconds.txt" ]; then
+        wall_time="$(cat "${case_dir}/wall_clock_seconds.txt")"
+    else
+        wall_time="N/A"
     fi
+    echo "${case_name},wall_clock_seconds,${wall_time}" >> "${profiling_summary}"
 
-    # Collect any CSV/JSON profiling output from Dynawo
-    for data_file in "${case_dir}"/*.csv "${case_dir}"/*.json; do
+    # Collect the CSV profiling output from Dynawo (the profiler's JSON
+    # export has no analysis-tool consumer, so it is not collected)
+    for data_file in "${case_dir}"/*.csv; do
         if [ -f "${data_file}" ]; then
             cp "${data_file}" "${RUN_DIR}/profiling_data/${case_name}_$(basename "${data_file}")"
         fi

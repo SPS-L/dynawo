@@ -5,14 +5,8 @@ Loads two CSV profiles (baseline and optimised), computes per-phase
 timing comparisons and speedup ratios, flags regressions, and produces
 a self-contained HTML report with an inline Jinja2 template.
 
-CSV format expected:
-    Phase summary section (header row then data rows):
-        phase,total_seconds,call_count,avg_ms,min_ms,max_ms,peak_memory_kb
-
-    Blank line separator
-
-    Timestep time-series section (header row then data rows):
-        sim_time,step_duration_ms,memory_kb
+CSV format: see profile_parser.py (marker-delimited ``# PHASES`` /
+``# TIMESTEPS`` sections, with legacy blank-line-separated fallback).
 
 Usage:
     python compare_runs.py <baseline.csv> <optimized.csv> [--output <report.html>]
@@ -21,54 +15,10 @@ Usage:
 import argparse
 import os
 import sys
-from io import StringIO
 
-import pandas as pd
 from jinja2 import Template
 
-
-# ---------------------------------------------------------------------------
-# Parsing (shared logic with analyze_profile.py, duplicated for standalone use)
-# ---------------------------------------------------------------------------
-
-def parse_profile_csv(filepath):
-    """Parse a Dynawo profiler CSV export.
-
-    Returns
-    -------
-    phase_df : pd.DataFrame or None
-        Phase summary data.
-    timestep_df : pd.DataFrame or None
-        Timestep time-series data.
-    """
-    with open(filepath, "r") as fh:
-        raw = fh.read()
-
-    sections = raw.split("\n\n", 1)
-
-    phase_df = None
-    timestep_df = None
-
-    phase_text = sections[0].strip()
-    if phase_text:
-        try:
-            phase_df = pd.read_csv(StringIO(phase_text), comment="#")
-            phase_df.columns = [c.strip().lower() for c in phase_df.columns]
-        except Exception as exc:
-            print(f"Warning: could not parse phase summary in {filepath}: {exc}",
-                  file=sys.stderr)
-
-    if len(sections) > 1:
-        ts_text = sections[1].strip()
-        if ts_text:
-            try:
-                timestep_df = pd.read_csv(StringIO(ts_text), comment="#")
-                timestep_df.columns = [c.strip().lower() for c in timestep_df.columns]
-            except Exception as exc:
-                print(f"Warning: could not parse timestep section in {filepath}: {exc}",
-                      file=sys.stderr)
-
-    return phase_df, timestep_df
+from profile_parser import parse_profile_csv, get_wall_time
 
 
 # ---------------------------------------------------------------------------
@@ -100,14 +50,20 @@ def build_comparison(baseline_df, optimized_df):
         opt_calls = int(opt.loc[phase, "call_count"]) if phase in opt.index else 0
 
         diff = opt_time - base_time
-        if opt_time > 0:
+        new_phase = base_time == 0 and opt_time > 0
+        if new_phase:
+            speedup = None  # no baseline to compare against
+        elif opt_time > 0:
             speedup = base_time / opt_time
         elif base_time > 0:
             speedup = float("inf")
         else:
             speedup = 1.0
 
-        regression = opt_time > base_time and base_time > 0
+        # Symmetric with the >1.05 IMPROVED threshold: slowdowns below 5%
+        # are run-to-run noise. A phase absent from the baseline is new
+        # cost and always flagged.
+        regression = new_phase or opt_time > base_time * 1.05
 
         rows.append({
             "phase": phase,
@@ -118,6 +74,7 @@ def build_comparison(baseline_df, optimized_df):
             "base_calls": base_calls,
             "opt_calls": opt_calls,
             "regression": regression,
+            "new_phase": new_phase,
         })
 
     # Sort: regressions first (by diff descending), then improvements
@@ -125,19 +82,9 @@ def build_comparison(baseline_df, optimized_df):
     return rows
 
 
-def _wall_time(phase_df):
-    """Wall-clock reference: the SimulationLoop row, else the column sum."""
-    if phase_df is None or phase_df.empty:
-        return 0.0
-    matches = phase_df[phase_df["phase"].str.lower() == "simulationloop"]
-    if not matches.empty:
-        return float(matches.iloc[0]["total_seconds"])
-    return float(phase_df["total_seconds"].sum())
-
-
 def wall_times(baseline_df, optimized_df):
     """Return (baseline_wall, optimized_wall) wall-clock times."""
-    return _wall_time(baseline_df), _wall_time(optimized_df)
+    return get_wall_time(baseline_df), get_wall_time(optimized_df)
 
 
 def build_timestep_summary(timestep_df, label):
@@ -210,16 +157,18 @@ REPORT_TEMPLATE = Template("""\
   <th>Status</th>
 </tr>
 {% for row in comparison %}
-<tr class="{{ 'regression' if row.regression else ('improvement' if row.speedup > 1.05 else '') }}">
+<tr class="{{ 'regression' if row.regression else ('improvement' if row.speedup is not none and row.speedup > 1.05 else '') }}">
   <td>{{ row.phase }}</td>
   <td>{{ "%.4f"|format(row.base_time) }}</td>
   <td>{{ "%.4f"|format(row.opt_time) }}</td>
   <td>{{ "%+.4f"|format(row.diff) }}</td>
-  <td>{{ "%.2f"|format(row.speedup) }}x</td>
+  <td>{{ "%.2f"|format(row.speedup) ~ "x" if row.speedup is not none else "n/a" }}</td>
   <td>{{ row.base_calls }}</td>
   <td>{{ row.opt_calls }}</td>
   <td>
-    {% if row.regression %}
+    {% if row.new_phase %}
+      <span class="tag-regression">NEW</span>
+    {% elif row.regression %}
       <span class="tag-regression">REGRESSION</span>
     {% elif row.speedup > 1.05 %}
       <span class="tag-improvement">IMPROVED</span>
@@ -269,11 +218,11 @@ REPORT_TEMPLATE = Template("""\
 {% for r in regressions %}
   <li><strong>{{ r.phase }}</strong>: {{ "%.4f"|format(r.base_time) }}s &rarr;
       {{ "%.4f"|format(r.opt_time) }}s ({{ "%+.4f"|format(r.diff) }}s,
-      {{ "%.2f"|format(r.speedup) }}x)</li>
+      {{ "%.2f"|format(r.speedup) ~ "x" if r.speedup is not none else "new phase" }})</li>
 {% endfor %}
 </ul>
 {% else %}
-<p>No regressions detected. All phases are equal or faster.</p>
+<p>No regressions detected (slowdowns within the 5% noise threshold are not flagged).</p>
 {% endif %}
 
 <footer>Generated by Dynawo compare_runs.py</footer>
@@ -312,11 +261,19 @@ def print_comparison(comparison, base_wall, opt_wall):
           f"{'Diff(s)':>10s} {'Speedup':>8s} {'Status':>12s}")
     print("-" * 78)
     for row in comparison:
-        status = "REGRESSION" if row["regression"] else (
-            "IMPROVED" if row["speedup"] > 1.05 else "-")
+        if row["new_phase"]:
+            status = "NEW"
+        elif row["regression"]:
+            status = "REGRESSION"
+        elif row["speedup"] > 1.05:
+            status = "IMPROVED"
+        else:
+            status = "-"
+        speedup_str = (f"{row['speedup']:>7.2f}x"
+                       if row["speedup"] is not None else f"{'n/a':>8s}")
         print(f"{row['phase']:<20s} {row['base_time']:>10.4f} "
               f"{row['opt_time']:>10.4f} {row['diff']:>+10.4f} "
-              f"{row['speedup']:>7.2f}x {status:>12s}")
+              f"{speedup_str} {status:>12s}")
 
     overall = base_wall / opt_wall if opt_wall > 0 else 0.0
     print(f"\nOverall (wall-clock, SimulationLoop): "
