@@ -15,16 +15,16 @@ The work follows a data-driven methodology: profile first, identify bottlenecks,
 ### Optimization Roadmap (from `performance-analysis/OPTIMIZATION_ROADMAP.md`)
 
 **Phase 0 — Quick Wins (15-25% expected, low risk):**
-- **A7 Event Severity Classification** — highest priority. Minor events (tap changers, OELs, AVR limits) currently trigger unnecessary full Jacobian + KLU symbolic refactorization. The FixedTimeStep solver infrastructure already supports severity levels; only model-layer reclassification is needed. Expected 10-15% gain during event-heavy periods.
+- **A7 Superset Sparsity** — highest priority, **not yet implemented**. Topology events (switch/bus `TOPO_CHANGE`) make `ModelNetwork::evalMode()` report `ALGEBRAIC_J_UPDATE_MODE`, forcing a full Jacobian rebuild + KLU symbolic refactorization (~500–1500 ms/step, the per-step real-time violations). The plan: make the switch/bus Jacobian sparsity pattern structure-invariant (superset entries) so those events can be downgraded to `ALGEBRAIC_MODE`. Current plan and baselines: `../reports/A7_plan_superset_sparsity.md`, `../reports/A7_baseline_*.md` (TRAISIM repo root); the roadmap's A7 section summarizes the same plan.
 - **A1 Adaptive Factorization Control** — structure hash + nnz tracking to skip redundant symbolic factorizations (5-8%)
 - **A2 Matrix Structure Change Tolerance** — configurable threshold for structural changes (3-5%)
 - **A3 KLU Numerical-Only Refactorization** — explicit `klu_refactor` vs. `klu_factor` path (5-7%)
 
 **Phase 1 — Medium Effort (cumulative 25-40%):** Cache-optimized matrix layout (P3), std::map audit, improved COLAMD ordering (A4)
 
-**Phase 2 — Advanced (cumulative 40-70%):** PGO (P7), LTO (P8), OpenMP Jacobian (P1), OpenMP SubModel (P2)
+**Phase 2 — Advanced (cumulative 40-70%):** PGO (P6), LTO (P7), OpenMP Jacobian (P1), OpenMP SubModel (P2)
 
-**Phase 3 — Research:** Partial Jacobian updates (A5), GPU acceleration (P9), Schur complement decomposition (A6)
+**Phase 3 — Research:** Partial Jacobian updates (A5), GPU acceleration (P8), Schur complement decomposition (A6)
 
 
 ## Build Commands
@@ -121,10 +121,9 @@ python memory_analyzer.py profile.csv --output-dir results/memory/
 |------|---------|
 | `performance-analysis/PROFILING_FRAMEWORK.md` | Profiler architecture, phase taxonomy, API, known issues |
 | `performance-analysis/SPRINT_GUIDE.md` | Step-by-step investigation methodology |
-| `performance-analysis/OPTIMIZATION_ROADMAP.md` | 16-item optimization plan with code analysis and phased rollout |
+| `performance-analysis/OPTIMIZATION_ROADMAP.md` | Master optimization plan (15 items) with code analysis and phased rollout |
 | `performance-analysis/README.md` | Overview, tool docs, adding new instrumentation points |
 | `performance-analysis/INSTALL_UBUNTU24.md` | Build setup guide with troubleshooting |
-| `performance-analysis/TRAISIM_future_plans.md` | Executive summary presentation (Marp slides) |
 | `performance-analysis/README_timing_feature.md` | `enableRealTimeTracking` per-timestep `simRT.csv` feature |
 | `dynawo/sources/Solvers/VariableTimeStep/SolverDDM/DESIGN.md` | Domain-decomposition solver design (proposal only, no code) |
 | `../reports/` (TRAISIM root) | A7 baselines (current RTR numbers), A7 superset-sparsity plan, fork code review |
@@ -132,6 +131,7 @@ python memory_analyzer.py profile.csv --output-dir results/memory/
 ### Analysis Tools
 | Script | Purpose |
 |--------|---------|
+| `profile_parser.py` | Shared CSV parsing (marker + legacy formats) and SimulationLoop wall-time lookup used by all tools below |
 | `analyze_profile.py` | Parse CSV profiles (JSON is not supported by any tool), generate pie/bar/timeseries charts |
 | `bottleneck_detector.py` | Automated hotspot identification with severity-ranked findings |
 | `compare_runs.py` | Baseline vs. optimized comparison with HTML report |

@@ -23,9 +23,9 @@ For full build-from-source instructions on Ubuntu 24.04 (dependencies, clone,
 build, profiling build, troubleshooting), see
 **[INSTALL_UBUNTU24.md](INSTALL_UBUNTU24.md)**.
 
-For the optimization roadmap and future plans, see
-**[OPTIMIZATION_ROADMAP.md](OPTIMIZATION_ROADMAP.md)** and
-**[TRAISIM_future_plans.md](TRAISIM_future_plans.md)** (Marp presentation).
+For the optimization plan, see
+**[OPTIMIZATION_ROADMAP.md](OPTIMIZATION_ROADMAP.md)** — the master plan
+covering all optimization items and the phased roadmap.
 
 The rest of this README documents the profiling framework architecture,
 Python analysis tools, benchmark infrastructure, and data formats.
@@ -101,7 +101,7 @@ Located at `dynawo/sources/Solvers/Common/`:
   - `PHASE_KINSOL_SOLVE` -- KINSOL nonlinear solve
   - `PHASE_REINIT` -- solver reinitialization after events
   - `PHASE_IO` -- file I/O operations (output writing in terminate())
-  - `PHASE_KLU_SYMBOLIC` -- KLU symbolic (re)factorization (`SUNLinSol_KLUReInit`)
+  - `PHASE_KLU_SYMBOLIC` -- KLU symbolic (re)factorization (`klu_analyze`, triggered by a new sparsity structure)
   - `PHASE_KLU_SETUP` -- KLU numeric factorization (patched SUNDIALS setup vtable)
   - `PHASE_CURVES_UPDATE` -- curve collection update per accepted step
 
@@ -131,11 +131,11 @@ pip install -r requirements.txt   # matplotlib, pandas, numpy, jinja2
 ```
 
 The tools have a regression test suite in `tests/` (percentage denominators,
-benchmark jobs-file rewiring). Run it after any change:
+benchmark jobs-file rewiring, CSV parsing, comparison status logic). Run it
+after any change:
 
 ```bash
-pip install pytest
-python -m pytest tests/
+python -m pytest tests/    # pytest is included in requirements.txt
 ```
 
 All percentages and speedups reported by the tools are computed against the
@@ -197,6 +197,10 @@ python compare_runs.py <baseline.csv> <optimized.csv> [--output <report.html>]
 - HTML report with colour-coded regression/improvement table, timestep summaries,
   and a regressions section
 
+Status flags are symmetric around a 5% noise threshold: `IMPROVED` needs
+speedup > 1.05, `REGRESSION` needs a slowdown > 5%, and a phase present only
+in the optimised run is flagged `NEW` (and counted as a regression).
+
 **Example:**
 
 ```bash
@@ -222,7 +226,7 @@ actually take effect.
 
 ```bash
 python benchmark_solvers.py --dynawo-bin <path> --case <case_dir> \
-    [--output-dir <dir>] [--configs <name> ...] [--sensitivity]
+    [--output-dir <dir>] [--configs <name> ...] [--sensitivity] [--timeout <s>]
 ```
 
 | Argument | Description |
@@ -232,6 +236,7 @@ python benchmark_solvers.py --dynawo-bin <path> --case <case_dir> \
 | `--output-dir` | Directory for benchmark outputs (default: `benchmark_output`) |
 | `--configs` | Names of configurations to run (default: all). Available: `IDA_default`, `IDA_tight_tol`, `IDA_loose_tol`, `SIM_default`, `SIM_small_step`, `TRAP_default`, `IDA_high_order` |
 | `--sensitivity` | Also run parameter sensitivity sweeps (absAccuracy, maxStep, hMax) |
+| `--timeout` | Per-run simulation timeout in seconds (default: 3600) |
 
 **Output:**
 - Per-configuration profile CSV files in `<output-dir>/<config_name>/`
@@ -298,7 +303,7 @@ BOTTLENECK ANALYSIS REPORT
 --- CRITICAL ---
 
   [1] Hotspot (JacobianEval)
-      Phase 'JacobianEval' consumes 42.3% of total time (4.5670s / 10.8000s).
+      Phase 'JacobianEval' consumes 42.3% of wall-clock time (4.5670s / 10.8000s SimulationLoop).
       Recommendation: Consider increasing the Jacobian reuse count ...
 
 --- WARNING ---
@@ -367,14 +372,15 @@ Located in `performance-analysis/benchmarks/`:
 performance-analysis/
 |-- README.md                    # This file
 |-- INSTALL_UBUNTU24.md          # Build guide for Ubuntu 24.04
-|-- OPTIMIZATION_ROADMAP.md      # Detailed optimization roadmap (16 items, phased)
-|-- TRAISIM_future_plans.md      # Marp slide deck — optimization roadmap presentation
+|-- OPTIMIZATION_ROADMAP.md      # Master optimization plan (15 items, phased)
 |-- requirements.txt             # Python dependencies
-|-- analyze_profile.py           # CSV parser, charts, statistics
+|-- profile_parser.py            # Shared CSV parsing + wall-time helpers
+|-- analyze_profile.py           # Charts, statistics
 |-- compare_runs.py              # Side-by-side run comparison, HTML report
 |-- benchmark_solvers.py         # Automated multi-config benchmarking
 |-- bottleneck_detector.py       # Automatic bottleneck identification
 |-- memory_analyzer.py           # Memory growth analysis, leak detection
+|-- tests/                       # Regression tests (pytest)
 |-- benchmarks/
 |   |-- run_benchmarks.sh        # Master benchmark orchestration script
 |   |-- Nordic_IDA.jobs          # Nordic test with IDA solver
@@ -530,7 +536,7 @@ The profiler summary table shows each phase with the following columns:
 
 - **CalculateIC:** Initial condition calculation at the start of the simulation. A large value here may indicate difficulties finding a consistent initial state.
 
-- **SolverStep:** Individual time step computations. The sum of all SolverStep times should be close to SolverSolve minus CalculateIC.
+- **SolverStep:** Individual time step computations. The sum of all SolverStep times should be close to SolverSolve (CalculateIC is a sibling phase directly under SimulationLoop, not part of SolverSolve).
 
 - **JacobianEval:** Evaluation of the Jacobian matrix (partial derivatives of the DAE system). This is typically one of the most expensive phases. High percentage here (>30%) suggests the Jacobian evaluation is a bottleneck.
 
@@ -566,23 +572,29 @@ The profiler summary table shows each phase with the following columns:
 
 ### CSV Format
 
-The CSV export contains two sections:
+The CSV export contains two sections, each introduced by a comment marker
+(`# PHASES` / `# TIMESTEPS`) and separated by a blank line:
 
 **Phase summary (first section):**
 ```csv
+# PHASES
 phase,total_seconds,call_count,avg_ms,min_ms,max_ms,peak_memory_kb
 SimulationLoop,45.123456,1,45123.4560,45123.4560,45123.4560,524288
 JacobianEval,18.567890,1250,14.8543,8.2100,45.6700,0
 ...
 ```
 
-**Timestep time series (second section, separated by a blank line):**
+**Timestep time series (second section):**
 ```csv
+# TIMESTEPS
 sim_time,step_duration_ms,memory_kb
 0.000000,12.3456,262144
 0.010000,8.7654,262148
 ...
 ```
+
+Parsing for all Python tools lives in `profile_parser.py`, which also
+accepts the older marker-less format (blank-line separator only).
 
 ### JSON Format
 
@@ -707,7 +719,7 @@ distinguish `klu_analyze` (symbolic factorization), `klu_factor` (numeric
 factorization), and `klu_solve` (triangular solve). These three sub-functions
 have very different optimization strategies, so measuring their individual
 contributions with `perf` is essential before committing to roadmap items such
-as A3 (numerical-only refactorization) or A7 (event severity classification).
+as A3 (numerical-only refactorization) or A7 (superset sparsity for topology events).
 
 ### Prerequisites
 
@@ -759,7 +771,7 @@ perf record \
 perf report \
     -i results/nordic/perf/perf.data \
     --stdio \
-  --dso dynawo-1.8.0 \
+  --dsos dynawo-1.8.0 \
   --call-graph graph,0.5 \
   > results/nordic/perf/graph_fp.txt
 ```

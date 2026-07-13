@@ -1,8 +1,17 @@
 # Dynawo Optimization Roadmap
 
-This document presents a detailed optimization plan for the Dynawo power system simulation tool. It covers 9 programming optimizations and 7 algorithmic optimizations, each with descriptions, expected speedup ranges, implementation effort and risk assessments, and implementation sketches. A phased roadmap at the end provides a structured plan for executing these improvements.
+> **Status (2026-07):** This is the **master optimization plan** for the
+> TRAISIM performance work. The A7 section summarizes the active
+> **superset-sparsity** plan; the full implementation plan lives in the
+> TRAISIM repo at `reports/A7_plan_superset_sparsity.md`, with current RTR
+> baselines in `reports/A7_baseline_*.md` and the reading order in
+> `reports/README.md`. Rejected and superseded ideas have been removed from
+> this document — a one-line record of each is kept in
+> [Removed Items](#removed-items).
 
-> **Developer feedback incorporated.** Sections marked "Developer Feedback (TRAISIM Discussion)" contain insights from Gautier Bureau, former lead Dynawo developer at RTE, gathered during a TRAISIM project technical meeting. His feedback has been used to validate suggestions, remove already-implemented items (P1 — now in upstream master), add a new high-value optimization (A7), and refine complexity/risk assessments.
+This document presents a detailed optimization plan for the Dynawo power system simulation tool. It covers 8 programming optimizations and 7 algorithmic optimizations, each with descriptions, expected speedup ranges, implementation effort and risk assessments, and implementation sketches. A phased roadmap at the end provides a structured plan for executing these improvements.
+
+> **Developer feedback incorporated.** Sections marked "Developer Feedback (TRAISIM Discussion)" contain insights from Gautier Bureau, former lead Dynawo developer at RTE, gathered during a TRAISIM project technical meeting. His feedback has been used to validate suggestions, remove an already-implemented item (now in upstream master; the current P1 below is a different, still-open optimization), motivate the work on event-triggered factorization avoidance (A1/A7), and refine complexity/risk assessments.
 
 All speedup estimates are relative to typical large-scale power system simulations (1000+ buses, 10-60 second simulation windows). Actual improvements will vary depending on network size, event density, and solver configuration.
 
@@ -37,10 +46,9 @@ An IDA solver comparison is also available via `performance-analysis/benchmarks/
    - [P3. Cache-Optimized Sparse Matrix Layout](#p3-cache-optimized-sparse-matrix-layout)
    - [P4. SIMD Vectorization in Residual Evaluation](#p4-simd-vectorization-in-residual-evaluation)
    - [P5. Memory Pool Allocator](#p5-memory-pool-allocator)
-   - [P6. Reduce SUNDIALS N_Vector Copies](#p6-reduce-sundials-nvector-copies)
-   - [P7. Profile-Guided Optimization (PGO)](#p7-profile-guided-optimization-pgo)
-   - [P8. Link-Time Optimization (LTO)](#p8-link-time-optimization-lto)
-   - [P9. GPU Acceleration for KLU](#p9-gpu-acceleration-for-klu)
+   - [P6. Profile-Guided Optimization (PGO)](#p6-profile-guided-optimization-pgo)
+   - [P7. Link-Time Optimization (LTO)](#p7-link-time-optimization-lto)
+   - [P8. GPU Acceleration for KLU](#p8-gpu-acceleration-for-klu)
 2. [Algorithmic Optimizations](#algorithmic-optimizations)
    - [A1. Adaptive Factorization Control](#a1-adaptive-factorization-control)
    - [A2. Matrix Structure Change Tolerance](#a2-matrix-structure-change-tolerance)
@@ -48,13 +56,14 @@ An IDA solver comparison is also available via `performance-analysis/benchmarks/
    - [A4. Improved COLAMD Ordering](#a4-improved-colamd-ordering)
    - [A5. Partial Jacobian Updates](#a5-partial-jacobian-updates)
    - [A6. Schur Complement Decomposition](#a6-schur-complement-decomposition)
-   - [A7. Event Severity Classification for Reinit/Factorization Control](#a7-event-severity-classification-for-reinitfactorization-control)
+   - [A7. Superset Sparsity for Topology Events](#a7-superset-sparsity-for-topology-events)
 3. [Phased Roadmap](#phased-roadmap)
    - [Phase 0: Quick Wins](#phase-0-quick-wins)
    - [Phase 1: Medium Effort](#phase-1-medium-effort)
    - [Phase 2: Advanced](#phase-2-advanced)
    - [Phase 3: Research / Exploratory](#phase-3-research--exploratory)
    - [Decision Points and Go/No-Go Criteria](#decision-points-and-gono-go-criteria)
+4. [Removed Items](#removed-items)
 
 ---
 
@@ -176,13 +185,9 @@ void ModelMulti::evalG(double t, const double* y, const double* yp, double* g) {
 **Implementation Effort:** High (staged rollout required — see delivery strategy below)
 **Risk Level:** Medium-High (sparsity pattern stability must be validated across mode changes and discrete events before production use)
 
-> **Code Analysis (March 2026).** Upstream code analysis reveals that the original framing of this item (row-major intermediates transposed before KLU) is **incorrect** — Dynawo already avoids explicit transposition through a deliberate CSR/transpose trick. However, the analysis uncovered real inefficiencies in the Jacobian assembly pipeline that this item should target instead. See the Code Analysis section below.
+> **Code Analysis (March 2026).** Dynawo already avoids explicit Jacobian transposition through a deliberate CSR/transpose trick (documented below), so there is no transposition overhead to remove. The real inefficiencies are in the Jacobian assembly pipeline, which this item targets.
 >
 > **Important caveat:** Adept does not support sparse Jacobian computation — there is no `jacobian_with_pattern()` or coloring/compressed evaluation API. The dense `stack.jacobian()` call is unavoidable with the current AD library. The optimization therefore targets the extraction loop and allocation overhead, not the AD computation itself.
-
-#### Description (Original — Superseded)
-
-~~Sparse matrices in Dynawo are stored for use with the KLU direct solver from SuiteSparse. KLU operates on Compressed Sparse Column (CSC) format, which stores non-zero entries column by column. However, many operations during Jacobian assembly naturally produce data in row-major order, leading to an intermediate representation that must be transposed before KLU can use it.~~
 
 #### Code Analysis: Actual Jacobian Assembly Pipeline
 
@@ -229,7 +234,7 @@ P3 should be delivered in three stages to manage the risk of incorrect sparsity 
 
 > **Risk note:** Severe-only invalidation (Phase C) must never be promoted without passing the structural-sparsity validation checklist below. A missed structural nonzero means KLU solves with an incomplete Jacobian, which can cause silent convergence degradation or Newton failure.
 
-#### Implementation Sketch (Reframed)
+#### Implementation Sketch
 
 ```cpp
 // Phase A: Compile-time structural index map for extraction loop
@@ -424,83 +429,7 @@ void SolverIDA::step() {
 
 ---
 
-### P6. Reduce SUNDIALS N_Vector Copies
-
-**Expected Speedup:** 1-3% (IDA variable-step solver only)
-**Implementation Effort:** Low
-**Risk Level:** Low
-**Scope:** IDA (variable-step) solver only — not applicable to FixedTimeStep (SolverSIM/SolverTRAP)
-
-> **Code Analysis (March 2026).** Upstream code analysis confirms this optimization is **IDA-specific**. The FixedTimeStep solver does not use the N_Vector copy paths that P6 targets. See the Code Analysis section below.
-
-#### Description
-
-The SUNDIALS IDA solver interface uses `N_Vector` objects to pass state vectors, derivative vectors, and residual vectors between the solver and user code. In the current Dynawo-SUNDIALS integration, there are several places where vector data is copied between `N_Vector` internal storage and Dynawo's own `std::vector<double>` containers. These copies occur at every solver call (residual evaluation, Jacobian evaluation), adding up to significant overhead for large systems.
-
-Many of these copies can be eliminated by wrapping Dynawo's existing vectors as `N_Vector`s using SUNDIALS' custom vector operations interface, or by directly using `NV_DATA_S()` to access the `N_Vector` data pointer and passing it to Dynawo functions without intermediate copies. The SUNDIALS serial `N_Vector` stores its data as a contiguous `double*` array, so direct pointer access is safe and efficient.
-
-This optimization has the lowest risk of any proposed change because it only affects the SUNDIALS interface layer, not the solver logic or model evaluation code. The main caution is ensuring that the `N_Vector` data is not reallocated or freed while Dynawo holds a pointer to it.
-
-#### Code Analysis: FixedTimeStep vs IDA N_Vector Usage
-
-**FixedTimeStep (SolverSIM/SolverTRAP):** Uses `std::vector<double>` (`vectorY_`, `vectorYp_`, `vectorYSave_`) with `.assign()` for all save/restore operations — not N_Vector copy operations. The `sundialsVectorY_` is created via `N_VMake_Serial` wrapping `vectorY_.data()` (zero-copy wrapper in `Solver::Impl::init()` at `DYNSolverImpl.cpp:129-137`). KINSOL algebraic solvers share `sundialsVectorY_` by reference (`SolverKINCommon.cpp:93`) or create their own zero-copy wrapper (`SolverKINAlgRestoration.cpp:179`). **No N_Vector copy operations occur in the FixedTimeStep pipeline.**
-
-**IDA (variable-step):** Passes `sundialsVectorY_`/`sundialsVectorYp_` to IDA API calls (`IDASolve`, `IDAReInit`, `IDAGetConsistentIC`). IDA callbacks (`evalF`, `evalG`, `evalJ`) receive N_Vectors from SUNDIALS and extract raw pointers via `NV_DATA_S()`. The `copyContinuousVariables()` calls at lines 358, 420, 629, 657, 676 copy data from N_Vector raw pointers into `ModelMulti::yLocal_`/`ypLocal_` via `std::vector::assign()`. These are the copy operations P6 could eliminate.
-
-**`copyContinuousVariables` in ModelMulti (`DYNModelMulti.cpp:332`):**
-```cpp
-void ModelMulti::copyContinuousVariables(const double* y, const double* yp) {
-  yLocal_.assign(y, y + sizeY());
-  ypLocal_.assign(yp, yp + sizeY());
-}
-```
-This is a simple `std::assign` from `double*` to `std::vector<double>` — the same pattern in both solver paths. However, in FixedTimeStep, these are called from `std::vector` sources (no N_Vector involvement), while in IDA, they are called with N_Vector-extracted pointers.
-
-**Conclusion:** P6 is relevant only when using the IDA variable-step solver. For the TRAISIM target (FixedTimeStep/SolverSIM for real-time simulation), this optimization provides no benefit.
-
-#### Implementation Sketch
-
-```cpp
-// Before: copying N_Vector data to/from internal vectors
-int residualCallback(double t, N_Vector yy, N_Vector yp, N_Vector rr, void* userData) {
-  SolverData* data = static_cast<SolverData*>(userData);
-  int N = data->size;
-
-  // Unnecessary copy: N_Vector -> std::vector
-  std::vector<double> y(N), yPrime(N), residual(N);
-  double* yyData = NV_DATA_S(yy);
-  double* ypData = NV_DATA_S(yp);
-  std::copy(yyData, yyData + N, y.begin());
-  std::copy(ypData, ypData + N, yPrime.begin());
-
-  data->model->evalF(t, y.data(), yPrime.data(), residual.data());
-
-  // Unnecessary copy: std::vector -> N_Vector
-  double* rrData = NV_DATA_S(rr);
-  std::copy(residual.begin(), residual.end(), rrData);
-
-  return 0;
-}
-
-// After: direct pointer access, zero copies
-int residualCallback(double t, N_Vector yy, N_Vector yp, N_Vector rr, void* userData) {
-  SolverData* data = static_cast<SolverData*>(userData);
-
-  // Direct access to N_Vector internal storage
-  double* y      = NV_DATA_S(yy);
-  double* yPrime = NV_DATA_S(yp);
-  double* f      = NV_DATA_S(rr);
-
-  // Pass pointers directly -- no copies
-  data->model->evalF(t, y, yPrime, f);
-
-  return 0;
-}
-```
-
----
-
-### P7. Profile-Guided Optimization (PGO)
+### P6. Profile-Guided Optimization (PGO)
 
 **Expected Speedup:** 5-10%
 **Implementation Effort:** Low
@@ -558,7 +487,7 @@ endif()
 
 ---
 
-### P8. Link-Time Optimization (LTO)
+### P7. Link-Time Optimization (LTO)
 
 **Expected Speedup:** 3-5%
 **Implementation Effort:** Low
@@ -603,7 +532,7 @@ cmake ../dynawo \
 
 ---
 
-### P9. GPU Acceleration for KLU
+### P8. GPU Acceleration for KLU
 
 > **High risk / Long term / Possibly out of scope.** GPU acceleration introduces a heavy dependency (CUDA/cuSOLVER) and is only beneficial above a large system-size crossover point. The data transfer overhead may negate gains for typical use cases.
 
@@ -723,7 +652,7 @@ Gautier's key insight: the root cause is that Dynawo's `modeChangeType_t` heuris
 
 Gautier suggested a two-pronged approach:
 1. **Metrics-based (solver-side):** The monitoring approach described below (structure hash, nnz tracking) — applicable immediately.
-2. **Engineering-based (model-side):** A new event severity classification in the model translation layer (see A7) that provides richer information to the solver about whether a change is "severe" enough to warrant factorization. This approach gives better results because it uses domain knowledge about what events actually affect the Jacobian structure significantly.
+2. **Engineering-based (model-side):** Use domain knowledge about which events actually affect the Jacobian structure. Gautier's original suggestion was an event severity classification in the model translation layer; that approach was later abandoned (see [Removed Items](#removed-items)), and the model-side fix pursued instead is superset sparsity (see A7).
 
 The RAMSES simulator (used by Petros Aristidou) takes the most aggressive approach: it only forces Jacobian update for short circuits. For all other events, it relies on Newton iteration failure as a fallback trigger — if the stale Jacobian causes more than 5 Newton iterations, factorization is forced. This is too aggressive for offline accuracy but demonstrates the headroom available for real-time applications.
 
@@ -1038,7 +967,7 @@ The potential speedup is large because Jacobian evaluation is typically the most
 
 Gautier Bureau assessed this as conceptually straightforward but "difficult to implement" in practice, particularly with the existing sparse matrix data structures. Updating already-factorized LU factors after partial Jacobian changes is non-trivial. Literature review found a few papers demonstrating the mathematics, but only on small matrices in prototype code, not at production scale.
 
-**Recommendation:** Prioritize A1, A2, A3, and A7 (event severity classification) first. These address the same root problem (unnecessary Jacobian work during events) with much lower implementation complexity. If those optimizations reduce Jacobian overhead sufficiently, A5 may not be needed. If further Jacobian savings are still required after implementing the factorization control improvements, A5 should be prototyped on a small test case before committing to a full implementation.
+**Recommendation:** Prioritize A1, A2, A3, and A7 (superset sparsity) first. These address the same root problem (unnecessary Jacobian work during events) with much lower implementation complexity. If those optimizations reduce Jacobian overhead sufficiently, A5 may not be needed. If further Jacobian savings are still required after implementing the factorization control improvements, A5 should be prototyped on a small test case before committing to a full implementation.
 
 #### Implementation Sketch
 
@@ -1254,23 +1183,23 @@ public:
 
 ---
 
-### A7. Event Severity Classification for Reinit/Factorization Control
+### A7. Superset Sparsity for Topology Events
 
-**Expected Speedup:** 10-15% (during event-heavy periods; compounds with A1/A2/A3)
-**Implementation Effort:** Low — solver infrastructure already in place; changes are model-layer only
-**Risk Level:** Low
-**Priority:** Highest — this is the single most impactful optimization identified during profiling and developer consultation
-**Source:** TRAISIM project discussion with Gautier Bureau (former Dynawo lead developer, RTE)
+**Expected Speedup:** Eliminates the ~500–1500 ms per-step spikes caused by topology events — the source of the remaining per-step real-time violations
+**Implementation Effort:** Medium
+**Risk Level:** Medium
+**Priority:** Highest — targets the root cause of the per-step real-time violations
+**Status:** Planned, not yet implemented. Full implementation plan: `reports/A7_plan_superset_sparsity.md` (TRAISIM repo root); current RTR baselines: `reports/A7_baseline_*.md`
 
 #### Description
 
-The current `modeChangeType_t` enum in Dynawo classifies events into four levels: `NO_MODE`, `DIFFERENTIAL_MODE`, `ALGEBRAIC_MODE`, and `ALGEBRAIC_J_UPDATE_MODE`. The Modelica-to-C++ translation layer assigns `ALGEBRAIC_J_UPDATE_MODE` to any model equation that involves a Boolean variable in an `if` clause. This heuristic was designed to catch the `running` Boolean (generator on/off) but triggers for many minor events (OEL activations, tap changer steps, AVR limit actions). The solver treats `ALGEBRAIC_J_UPDATE_MODE` as a signal to perform a full Jacobian update and symbolic refactorization, even when the event has negligible impact on the system Jacobian.
+Baseline profiling (`reports/A7_baseline_*.md`) shows that the per-step real-time violations come from network switch/bus `TOPO_CHANGE` events: `ModelNetwork::evalMode()` reports `ALGEBRAIC_J_UPDATE_MODE` for any topology event, forcing a full Jacobian rebuild plus a KLU symbolic refactorization (~500–1500 ms per step on the 6,000+ bus system). Minor Modelica automata events are not the driver — models already report maximum severity before the solver sees the event, so tuning severity gates on the solver side cannot avoid the symbolic refactorization.
 
-Gautier Bureau prototyped a solution for the IDA solver: adding a new, higher-severity flag to the `modeChangeType_t` enum that is triggered only for truly disruptive events (short circuits via `NodeFault` model, and generator disconnections via the `running` Boolean). Minor events would receive the standard `ALGEBRAIC_J_UPDATE_MODE` flag, which allows the solver to skip full symbolic refactorization.
+The plan is to make the switch/bus Jacobian sparsity pattern **structure-invariant**: the pattern always contains the superset of entries needed for any switch open/closed state, with entries that are inactive in the current topology held at zero. Because topology events then no longer change the sparsity pattern, `ModelNetwork::evalMode()` can downgrade them from `ALGEBRAIC_J_UPDATE_MODE` to `ALGEBRAIC_MODE`, and the solver performs only a numerical refactorization instead of a full symbolic one.
 
-The change in the Modelica translation layer is small (~3 lines of code in the C++ code generation). The new flag is derived from heuristic name matching: if the model is a `NodeFault` model or the Boolean variable is named `running`, the severe flag is set. All other Boolean-driven mode changes get the standard `ALGEBRAIC_J_UPDATE_MODE` flag.
+See `reports/A7_plan_superset_sparsity.md` for the full design: superset pattern construction, the `evalMode()` downgrade, validation gates, and rollout stages.
 
-#### Code Analysis: FixedTimeStep Solver Already Supports Event Severity
+#### Code Analysis: Solver-Side Severity Infrastructure Needs No Changes
 
 A detailed analysis of the upstream codebase confirms that **the FixedTimeStep solver (SolverSIM/SolverTRAP) already fully implements event severity handling.** No solver-side changes are needed — the work is entirely at the model classification layer.
 
@@ -1299,52 +1228,13 @@ The configurable parameter `minimumModeChangeTypeForAlgebraicRestoration` (defau
 | Root handling | Triggers `IDAReInit` after reinit | Uses `factorizationForced_` flag |
 | Factorization control | Implicit via IDA's internal Newton | Explicit `factorizationForced_` flag |
 
-**Implication:** Any change to how models report their `modeChangeType_t` in `evalMode()` immediately benefits both solvers. Adding a new `ALGEBRAIC_J_UPDATE_SEVERE_MODE` level works automatically — the FixedTimeStep solver will only force factorization for the new severe level, while downgraded events skip factorization.
+**Implication:** No solver-side changes are needed for A7. Once the superset-sparsity change lets `ModelNetwork::evalMode()` downgrade topology events to `ALGEBRAIC_MODE`, the existing severity handling in both solvers automatically skips the forced Jacobian setup and symbolic refactorization.
 
 #### Why This Matters for Real-Time Performance
 
-In TRAISIM profiling of the 300,000-variable system, ~30% of computation time during event periods was spent on symbolic factorization triggered by minor automata actions. A generator trip at t=0 correctly triggers factorization, but the subsequent 7 seconds of follow-up control actions (OELs, AVRs, secondary frequency control) each trigger unnecessary full factorizations. With event severity classification, only the initial generator trip would force full factorization; the follow-up events would use numerical-only refactorization or be deferred to Newton failure fallback.
+Average RTR is already well above the 1.0 target; the remaining blocker is per-step compliance. On the PFR 400 s benchmark, 5 steps exceed the 1000 ms deadline; on the 4000 s + events run, 21 steps; across the RTE_snapshots set, 115 of 22,874 steps (see `reports/A7_baseline_*.md`). All violations trace to topology events forcing the full Jacobian rebuild and symbolic refactorization — exactly the cost A7 removes.
 
-This compounds with A1/A2/A3: event severity classification provides the model-side intelligence, while A1/A2/A3 provide the solver-side intelligence. Together they form a complete factorization control strategy.
-
-**Estimated savings for FixedTimeStep:** In simulations with frequent low-severity events (e.g., OLTC tap changes every few seconds), this avoids a KLU symbolic + numeric factorization at each event. For large networks (10k+ buses), KLU factorization can be 10-30% of total solver time per step. If tap changes occur at ~100 of ~1000 total events, reclassifying them could save 5-15% of total simulation time.
-
-#### Implementation Sketch
-
-Since the solver infrastructure is already in place, the implementation focuses on the model classification layer:
-
-```cpp
-// Step 1: Extend the modeChangeType_t enum (DYNEnumUtils.h)
-typedef enum {
-  NO_MODE = 0,
-  DIFFERENTIAL_MODE,
-  ALGEBRAIC_MODE,
-  ALGEBRAIC_J_UPDATE_MODE,
-  ALGEBRAIC_J_UPDATE_SEVERE_MODE  // NEW: only for faults and disconnections
-} modeChangeType_t;
-
-// Step 2: In the Modelica compiler (dataContainer.py:2179-2208),
-// refine the classification for discrete variable mode changes:
-//   - Boolean named "running" → ALGEBRAIC_J_UPDATE_SEVERE_MODE
-//   - All other Boolean-driven mode changes → ALGEBRAIC_J_UPDATE_MODE
-// Currently, line 2208 emits: return ALGEBRAIC_J_UPDATE_MODE;
-// For the "running" Boolean, change to: return ALGEBRAIC_J_UPDATE_SEVERE_MODE;
-
-// Step 3: In ModelNetwork::evalMode() (DYNModelNetwork.cpp:1032-1063),
-// refine the classification for network events:
-//   - Topology changes (line trips, bus faults) → ALGEBRAIC_J_UPDATE_SEVERE_MODE
-//   - State changes (tap steps, load shedding) → ALGEBRAIC_MODE (already the case)
-
-// Step 4: No solver changes needed — both IDA and FixedTimeStep solvers
-// already distinguish all modeChangeType_t levels through:
-//   - handleRoot() → factorizationForced_ only for highest severity
-//   - reinit() → minimumModeChangeTypeForAlgebraicRestoration_ gate
-//   - setupNewAlgRestoration() → different KINSOL tolerances per severity
-```
-
-#### Relationship to Upstream Implementation
-
-The event severity classification system was introduced upstream by Adrien Guironnet (commit `9ada292`, issue #346) and Florentine Rosiere (commit `bf791ae`, issue #947). The existing four-level enum and all solver-side handling for both IDA and FixedTimeStep are already in the `master` branch. Gautier Bureau's prototype adds the fifth level (`ALGEBRAIC_J_UPDATE_SEVERE_MODE`) and the model-layer reclassification — this is the only remaining work.
+A7 compounds with A1/A2/A3: A7 provides the model-side fix for topology events, while A1/A2/A3 provide solver-side factorization control for all other event types.
 
 ---
 
@@ -1352,29 +1242,29 @@ The event severity classification system was introduced upstream by Adrien Guiro
 
 ### Phase 0: Quick Wins
 
-**Objective:** Achieve 15-25% overall speedup with minimal code changes and low risk, focusing on factorization avoidance.
+**Objective:** Eliminate the per-step real-time violations and achieve 15-25% overall speedup with minimal code changes and low risk, focusing on factorization avoidance.
 
 **Items:**
-- **A7. Event Severity Classification** (15-30% reduction in event-period time) — **Highest priority.** Code analysis confirms that the FixedTimeStep solver (SolverSIM/SolverTRAP) already fully supports event severity through shared infrastructure with IDA (`handleRoot()`, `reinit()`, `setupNewAlgRestoration()`). No solver-side changes are needed — only model-layer reclassification (adding `ALGEBRAIC_J_UPDATE_SEVERE_MODE` to the enum and updating `ModelNetwork::evalMode()` and the Modelica compiler). This reduces effort from Medium to Low.
+- **A7. Superset Sparsity for Topology Events** — **Highest priority.** Removes the ~500–1500 ms per-step spikes behind all remaining real-time violations. Model-layer only: structure-invariant switch/bus Jacobian pattern + `evalMode()` downgrade of topology events to `ALGEBRAIC_MODE`. Full plan: `reports/A7_plan_superset_sparsity.md`.
 - **A1. Adaptive Factorization Control** (5-8% speedup)
 - **A2. Matrix Structure Change Tolerance** (3-5% speedup)
 - **A3. KLU Numerical-Only Refactorization** (5-7% speedup)
 
-**Rationale:** A7 is the single highest-impact quick win identified during the TRAISIM discussion with Gautier Bureau. Profiling shows that ~30% of event-period computation time is spent on symbolic factorizations triggered by minor automata events (tap changers, OELs) that do not actually change Jacobian structure. Code analysis of the upstream codebase (commits `9ada292` by Adrien Guironnet and `bf791ae` by Florentine Rosiere) confirms the four-level `modeChangeType_t` enum and all solver-side handling are already shared between IDA and FixedTimeStep solvers. The FixedTimeStep `handleRoot()` already distinguishes `ALGEBRAIC_J_UPDATE_MODE` from lower severities, and `reinit()` uses the configurable `minimumModeChangeTypeForAlgebraicRestoration` parameter — no solver-side port is needed. The remaining work is model-layer only: adding a fifth enum level and reclassifying events in `ModelNetwork::evalMode()` and the Modelica compiler (`dataContainer.py`). A1, A2, and A3 complement A7 by providing layered factorization control: A1 adds decision logic, A2 extends skip criteria, and A3 ensures the fast `klu_refactor` path is used when symbolic refactorization is skipped.
+**Rationale:** A7 targets the root cause of the per-step real-time violations: topology events force a full Jacobian rebuild and KLU symbolic refactorization. Code analysis (see the A7 section) confirms the solver-side severity infrastructure needs no changes — once `evalMode()` downgrades topology events, both solvers automatically skip the forced factorization. A1, A2, and A3 complement A7 by providing layered solver-side factorization control: A1 adds decision logic, A2 extends skip criteria, and A3 ensures the fast `klu_refactor` path is used when symbolic refactorization is skipped.
 
 **Tasks:**
-1. Add `ALGEBRAIC_J_UPDATE_SEVERE_MODE` to the `modeChangeType_t` enum (`DYNEnumUtils.h`). No solver-side changes needed — the FixedTimeStep solver already handles severity levels through `handleRoot()`, `reinit()`, and `setupNewAlgRestoration()`.
-2. Update `ModelNetwork::evalMode()` to emit `ALGEBRAIC_J_UPDATE_SEVERE_MODE` for topology changes (line trips, bus faults) instead of `ALGEBRAIC_J_UPDATE_MODE`. State changes (tap steps) remain at `ALGEBRAIC_MODE`.
-3. Update the Modelica compiler (`dataContainer.py:2208`) to emit `ALGEBRAIC_J_UPDATE_SEVERE_MODE` only for the `running` Boolean; all other Boolean-driven mode changes remain at `ALGEBRAIC_J_UPDATE_MODE`.
-4. Instrument the current factorization code to measure symbolic vs. numerical factorization frequency.
-5. Implement A1 (adaptive factorization controller with structure hash).
-6. Implement A3 (explicit `klu_refactor` path) alongside A1.
-7. Implement A2 (structure change tolerance) with configurable threshold.
-8. Benchmark on Nordic test system and a large-scale test case, measuring factorization skip rate and event-period speedup.
-9. Tune severity classification and tolerance parameters based on benchmarks.
-10. Run the full test suite to verify correctness — ensure Newton convergence fallback triggers correctly when severity is underestimated.
+1. Implement the structure-invariant (superset) switch/bus Jacobian sparsity pattern per `reports/A7_plan_superset_sparsity.md`.
+2. Downgrade topology events in `ModelNetwork::evalMode()` from `ALGEBRAIC_J_UPDATE_MODE` to `ALGEBRAIC_MODE` once the pattern is structure-invariant.
+3. Instrument the current factorization code to measure symbolic vs. numerical factorization frequency.
+4. Implement A1 (adaptive factorization controller with structure hash).
+5. Implement A3 (explicit `klu_refactor` path) alongside A1.
+6. Implement A2 (structure change tolerance) with configurable threshold.
+7. Benchmark on Nordic, `PFR_20240605_N_NB_all_retained` (400 s and 4000 s), and RTE_snapshots, measuring per-step violations, factorization skip rate, and event-period speedup.
+8. Tune tolerance parameters based on benchmarks.
+9. Run the full test suite to verify correctness — ensure Newton convergence fallback triggers correctly when a downgraded event does change the numerical picture.
 
 **Go/No-Go Criteria for Phase 1:**
+- Per-step real-time violations on the PFR baselines eliminated (no steps > 1000 ms from topology events).
 - At least 10% measured speedup on the large-scale test case.
 - Event-period symbolic factorization rate reduced by at least 50%.
 - No increase in Newton iteration failures or convergence warnings.
@@ -1391,7 +1281,7 @@ The event severity classification system was introduced upstream by Adrien Guiro
 - **Remaining `std::map` audit** — Flat Vector Derivatives was implemented upstream by Gautier Bureau (commit `#3749`), but only for the Network model's `Derivatives` class. Audit and convert remaining `std::map<int, double>` usage in Modelica-generated C++ and SubModel coupling code.
 - **A4. Improved COLAMD Ordering** — Cache and reuse ordering across factorizations.
 
-**Rationale:** P3 Phase A targets the O(n²) extraction loop in `evalJtAdept`, which processes all `sizeF × sizeY` entries even though most are zero for typical Modelica submodels. The structural index map is safe (conservative: invalidated on any mode change) and provides direct benefit to both SolverSIM and IDA. The remaining `std::map` audit extends the upstream Flat Vector Derivatives work. A4 provides incremental gains by avoiding redundant ordering computations. P6 is excluded from SolverSIM speedup accounting (IDA-only).
+**Rationale:** P3 Phase A targets the O(n²) extraction loop in `evalJtAdept`, which processes all `sizeF × sizeY` entries even though most are zero for typical Modelica submodels. The structural index map is safe (conservative: invalidated on any mode change) and provides direct benefit to both SolverSIM and IDA. The remaining `std::map` audit extends the upstream Flat Vector Derivatives work. A4 provides incremental gains by avoiding redundant ordering computations.
 
 **Tasks:**
 1. Implement P3 Phase A: structural index map in `ModelManager::evalJtAdept` with conservative invalidation on any mode change.
@@ -1415,16 +1305,16 @@ The event severity classification system was introduced upstream by Adrien Guiro
 **Objective:** Enable parallel execution and apply build-level optimizations for an additional 15-30% speedup.
 
 **Items:**
-- **P7. Profile-Guided Optimization (PGO)** (5-10% speedup) — Build-system-only change with zero code risk.
-- **P8. Link-Time Optimization (LTO)** (3-5% speedup) — Straightforward to enable.
+- **P6. Profile-Guided Optimization (PGO)** (5-10% speedup) — Build-system-only change with zero code risk.
+- **P7. Link-Time Optimization (LTO)** (3-5% speedup) — Straightforward to enable.
 - **P1. OpenMP Jacobian Evaluation** (8-12% speedup) — **Known risks from RTE experience.** KLU's internal data structures use global locks that serialize parallel threads during factorization.
 - **P2. OpenMP SubModel Evaluation** (3-5% speedup) — **Nested parallelism risk.**
 
-**Rationale:** P7 and P8 are low-risk build-system changes. OpenMP parallelization (P1, P2) has high potential payoff but also high risk. Developer feedback from RTE (Gautier Bureau, TRAISIM discussion) confirms that KLU lock contention is a real problem. The recommendation is to prototype P1 early and measure actual lock contention before committing.
+**Rationale:** P6 and P7 are low-risk build-system changes. OpenMP parallelization (P1, P2) has high potential payoff but also high risk. Developer feedback from RTE (Gautier Bureau, TRAISIM discussion) confirms that KLU lock contention is a real problem. The recommendation is to prototype P1 early and measure actual lock contention before committing.
 
 **Tasks:**
-1. Set up PGO build infrastructure (P7) with representative workload scripts.
-2. Enable LTO (P8) in the build system with an option flag.
+1. Set up PGO build infrastructure (P6) with representative workload scripts.
+2. Enable LTO (P7) in the build system with an option flag.
 3. Benchmark PGO + LTO combined.
 4. **P1 feasibility study:** Prototype OpenMP Jacobian evaluation on the Nordic system with 2 and 4 threads and measure KLU lock contention.
 5. If viable: thread-safety audit, implementation of P1 and P2.
@@ -1445,13 +1335,13 @@ The event severity classification system was introduced upstream by Adrien Guiro
 
 **Items:**
 - **A5. Partial Jacobian Updates** (10-20% speedup) — High complexity; developer feedback flags cross-model coupling difficulties. May not be needed if Phase 0 factorization avoidance provides sufficient gains.
-- **P9. GPU Acceleration for KLU** (20-50% for very large systems) — Heavy dependency (CUDA/cuSOLVER), only beneficial above a large crossover system size.
+- **P8. GPU Acceleration for KLU** (20-50% for very large systems) — Heavy dependency (CUDA/cuSOLVER), only beneficial above a large crossover system size.
 - **A6. Schur Complement Decomposition** (15-30%) — Requires partitioning network vs. device models, significant architectural change.
 
 **Tasks:**
 1. Evaluate whether Phase 0-2 gains are sufficient for the target use cases. If yes, defer Phase 3.
 2. If A5 is pursued: prototype with a conservative Newton-failure fallback approach on a small test case before committing.
-3. If P9 is pursued: prototype GPU sparse solve using cuSOLVER on extracted Jacobian matrices, measure data transfer overhead.
+3. If P8 is pursued: prototype GPU sparse solve using cuSOLVER on extracted Jacobian matrices, measure data transfer overhead.
 4. If A6 is pursued: prototype Schur complement solver with manual partitioning.
 5. Each prototype must produce a written evaluation report with benchmarks and a go/no-go recommendation.
 
@@ -1515,3 +1405,14 @@ At any phase, abort and investigate if:
 - An optimization causes more than 10% slowdown in any test case (indicating negative interaction).
 - Memory usage increases by more than 50%.
 - The optimization introduces thread-safety bugs detected by sanitizers (TSan, ASan).
+
+---
+
+## Removed Items
+
+Ideas evaluated and removed from this plan — do not re-propose without new evidence:
+
+- **Reduce SUNDIALS N_Vector copies** (formerly P6) — IDA-only. Code analysis (March 2026) showed the FixedTimeStep solver (SolverSIM/TRAP) already uses zero-copy `N_VMake_Serial` wrappers and `std::vector::assign()` for save/restore; no N_Vector copy operations exist in its pipeline, so the item provides no benefit for the TRAISIM SolverSIM target.
+- **Event severity enum extension** (the original A7 approach) — adding a fifth `ALGEBRAIC_J_UPDATE_SEVERE_MODE` level plus Modelica-compiler reclassification (Gautier Bureau's IDA prototype). Abandoned (2026-07): baseline profiling showed the real-time violations come from network switch/bus `TOPO_CHANGE` events, not minor Modelica automata, and models already report maximum severity before the solver sees the event, so severity-gate tuning cannot avoid the symbolic refactorization. Replaced by superset sparsity (current A7).
+- **Row-major → CSC Jacobian transposition removal** (the original P3 framing) — incorrect premise. Dynawo already avoids explicit transposition via the CSR/transpose trick documented in the P3 section; P3 was reframed to target the dense→sparse extraction loop and allocation overhead instead.
+- **Flat Vector Derivatives** — already implemented upstream by Gautier Bureau (commit `#3749`) for the Network model's `Derivatives` class; the remaining `std::map` audit in Phase 1 covers what is left.
