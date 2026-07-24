@@ -719,7 +719,7 @@ distinguish `klu_analyze` (symbolic factorization), `klu_factor` (numeric
 factorization), and `klu_solve` (triangular solve). These three sub-functions
 have very different optimization strategies, so measuring their individual
 contributions with `perf` is essential before committing to roadmap items such
-as A3 (numerical-only refactorization) or A7 (superset sparsity for topology events).
+as A3 (numerical-only refactorization); the same breakdown underpinned A7 (superset sparsity, implemented 2026-07-21 — see `OPTIMIZATION_ROADMAP.md`).
 
 ### Prerequisites
 

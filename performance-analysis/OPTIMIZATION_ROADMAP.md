@@ -1,9 +1,10 @@
 # Dynawo Optimization Roadmap
 
 > **Status (2026-07):** This is the **master optimization plan** for the
-> TRAISIM performance work. The A7 section summarizes the active
-> **superset-sparsity** plan; the full implementation plan lives in the
-> TRAISIM repo at `reports/A7_plan_superset_sparsity.md`, with current RTR
+> TRAISIM performance work. The A7 section describes the **superset-sparsity**
+> optimization, **implemented and validated 2026-07-21** (opt-in, default off);
+> results: `reports/A7_implementation_report_2026-07-22.md`, design record:
+> `docs/superpowers/specs/2026-07-13-a7-superset-sparsity-design.md`, RTR
 > baselines in `reports/A7_baseline_*.md` and the reading order in
 > `reports/README.md`. Rejected and superseded ideas have been removed from
 > this document — a one-line record of each is kept in
@@ -1189,15 +1190,15 @@ public:
 **Implementation Effort:** Medium
 **Risk Level:** Medium
 **Priority:** Highest — targets the root cause of the per-step real-time violations
-**Status:** Planned, not yet implemented. Full implementation plan: `reports/A7_plan_superset_sparsity.md` (TRAISIM repo root); current RTR baselines: `reports/A7_baseline_*.md`
+**Status:** **Implemented and validated end-to-end (2026-07-21).** Shipped as a fully opt-in package (all defaults preserve stock behaviour byte-identically). Results: `reports/A7_implementation_report_2026-07-22.md` and `reports/A7_results_final_2026-07-21.md`; design record with the full decision history: `docs/superpowers/specs/2026-07-13-a7-superset-sparsity-design.md`. The original plan (`reports/A7_plan_superset_sparsity.md`) is historical — the shipped design differs in scope and gating (see below).
 
 #### Description
 
 Baseline profiling (`reports/A7_baseline_*.md`) shows that the per-step real-time violations come from network switch/bus `TOPO_CHANGE` events: `ModelNetwork::evalMode()` reports `ALGEBRAIC_J_UPDATE_MODE` for any topology event, forcing a full Jacobian rebuild plus a KLU symbolic refactorization (~500–1500 ms per step on the 6,000+ bus system). Minor Modelica automata events are not the driver — models already report maximum severity before the solver sees the event, so tuning severity gates on the solver side cannot avoid the symbolic refactorization.
 
-The plan is to make the switch/bus Jacobian sparsity pattern **structure-invariant**: the pattern always contains the superset of entries needed for any switch open/closed state, with entries that are inactive in the current topology held at zero. Because topology events then no longer change the sparsity pattern, `ModelNetwork::evalMode()` can downgrade them from `ALGEBRAIC_J_UPDATE_MODE` to `ALGEBRAIC_MODE`, and the solver performs only a numerical refactorization instead of a full symbolic one.
+**Implemented design (differs from the original plan in scope and gating):** the **switch** Jacobian sparsity pattern is made structure-invariant — each switch always emits the superset of both states' entries (bus1, bus2, self) with structural zeros for the inactive terms (`SparseMatrix::addTermForced`) — and `ModelNetwork::evalMode()` reclassifies voltage-level-internal topology events from `ALGEBRAIC_J_UPDATE_MODE` to `ALGEBRAIC_MODE` (via a `hasPatternInvariantTopologyChange()` component virtual; line/transformer trips keep the full path). Both are gated by **one opt-in network parameter, `patternInvariantTopology`, default `false`** — default-off is byte-identical to stock (a broad-corpus regression on one RTE operating point under an early always-on variant forced this; the opt-in gate resolved it by construction). Bus/injection-row superset was deferred (future work); two small opt-in fixed-step solver policies compensate around reclassified events: `freshJacobianRetry` (same-step fresh-J retry before step halving) and `freshJacobianAfterEvent` (eager numeric-only refresh after a reclassified topology event, gated on a precise topology signal plumbed `ModelNetwork` → `Model` → solver — an earlier coarse variant that refreshed on every `ALGEBRAIC_MODE` event doubled wall time and was replaced).
 
-See `reports/A7_plan_superset_sparsity.md` for the full design: superset pattern construction, the `evalMode()` downgrade, validation gates, and rollout stages.
+**Measured (final sweep 2026-07-22/23; PFR 400 s 5-run medians):** violations 5 → **0** (worst step 1600 → 810 ms), forced J-recalculations 6 → 0, RTR 8.35 → 9.25, identical 400-step grid, settled/final accuracy 5e-4/4e-4 pu, flag-off bit-identical to baseline. **PFR 4000 s:** completes, violations 21 → 9 (residuals: line/transformer trips + omegaRef generator cascades — both out-of-scope classes). **RTE snapshots (61 ops):** defaults bit-identical to the stock reference on every op; opted-in, violations 172 → 108 on the 52 completing ops (residuals at the out-of-scope line-trip events), with 5 ops from one snapshot family failing at initialization — the superset-restoration limitation contained by the default-off contract. Full numbers and charts: `reports/A7_implementation_report_2026-07-22.md`, `reports/A7_comparison_vs_baselines_2026-07-22.md`, `reports/A7_full_regression_2026-07-22.md`.
 
 #### Code Analysis: Solver-Side Severity Infrastructure Needs No Changes
 
@@ -1228,11 +1229,11 @@ The configurable parameter `minimumModeChangeTypeForAlgebraicRestoration` (defau
 | Root handling | Triggers `IDAReInit` after reinit | Uses `factorizationForced_` flag |
 | Factorization control | Implicit via IDA's internal Newton | Explicit `factorizationForced_` flag |
 
-**Implication:** No solver-side changes are needed for A7. Once the superset-sparsity change lets `ModelNetwork::evalMode()` downgrade topology events to `ALGEBRAIC_MODE`, the existing severity handling in both solvers automatically skips the forced Jacobian setup and symbolic refactorization.
+**Implication (pre-implementation analysis) and outcome:** the analysis above correctly predicted that the severity *classification* machinery needs no solver changes — and indeed the downgrade works through it unmodified. In practice, however, two small opt-in solver policies proved necessary for robustness around reclassified events (`freshJacobianRetry`, `freshJacobianAfterEvent` in `DYNSolverCommonFixedTimeStep`, plus a topology-signal getter on the `Model` interface): with the forced setup skipped, the next step can start on a badly stale factorization after large events, which caused step-halving retries (breaking grid identity) and, on the 4000 s events case, an unrecoverable divergence. The eager numeric-only refresh — cheap because the pattern is invariant — pre-empts both. See the implementation report §2–§3.
 
 #### Why This Matters for Real-Time Performance
 
-Average RTR is already well above the 1.0 target; the remaining blocker is per-step compliance. On the PFR 400 s benchmark, 5 steps exceed the 1000 ms deadline; on the 4000 s + events run, 21 steps; across the RTE_snapshots set, 115 of 22,874 steps (see `reports/A7_baseline_*.md`). All violations trace to topology events forcing the full Jacobian rebuild and symbolic refactorization — exactly the cost A7 removes.
+Average RTR was already well above the 1.0 target; the blocker was per-step compliance. Baseline: 5 steps over the 1000 ms deadline on PFR 400 s, 21 on the 4000 s events run (see `reports/A7_baseline_*.md`). All traced to topology events forcing the full Jacobian rebuild and symbolic refactorization. **Outcome: PFR 400 s now runs with 0 violations; the 4000 s residuals (13) are exclusively line/transformer-trip and omegaRef-cascade events, i.e. the classes A7 deliberately left on the full path.**
 
 A7 compounds with A1/A2/A3: A7 provides the model-side fix for topology events, while A1/A2/A3 provide solver-side factorization control for all other event types.
 
@@ -1245,7 +1246,7 @@ A7 compounds with A1/A2/A3: A7 provides the model-side fix for topology events, 
 **Objective:** Eliminate the per-step real-time violations and achieve 15-25% overall speedup with minimal code changes and low risk, focusing on factorization avoidance.
 
 **Items:**
-- **A7. Superset Sparsity for Topology Events** — **Highest priority.** Removes the ~500–1500 ms per-step spikes behind all remaining real-time violations. Model-layer only: structure-invariant switch/bus Jacobian pattern + `evalMode()` downgrade of topology events to `ALGEBRAIC_MODE`. Full plan: `reports/A7_plan_superset_sparsity.md`.
+- **A7. Superset Sparsity for Topology Events** — **DONE (2026-07-22).** Removed the ~500–1500 ms per-step spikes: PFR 400 s violations 5→0, 4000 s 21→9, RTE corpus 172→108 on completing ops. Opt-in (`patternInvariantTopology` + two solver policies), default off. Results: `reports/A7_implementation_report_2026-07-22.md`.
 - **A1. Adaptive Factorization Control** (5-8% speedup)
 - **A2. Matrix Structure Change Tolerance** (3-5% speedup)
 - **A3. KLU Numerical-Only Refactorization** (5-7% speedup)
@@ -1253,8 +1254,8 @@ A7 compounds with A1/A2/A3: A7 provides the model-side fix for topology events, 
 **Rationale:** A7 targets the root cause of the per-step real-time violations: topology events force a full Jacobian rebuild and KLU symbolic refactorization. Code analysis (see the A7 section) confirms the solver-side severity infrastructure needs no changes — once `evalMode()` downgrades topology events, both solvers automatically skip the forced factorization. A1, A2, and A3 complement A7 by providing layered solver-side factorization control: A1 adds decision logic, A2 extends skip criteria, and A3 ensures the fast `klu_refactor` path is used when symbolic refactorization is skipped.
 
 **Tasks:**
-1. Implement the structure-invariant (superset) switch/bus Jacobian sparsity pattern per `reports/A7_plan_superset_sparsity.md`.
-2. Downgrade topology events in `ModelNetwork::evalMode()` from `ALGEBRAIC_J_UPDATE_MODE` to `ALGEBRAIC_MODE` once the pattern is structure-invariant.
+1. ~~Implement the structure-invariant (superset) switch Jacobian sparsity pattern~~ — **done** (switch-only; bus/injection rows deferred to the A7 follow-up items).
+2. ~~Downgrade topology events in `ModelNetwork::evalMode()`~~ — **done** (voltage-level events, behind `patternInvariantTopology`).
 3. Instrument the current factorization code to measure symbolic vs. numerical factorization frequency.
 4. Implement A1 (adaptive factorization controller with structure hash).
 5. Implement A3 (explicit `klu_refactor` path) alongside A1.

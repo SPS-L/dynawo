@@ -69,6 +69,7 @@ sizeY_(0),
 silentZChange_(NO_Z_CHANGE),
 modeChange_(false),
 modeChangeType_(NO_MODE),
+patternInvariantTopoChange_(false),
 offsetFOptional_(0),
 zConnectedLocal_(nullptr),
 silentZInitialized_(false),
@@ -548,6 +549,12 @@ ModelMulti::evalMode(const double t) {
     if (subModel->modeChange()) {
       modeChange_ = true;
     }
+    // Aggregated (OR) like modeChangeType_'s worst-of-the-timestep tracking, but unconditional:
+    // a sub model reports this per evalModeSub() call (not gated on its own high-water mark), so
+    // it must be latched here on every call and only cleared by reinitMode() (see below).
+    if (subModel->getPatternInvariantTopoChange()) {
+      patternInvariantTopoChange_ = true;
+    }
   }
   if (modeChange_) {
     modeChangeType_ = modeChangeType;
@@ -564,6 +571,7 @@ ModelMulti::evalMode(const double t) {
 void
 ModelMulti::reinitMode() {
   modeChangeType_ = NO_MODE;
+  patternInvariantTopoChange_ = false;
   for (const auto& subModel : subModels_) {
     subModel->modeChange(false);
     subModel->setModeChangeType(NO_MODE);

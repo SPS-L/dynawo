@@ -93,6 +93,25 @@ SparseMatrix::addTerm(const int row, const double val) {
 }
 
 void
+SparseMatrix::addTermForced(const int row, const double val) {
+  assert(row < nbRow_);
+  // To deal with exploding matrix sizes
+  if (nbTerm_ >= currentMaxTerm_) increaseReserve();
+  ++Ap_[iAp_];
+  Ai_[iAi_] = row;
+  Ax_[iAx_] = val;
+  ++iAi_;
+  ++iAx_;
+  ++nbTerm_;
+  if (std::isnan(val)) {
+    withoutNan_ = false;
+  }
+  if (std::isinf(val)) {
+    withoutInf_ = false;
+  }
+}
+
+void
 SparseMatrix::init(const int nbRow, const int nbCol) {
   free();
 
