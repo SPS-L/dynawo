@@ -46,10 +46,20 @@ dynawo/sources/Solvers/
 
 **Rationale**: `SolverIDA` owns its own variable-step BDF integrator (SUNDIALS
 IDA); `SolverDDM` implements a self-contained BDF-1/2 integrator with a BBD
-Jacobian factorisation strategy.  Both share the same outer `Solver::Impl`
-infrastructure (parameter handling, `evalZMode`, `reinit`,
-`setupNewAlgRestoration`).  Placing DDM next to IDA makes dependency
-management, testing, and CMake integration straightforward.
+Jacobian factorisation strategy.  Both share the outer `Solver::Impl`
+infrastructure (parameter handling, `evalZMode`, the `reinit()` flow).
+**`setupNewAlgRestoration` is *not* shared**: at
+`Solvers/Common/DYNSolverImpl.h:340` it is `override = 0` (pure virtual on
+the `Solver::Impl` base), and both `SolverIDA::setupNewAlgRestoration` and
+`SolverCommonFixedTimeStep::setupNewAlgRestoration` provide ~100 LOC
+implementations of their own.  SolverDDM must therefore clone the
+fixed-step pattern (instantiate its own `SolverKINAlgRestoration` instance,
+plumb the algebraic-equation residual into it, handle the `ALGEBRAIC_MODE`
+and `ALGEBRAIC_J_UPDATE_MODE` variants).  See §5.3 for the implementation
+sketch and §11 for the LOC budget.
+
+Placing DDM next to IDA makes dependency management, testing, and CMake
+integration straightforward.
 
 `SolverDDM` is loaded by the same `SolverFactory`/dlopen mechanism as `SolverIDA`
 — no changes to `DYNSolverFactory.h` or `DYNSolver.h` are needed.
@@ -151,7 +161,7 @@ sub-model list:
 // DYNSolverDDM.cpp
 #include "DYNModelMulti.h"
 
-void SolverDDM::init(const std::shared_ptr<Model>& model, double t0, double tEnd) {
+void SolverDDM::init(const boost::shared_ptr<Model>& model, double t0, double tEnd) {
     Solver::Impl::init(t0, model);        // sets up y[], yp[] via getY0
     auto* mm = dynamic_cast<ModelMulti*>(model.get());
     if (!mm) throw DYNError(Error::SOLVER_ALGO, SolverDDMInvalidModel);
@@ -159,9 +169,10 @@ void SolverDDM::init(const std::shared_ptr<Model>& model, double t0, double tEnd
 }
 ```
 
-The **network sub-model** is identified by `subModel->modelType() == "ModelNetwork"`
-(or a dedicated API to be added — see Section 2.2).  All other sub-models are
-treated as injectors.
+The **network sub-model** is identified by `subModel->modelType() == "NETWORK"`
+(see `Models/CPP/ModelNetwork/DYNModelNetwork.cpp:130` — the C++ network model
+is constructed as `ModelCPP("NETWORK")`).  All other sub-models are treated as
+injectors.
 
 ### 2.2 Required additions to DYNModelMulti.h
 
@@ -169,7 +180,11 @@ treated as injectors.
 
 ```cpp
 // DYNModelMulti.h — new public method (non-virtual, no ABI impact on Solver)
-const std::vector<std::shared_ptr<SubModel>>& getSubModels() const;
+// NB: the existing private field at DYNModelMulti.h:599 is
+//   std::vector<boost::shared_ptr<SubModel> > subModels_;
+// so the accessor must return that exact type — the rest of the codebase
+// uses boost::shared_ptr<SubModel>, not std::shared_ptr.
+const std::vector<boost::shared_ptr<SubModel> >& getSubModels() const;
 ```
 
 Implemented trivially in `DYNModelMulti.cpp` by returning the existing private
@@ -179,7 +194,42 @@ No changes to `DYNModel.h` (the virtual `Model` interface) are required because
 `SolverDDM::init()` explicitly targets `ModelMulti` — exactly as `SolverIDA`
 accesses SUNDIALS context without `Model` knowing about it.
 
-### 2.3 Extracting per-sub-model Jacobian blocks
+### 2.3 Required `SubModel` API additions (prep PR — out of DDM scope)
+
+Several pieces of information needed by the BBD block extractor are not
+currently exposed by `SubModel`.  These additions are useful independently of
+DDM (e.g. for connector diagnostics, profiling, partial-Jacobian work) and
+should land in a separate, focused PR **before** SolverDDM is built on top:
+
+```cpp
+// DYNSubModel.h — additions (all default-implemented for backwards compat)
+
+/**
+ * @brief Return the global y[] index pairs (Vr, Vi) of every terminal bus
+ *        this sub-model is electrically connected to.
+ *
+ * Required so that DDM can locate the (≤4) non-zero columns of Bᵢ and rows
+ * of Cᵢ without parsing the global sparse Jacobian.  Default returns an
+ * empty vector (non-injector sub-models such as ModelOmegaRef).
+ */
+virtual std::vector<std::pair<int,int> > getBusTerminalIndices() const {
+  return {};
+}
+
+/**
+ * @brief Number of interior (state) variables, i.e. those whose residuals
+ *        live entirely inside this sub-model and do not couple directly to
+ *        bus voltages.  See §2.4 for the precise classifier.
+ */
+virtual int getInteriorVariableCount() const { return 0; }
+```
+
+The first method is the load-bearing one for DDM: without it, recovering the
+`busVoltageIdx[k]` mapping requires reverse-engineering the network sparsity
+pattern at every step.  The second is convenient but can be derived from
+`getYType()` (§2.4) if the prep PR slips.
+
+### 2.3.1 Extracting per-sub-model Jacobian blocks
 
 `SubModel::evalJtSub(t, cj, rowOffset, jt)` fills rows
 `[fDeb(), fDeb()+sizeF())` of the global sparse `jt`.  To extract the local
@@ -191,19 +241,17 @@ blocks `Aᵢ¹, Aᵢ², Aᵢ³, Aᵢ⁴, Bᵢ, Cᵢ`:
 3. Extract the sub-blocks by column ranges:
    - Columns `[0, nᵢᵢⁿᵗ)` → `Aᵢ¹` (interior–interior) and `Aᵢ³` (interface–interior).
    - Columns `[nᵢᵢⁿᵗ, nᵢᵢⁿᵗ + nᵢᵉˣᵗ)` → `Aᵢ²` (interior–interface) and `Aᵢ⁴`.
-   - Columns corresponding to `busIdx[k]` in the **global** `y[]` → `Bᵢ` rows.
+   - Columns corresponding to `busVoltageIdx[k]` (from `getBusTerminalIndices()`)
+     in the **global** `y[]` → `Bᵢ` rows.
 4. `Cᵢ` is extracted from the **network** sub-model Jacobian: columns
    `[yDeb(i), yDeb(i)+sizeY(i))` within the network block `D`.
 
-The interior/interface partition nᵢᵢⁿᵗ is determined by scanning `subModel->getYType()`
-for variables with property `DIFFERENTIAL` — these are the interior variables.
-Interface variables are `ALGEBRAIC` variables whose global index falls in the
-range `[yDeb(i), yDeb(i)+sizeY(i))` **and** also appear in bus-voltage rows of
-the network Jacobian.
+The interior/interface partition is determined by scanning
+`subModel->getYType()` — see §2.4 for the precise classifier.
 
 ```cpp
 struct SubDomainDDM {
-    std::shared_ptr<SubModel> subModel;
+    boost::shared_ptr<SubModel> subModel;   // matches ModelMulti::subModels_
 
     // Global index ranges within the aggregated y[] buffer
     int yGlobalOffset;       // = subModel->yDeb()
@@ -246,16 +294,124 @@ column/row are extracted from the global sparse Jacobian at positions
 
 ### 2.4 Identifying interface variable partition
 
+`getYType()` (declared at `Modeler/Common/DYNSubModel.h:571`, enum in
+`Common/DYNEnumUtils.h:32-38`) returns **four** values, not two:
+`DIFFERENTIAL`, `ALGEBRAIC`, `EXTERNAL`, `OPTIONAL_EXTERNAL`.
+
+A binary "DIFFERENTIAL = interior, anything-else = interface" split is wrong:
+ordinary algebraic state variables of an injector (e.g. the algebraic glue
+between rotor and stator equations of a synchronous machine) are interior to
+the sub-domain and must end up in `Aᵢ¹`, not `Aᵢ⁴`.
+
+The correct classifier is:
+
+- **Interface** variables (live in `Aᵢ⁴`, contribute to `Bᵢ`/`Cᵢ`): those
+  whose `propertyContinuousVar_t` is `EXTERNAL`.  These are the variables the
+  sub-model imports from the global state (typically bus voltages or
+  shared system frequency); their residuals are written by another sub-model
+  (the network, or `ModelOmegaRef`).  `OPTIONAL_EXTERNAL` is treated as
+  interface **if and only if** the corresponding connector is wired in the
+  current scenario — confirm at `init()` time via `SubModel`'s
+  connection-info accessor; otherwise treat as interior.
+- **Interior** variables (live in `Aᵢ¹`): `DIFFERENTIAL` plus the
+  injector-local `ALGEBRAIC` variables (those that are not `EXTERNAL`).
+
 ```cpp
 void SolverDDM::classifyVariables(SubDomainDDM& sd) {
     const propertyContinuousVar_t* yType = sd.subModel->getYType();
     sd.nInt = 0;
-    for (int j = 0; j < sd.nTotal; ++j)
-        if (yType[j] == DIFFERENTIAL) ++sd.nInt;
-    sd.nExt = sd.nTotal - sd.nInt;
+    sd.nExt = 0;
+    for (int j = 0; j < sd.nTotal; ++j) {
+        switch (yType[j]) {
+            case DIFFERENTIAL:
+            case ALGEBRAIC:
+                ++sd.nInt;       // interior to the sub-domain
+                break;
+            case EXTERNAL:
+                ++sd.nExt;       // genuine interface
+                break;
+            case OPTIONAL_EXTERNAL:
+                // Interface iff the optional connection is actually wired;
+                // see SubModel connector-info accessors. Default: interior.
+                if (sd.subModel->isOptionalExternalConnected(j)) ++sd.nExt;
+                else                                            ++sd.nInt;
+                break;
+            default:
+                throw DYNError(Error::SOLVER_ALGO,
+                               SolverDDMUnknownYType, sd.subModel->name(), j);
+        }
+    }
     // Interior indices come first; reordering handled in extractLocalJacobian()
 }
 ```
+
+(`isOptionalExternalConnected` is part of the prep-PR API surface described
+in §2.3.  If that PR has not landed, fall back to "treat
+`OPTIONAL_EXTERNAL` always as interface" and document the conservatism in
+the parameter file.)
+
+### 2.5 Connector rows outside the BBD structure
+
+The BBD decomposition assumes every off-diagonal coupling flows through
+either the network buses (handled by `Bᵢ`/`Cᵢ`) or BDF history (handled by
+`cj`).  This is **not** the full picture: `ModelMulti::evalJt` at
+`Modeler/Common/DYNModelMulti.cpp:425-444` calls
+
+```cpp
+connectorContainer_->evalJtConnector(jt);
+connectorContainer_->evalJtPrimConnector(jtPrim);
+```
+
+after the per-sub-model `evalJtSub` pass.  These contributions implement
+Dynaωo's flow and continuous *yConnectors* — equations whose row spans
+columns from **two or more** sub-models simultaneously.  Concrete cases
+present in the RTE PFR snapshots include:
+
+- `ModelOmegaRef` aggregating rotor speeds across all on-line synchronous
+  machines into a single system-frequency reference.
+- `ModelCentralizedShuntsSectionControl` switching shunt sections based on
+  a voltage state shared by multiple buses.
+- `ModelSecondaryVoltageControlSimplified` (SVR) — pilot-bus voltage
+  coupled to multiple participating generators.
+- HVDC link controls coupling rectifier and inverter station state.
+
+**Implications for SolverDDM**
+
+These rows are *neither* injector-interior *nor* expressible as
+rank-2/rank-4 updates to the bus block — they span arbitrary subsets of
+sub-model states.  The prototype's options, in order of increasing
+ambition:
+
+1. **Assumption (prototype scope):** assume the test case contains *no*
+   cross-injector connectors.  Verify at `init()` by asserting
+   `connectorContainer_->nbContinuousConnectors() == 0` for the continuous
+   block that DDM operates on.  **The Nordic case satisfies this; PFR and
+   the RTE_snapshots corpus do not** — every PFR job loads `ModelOmegaRef`
+   and at least one SVR. So this option is for development bring-up only.
+2. **Schur-extend the network solve:** treat connector rows as additional
+   rows of the reduced system `D̃ ΔV = −g̃`.  The connector Jacobian
+   contributions are dense in the columns of the participating sub-models'
+   *interface* variables (which we already know), so they fold cleanly into
+   the rank-update accumulation `D̃ = D − Σᵢ C̃ᵢ Bᵢ + J_connector`.
+   Connector rows that touch *interior* variables (rare, but check
+   `ModelOmegaRef`'s formulation) require an additional Schur pass — these
+   sub-models must be treated as a single coupled block rather than a list
+   of independent injectors.
+3. **Full Schur-of-Schurs:** treat the connector block as a third level in
+   the hierarchy. Out of scope for the first prototype.
+
+The prototype targets option (1) on Nordic for bring-up, then upgrades to
+(2) before any PFR-scale benchmark.  **The realistic LOC estimate in §11
+includes (2); (3) is a follow-up.**
+
+**Test cases that violate option (1):**
+
+- `PFR_20240605_N_NB_all_retained` — primary RTE benchmark, ~6000 buses,
+  contains `ModelOmegaRef` and SVR.
+- `PFR_20240605_events` — extended event variant.
+- All 61 `RTE_snapshots/operating_point_*` cases.
+
+Only `Nordic` is connector-free for SolverDDM bring-up purposes.
 
 ---
 
@@ -285,8 +441,14 @@ for k = 0, 1, ..., kmax-1:
   (3.3) Parallel per-injector back-substitution (Eqs. 4–5):
         For each injector i:
           Δxᵢᵉˣᵗ = luSi.solve(−fᵢᵉˣᵗ − A3ᵢ Δxᵢᵢⁿᵗ_prev − Bᵢ ΔV_local)
-          if nInt > 0:
+          if (sd.nInt > 0):
+            // Eigen::FullPivLU::solve() on a 0×0 matrix is undefined behaviour,
+            // so the interior back-substitution must be guarded.  Algebraic-only
+            // sub-models (e.g. ModelLoadRestorativeWithLimits with no internal
+            // state) hit this path.  luA1 is never .compute()'d in that case.
             Δxᵢᵢⁿᵗ = luA1.solve(−fᵢᵢⁿᵗ − A2ᵢ Δxᵢᵉˣᵗ)
+          else:
+            Δxᵢᵢⁿᵗ = (no-op)
 
   (3.4) Update: y[yDeb(i)..yDeb(i)+nTotal) += Δxᵢ
                 y[network_range]           += ΔV
@@ -299,6 +461,27 @@ for k = 0, 1, ..., kmax-1:
 
   (3.7) Step failure: if k == kmax-1 and not converged → halve h, retry
 ```
+
+**Parallel-region aliasing rules.** Steps 3.1 and 3.3 are declared
+`#pragma omp parallel for` across injectors `i`.  Each iteration touches
+**only** `injectors_[i]`'s own `SubDomainDDM` — never another's.  In
+particular:
+
+- `Eigen::FullPivLU<MatrixXd>` is *not* thread-safe across instances that
+  share state, and its `.compute()` and `.solve()` allocate internal
+  permutation matrices on the heap.  The `luA1` / `luSi` members of
+  `SubDomainDDM` are therefore stored **per injector** — never as a single
+  shared instance, never aliased.
+- `injectors_` is sized once in `init()` and never resized during a step;
+  threads may safely index it.
+- The reduction into the network block in step 3.2 is **serial** (see §6.2
+  on `klu_common` lifetime) so no cross-injector reduction races occur.
+- **NUMA / first-touch**: `SubDomainDDM` objects (including the `Eigen`
+  dense blocks) should be constructed in `init()` *from the same OMP thread
+  that will own injector `i`'s parallel iteration*, so the dense storage is
+  pinned to the right socket.  Practically this means pre-binding the
+  parallel-for schedule (e.g. `static` chunk size 1 with a fixed thread
+  count) and allocating from the bound thread.
 
 ### 3.1 Scheme selection (Aristidou Schemes A and B)
 
@@ -355,6 +538,23 @@ if (state_.getFlags(ModeChange)) {
 BDF-1 is used at the first step and after any discontinuity.  BDF-2 is
 activated after two consecutive accepted steps with `err < 0.5 * tol_step`.
 
+**Effective integration order on event-heavy benchmarks.**  The PFR primary
+benchmark (`PFR_20240605_N_NB_all_retained`) has scheduled discrete events
+roughly every 10 s of simulated time over a 4000 s horizon — order ~400
+BDF restarts.  In the worst case (every event forces a restart), the
+solver spends only the inter-event interval at BDF-2; with average step
+sizes in the 50–200 ms range that leaves on the order of 50–200 BDF-2
+steps between restarts, so the **effective time-averaged integration order
+is between 1.7 and 1.9** rather than the nominal 2.
+
+For long event-free intervals (e.g. the steady-state preamble before the
+first scheduled fault, or the `Nordic` test case after the initial
+transient) BDF-2 dominates and the order claim holds. **The BDF-2 benefit
+should therefore be evaluated on long event-free segments specifically;
+the headline "BDF-2 over 4000 s" claim is misleading and is not used as a
+performance target.**  See §10 for the validation cases that exercise each
+regime.
+
 The normalised local error estimate (Euclidean norm) is:
 
     err = ‖ (y_{n+1}^{BDF1} − y_{n+1}^{BDF2} ) / (atol + rtol |y_{n+1}|) ‖₂ / √N
@@ -398,7 +598,7 @@ DYN::Solver  (pure virtual, DYNSolver.h)
 
 ```cpp
 // Mandatory overrides
-void    init(const std::shared_ptr<Model>&, double t0, double tEnd) override;
+void    init(const boost::shared_ptr<Model>&, double t0, double tEnd) override;
 void    calculateIC(double tEnd) override;          // delegate to SolverKINSOL
 void    solve(double tAim, double& tNxt) override;  // outer time-step loop
 void    reinit() override;                          // algebraic restoration
@@ -420,12 +620,17 @@ const std::string& getName() override;
 void SolverDDM::solve(double tAim, double& tNxt) {
     state_.reset();
     model_->reinitMode();
-    model_->rotateBuffers();
+    // NB: model_->rotateBuffers() is NOT called here.  rotateBuffers() is the
+    // per-accepted-step finaliser (see DYNSolverImpl.cpp:246 and
+    // DYNSolverCommonFixedTimeStep.cpp:263/290/476 — every call site is in an
+    // accepted-step path).  Calling it once per solve() invocation would
+    // desynchronise history buffers when a step is rejected or when solve()
+    // is re-entered after a mode change without an accepted step in between.
 
     double t = tSolve_;
     while (t < tAim) {
         double hTry = std::min(h_, tAim - t);
-        bool stepOk = tryStep(t, hTry);
+        bool stepOk = tryStep(t, hTry);   // see §5.2.1 — owns rotateBuffers
         if (stepOk) {
             t += hTry;
             ++stats_.nst_;
@@ -448,22 +653,89 @@ void SolverDDM::solve(double tAim, double& tNxt) {
 }
 ```
 
-### 5.3 `reinit()` — algebraic restoration after mode change
+### 5.2.1 `tryStep()` — accepted-step finalisation
 
-Dynaωo's standard flow after a `ModeChange` is for the `Simulation` layer to
-call `solver->reinit()`.  `SolverDDM::reinit()` delegates to the shared KINSOL-
-based algebraic restoration (already in `Solver::Impl::setupNewAlgRestoration`):
+`rotateBuffers()` advances the model's per-sub-model state history one
+step forward (`y_n ← y_{n+1}`, dropping the oldest BDF-2 history slot).
+This must happen **exactly once per accepted step** and **never** on a
+rejected step, otherwise the BDF history is corrupted.  The pattern used by
+the other Dynaωo solvers (`SolverIDA`, `SolverSIM`, `SolverTRAP`) is to
+call it at the end of the per-step block, after error-test acceptance:
 
 ```cpp
+bool SolverDDM::tryStep(double t, double h) {
+    // ... BBD-Newton iteration, error estimate ...
+    if (err > 1.0) {
+        return false;            // step rejected: do NOT rotate, do NOT update history
+    }
+    updateBdfHistory(/* new y_{n+1} */);
+    model_->rotateBuffers();     // commit accepted step (mirrors DYNSolverIDA.cpp:759)
+    return true;
+}
+```
+
+On rejection, the Newton solution is discarded and `vectorY_` is reverted
+to its pre-step contents; the BDF history buffer (`ypHistory_` and the
+optional BDF-2 second-back slot) is left untouched.
+
+### 5.3 `reinit()` and `setupNewAlgRestoration()` — algebraic restoration
+
+Dynaωo's standard flow after a `ModeChange` is for the `Simulation` layer to
+call `solver->reinit()`.  `Solver::Impl::setupNewAlgRestoration` is **pure
+virtual** (`Solvers/Common/DYNSolverImpl.h:340` declares
+`bool setupNewAlgRestoration(modeChangeType_t) override = 0`) — there is no
+shared implementation to delegate to.  `SolverIDA` and
+`SolverCommonFixedTimeStep` each provide their own ~100 LOC implementation;
+SolverDDM must do the same.
+
+The DDM implementation mirrors `SolverCommonFixedTimeStep::setupNewAlgRestoration`
+(see `Solvers/FixedTimeStep/DYNSolverCommonFixedTimeStep.{h,cpp}:171-175` for
+the construction pattern, `:436` for the function body): construct a
+solver-owned `SolverKINAlgRestoration` lazily on the first
+`ALGEBRAIC_MODE` event, configure it from the DDM parameter set
+(distinct `fnormtolAlg`/`mxiterAlg` vs. `*AlgJ_` parameters for the two
+mode-change variants), and run it on the current `vectorY_` to restore
+algebraic consistency.
+
+```cpp
+// DYNSolverDDM.h (private members)
+boost::shared_ptr<SolverKINAlgRestoration> solverKINAlgRestoration_;
+
+// DYNSolverDDM.cpp
+bool SolverDDM::setupNewAlgRestoration(modeChangeType_t modeChangeType) {
+    if (!solverKINAlgRestoration_) {
+        solverKINAlgRestoration_.reset(
+            new SolverKINAlgRestoration(printReinitResiduals_));
+        solverKINAlgRestoration_->init(model_, SolverKINAlgRestoration::KIN_ALGEBRAIC);
+    }
+    const bool isJUpdate = (modeChangeType == ALGEBRAIC_J_UPDATE_MODE);
+    solverKINAlgRestoration_->setupNewAlgRestoration(
+        isJUpdate ? fnormtolAlgJ_ : fnormtolAlg_,
+        isJUpdate ? initialaddtolAlgJ_ : initialaddtolAlg_,
+        isJUpdate ? scsteptolAlgJ_ : scsteptolAlg_,
+        isJUpdate ? mxnewtstepAlgJ_ : mxnewtstepAlg_,
+        isJUpdate ? msbsetAlgJ_ : msbsetAlg_,
+        isJUpdate ? mxiterAlgJ_ : mxiterAlg_,
+        isJUpdate ? printflAlgJ_ : printflAlg_);
+    return true;
+}
+
 void SolverDDM::reinit() {
-    // Standard Dynaωo algebraic restoration via KINSOL
-    Solver::Impl::setupNewAlgRestoration(vectorY_.data());
-    // After convergence, mark all DDM caches dirty
+    setupNewAlgRestoration(model_->getModeChangeType());
+    solverKINAlgRestoration_->solve();   // KINSOL Newton on algebraic block
+    // After convergence, mark all DDM caches dirty:
     markAllJacobiansDirty();
-    bdfOrder_ = 1;        // reset integration order
+    bdfOrder_ = 1;        // reset integration order (§4.1)
     clearHistory();
 }
 ```
+
+The two `KINSOLAlgRestoration` parameter sets (`Alg` vs. `AlgJ`) are the
+existing common solver parameters; DDM consumes them via
+`defineCommonParameters()` in the same way as `SolverCommonFixedTimeStep`.
+
+**LOC implication**: this clone is ~100–120 LOC of solver-specific code and
+is reflected in §11's scope estimate.
 
 ### 5.4 `calculateIC()` — initial conditions
 
@@ -475,18 +747,16 @@ void SolverDDM::calculateIC(double tEnd) {
 }
 ```
 
-### 5.5 `SolverType` enum
+### 5.5 `SolverType` enum — no change required
 
-Add `SolverDDM = 3` to the `SolverType` enum in `DYNSolver.h`:
-
-```cpp
-typedef enum {
-    SolverSimplifie = 0,
-    SolverSundials1 = 1,
-    SolverSundials2 = 2,
-    SolverDDM       = 3    // <-- new
-} SolverType;
-```
+The `SolverType` enum in `Solvers/Common/DYNSolver.h:55-61` is **unused
+outside its own definition** (verified by repository-wide grep: no
+references to `SolverSundials1`, `SolverSundials2`, or `SolverSimplifie`
+anywhere in `dynawo/dynawo/sources/`).  Dynaωo's solver registration is
+purely name-based via `dlopen` + `SolverFactory::createSolver(name)`, so
+SolverDDM becomes loadable through its CMake target name and the
+`desc_solver(...)` macro alone — adding a new enum value would be dead
+code.  The enum is left untouched.
 
 ---
 
@@ -507,12 +777,30 @@ if (luA1.rank() < sd.nInt) {
 }
 ```
 
-### 6.2 KLU thread safety
+### 6.2 KLU `klu_common` lifetime
 
-`klu_common` contains mutable state (last error code, workspace pointers).  A
-single `klu_common` instance is allocated per `SolverDDM` object — not shared
-across threads.  If the network solve is later parallelised over multiple RHS,
-each thread must own its own `klu_common`.
+`klu_common` contains mutable state (last error code, workspace pointers,
+ordering choices) and is not thread-safe across concurrent users.
+
+DDM operates **two** KLU contexts, mirroring the IDA/KINSOL pattern:
+
+1. **DDM-owned network solve** — a single `klu_common` instance owned by the
+   `SolverDDM` object, used for the reduced system `D̃ ΔV = −g̃` in step 3.2.
+   The reduction itself is performed serially (per §3 "Parallel-region
+   aliasing rules"), so this single context is only ever touched by the
+   main thread.
+2. **KINSOL-owned algebraic-restoration solve** — the
+   `SolverKINAlgRestoration` instance constructed in §5.3 internally
+   allocates **its own** KLU context for its KINSOL linear solver
+   (`SUNLinSol_KLU`).  This is invisible to DDM and must not be conflated
+   with (1).
+
+The earlier draft's "a single `klu_common` per SolverDDM object" claim was
+imprecise: it ignored the KINSOL-owned context.  Both contexts coexist;
+neither is shared across threads.  If, in a future optimisation, the
+network solve itself is parallelised over multiple RHS columns (e.g. for a
+sensitivity sweep), each worker thread must allocate its own `klu_common`
+clone — but that is out of scope for the initial prototype.
 
 ### 6.3 Jacobian aging reset on step-size change
 
@@ -637,12 +925,26 @@ Max injector backlog   : max_non_converged_injectors_
 
 ### 10.1 Accuracy metrics
 
-Comparison against a `SolverIDA` reference trajectory:
+Comparison against a `SolverIDA` reference trajectory.  The **primary**
+gate is the project-wide numerical-correctness criterion from
+`dynawo/performance-analysis/SPRINT_GUIDE.md`:
 
-1. **State variable trajectories**: normalised DTW distance < 0.01 per state.
-2. **Bus voltage trajectories**: magnitude and angle at all network buses, same DTW criterion.
-3. **Final steady-state mismatch**: `‖F(y_final)‖₂ < 1e-4`.
-4. **Algebraic variable consistency** at each saved time point.
+1. **Relative L2 norm of output curves** (primary): for every recorded
+   curve `c`,
+   `‖c_ddm − c_ref‖₂ / ‖c_ref‖₂ < 1 × 10⁻⁵`.
+   Any curve exceeding this threshold blocks merge.
+2. **Final steady-state mismatch**: `‖F(y_final)‖₂ < 1 × 10⁻⁴`.
+3. **Algebraic variable consistency** at each saved time point.
+
+Supplementary diagnostics (not gates — used to triage failures):
+
+- **Normalised DTW distance per state** (diagnostic): a useful tool when
+  the L2 gate fails due to small time-axis shifts (e.g. event timing
+  jitter from BDF order changes).  Threshold `< 0.01` per state was the
+  original draft criterion; it is retained as a per-state diagnostic but
+  is no longer the merge gate.
+- **Per-bus voltage magnitude/angle trajectories** under the L2 metric, to
+  localise any failing-curve diagnostic to a region of the network.
 
 ### 10.2 Performance metrics
 
@@ -665,7 +967,43 @@ Comparison against a `SolverIDA` reference trajectory:
 
 ---
 
-## 11. References
+## 11. Implementation scope
+
+A faithful, code-complete SolverDDM is **not** a 5-file change — it is on
+the same order of magnitude as `SolverIDA` (941 + 289 LOC) plus a clone of
+the `SolverCommonFixedTimeStep` algebraic-restoration scaffolding (~565
+LOC of shared infrastructure that is not directly reusable).
+
+Realistic breakdown, by component:
+
+| Component | Estimated LOC |
+|-----------|---------------|
+| BDF-1/2 history + step controller (§4) | ~250 |
+| BBD block classifier + extractor from per-injector sparse Jacobian (§2.3.1, §2.4) | ~400 |
+| Newton loop, Schemes A and B (§3) | ~300 |
+| Connector-row Schur extension (§2.5 option 2) | ~300 |
+| `setupNewAlgRestoration` clone + DDM-side `reinit()` (§5.3) | ~120 |
+| KLU network-solve wrapper + `klu_common` lifetime (§6.2) | ~150 |
+| Parameter parsing (`defineSpecificParameters`, defaults — §8) | ~150 |
+| Statistics, header/printer methods, end-of-run report (§9) | ~100 |
+| Dictionary entries for new error keys / log messages | ~50 (~10–15 strings) |
+| `SubModel` API prep PR (§2.3, separately landed) | ~150 |
+| CMake target + headers + install rules (§7) | ~80 |
+| Unit + integration tests (Google Test, cf. SolverIDA `test/`) | ~400–800 |
+
+**Total: ~2,200–3,200 LOC** for the prototype (lower bound: no connector
+Schur, no NUMA pinning, single-threaded; upper bound: PFR-scale with
+connector Schur and per-thread NUMA-aware injector blocks).
+
+This is a multi-month effort, not a sprint-sized change.  The prep PR
+(§2.3) should land first as it has independent value; the BBD extractor
+should be prototyped as a **debug pass** alongside `SolverIDA` (compute
+the BBD blocks each step and assert `‖assembled_BBD − global_J‖_F <
+1e-10`) before any DDM-specific Newton code is written.
+
+---
+
+## 12. References
 
 1. Aristidou, P. (2015). *Dynamic Simulations of Large-Scale Power Systems Using
    Parallel Processing Techniques*. PhD thesis, Université de Liège. **Chapter 4**.
