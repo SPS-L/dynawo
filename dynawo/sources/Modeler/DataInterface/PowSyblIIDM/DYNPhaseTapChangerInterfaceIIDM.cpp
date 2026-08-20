@@ -23,6 +23,8 @@
 #include "make_unique.hpp"
 
 #include <powsybl/iidm/TapChanger.hpp>
+#include <memory>
+#include <cmath>
 
 
 namespace DYN {

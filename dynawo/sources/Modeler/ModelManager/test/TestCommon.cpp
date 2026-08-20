@@ -22,6 +22,8 @@
 #include "CSTRConstraintsCollectionFactory.h"
 #include "CSTRConstraintsCollection.h"
 #include "DYNModelManagerCommon.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 

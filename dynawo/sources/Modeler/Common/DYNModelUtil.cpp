@@ -25,6 +25,7 @@
 
 #include "DYNModelUtil.h"
 #include "DYNFileSystemUtils.h"
+#include <string>
 
 using std::stringstream;
 

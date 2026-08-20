@@ -26,6 +26,8 @@
 #include "DYNIIDMExtensions.hpp"
 
 #include <powsybl/iidm/TwoWindingsTransformer.hpp>
+#include <memory>
+#include <string>
 
 namespace DYN {
 

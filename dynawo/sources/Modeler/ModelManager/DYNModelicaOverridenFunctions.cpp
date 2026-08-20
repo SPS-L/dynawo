@@ -20,6 +20,7 @@
 #include "DYNMacrosMessage.h"
 #include <cfloat>
 #include <cstdarg>
+#include <string>
 
 
 #ifdef _ADEPT_

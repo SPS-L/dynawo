@@ -32,6 +32,8 @@
 #include "DYNModelConstants.h"
 
 #include "DYNTrace.h"
+#include <memory>
+#include <string>
 
 using std::shared_ptr;
 using std::string;

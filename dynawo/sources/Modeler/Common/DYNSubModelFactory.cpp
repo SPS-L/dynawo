@@ -25,6 +25,7 @@
 
 #include <boost/dll/import.hpp>
 #include <boost/make_shared.hpp>
+#include <string>
 
 using std::map;
 using std::string;

@@ -22,6 +22,7 @@
 
 #include "DYNCurrentLimitInterface.h"
 #include <boost/optional.hpp>
+#include <string>
 
 namespace DYN {
 

@@ -69,6 +69,10 @@
 #include <boost/dll/shared_library.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/make_shared.hpp>
+#include <memory>
+#include <limits>
+#include <cmath>
+#include <string>
 
 using std::map;
 using std::string;

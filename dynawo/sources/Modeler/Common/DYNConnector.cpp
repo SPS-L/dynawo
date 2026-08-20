@@ -29,6 +29,8 @@
 #include "DYNMacrosMessage.h"
 #include "DYNTimer.h"
 #include "DYNModelConstants.h"
+#include <algorithm>
+#include <string>
 
 using std::stringstream;
 using std::vector;

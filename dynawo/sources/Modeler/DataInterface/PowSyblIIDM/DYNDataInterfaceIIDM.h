@@ -42,6 +42,8 @@
 #include <powsybl/iidm/Network.hpp>
 
 #include <mutex>
+#include <memory>
+#include <string>
 
 namespace DYN {
 

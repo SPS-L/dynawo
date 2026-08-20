@@ -16,6 +16,7 @@
 
 #include "DYNDataInterface.h"
 #include <boost/shared_ptr.hpp>
+#include <string>
 
 namespace DYN {
 

@@ -32,6 +32,7 @@
 
 #include <vector>
 #include <string>
+#include <memory>
 
 using std::string;
 using std::vector;

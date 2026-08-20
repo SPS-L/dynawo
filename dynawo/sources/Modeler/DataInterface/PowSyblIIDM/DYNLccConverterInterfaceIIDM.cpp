@@ -26,6 +26,7 @@
 #include <powsybl/iidm/LccConverterStation.hpp>
 
 #include <string>
+#include <memory>
 
 
 namespace DYN {

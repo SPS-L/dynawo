@@ -24,6 +24,7 @@
 #include "DYNEnumUtils.h"
 
 #include <unordered_map>
+#include <string>
 
 
 namespace DYN {

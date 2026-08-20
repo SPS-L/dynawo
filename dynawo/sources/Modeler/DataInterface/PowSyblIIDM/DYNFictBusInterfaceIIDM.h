@@ -23,6 +23,7 @@
 #include <boost/optional.hpp>
 
 #include "DYNBusInterface.h"
+#include <string>
 
 namespace DYN {
 

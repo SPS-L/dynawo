@@ -23,6 +23,8 @@
 
 #include "DYNBusInterface.h"
 #include "DYNStateVariable.h"
+#include <memory>
+#include <string>
 
 using std::shared_ptr;
 using std::string;

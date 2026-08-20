@@ -21,6 +21,7 @@
 #include <powsybl/iidm/Substation.hpp>
 #include <powsybl/iidm/Switch.hpp>
 #include <powsybl/iidm/VoltageLevel.hpp>
+#include <memory>
 
 using powsybl::iidm::Network;
 using powsybl::iidm::Substation;

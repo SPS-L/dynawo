@@ -33,6 +33,7 @@
 
 #include "make_unique.hpp"
 #include "gtest_dynawo.h"
+#include <memory>
 
 TEST(DataInterfaceTest, Injector_1) {
   using powsybl::iidm::Bus;

@@ -23,6 +23,7 @@
 
 #include <boost/shared_ptr.hpp>
 #include "DYNSubModel.h"
+#include <string>
 
 namespace DYN {
 class SubModel;

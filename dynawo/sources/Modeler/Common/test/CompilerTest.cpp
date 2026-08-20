@@ -19,6 +19,7 @@
 #include "DYNModeler.h"
 #include "DYNDynamicData.h"
 #include "DYNMacrosMessage.h"
+#include <string>
 
 INIT_XML_DYNAWO;
 

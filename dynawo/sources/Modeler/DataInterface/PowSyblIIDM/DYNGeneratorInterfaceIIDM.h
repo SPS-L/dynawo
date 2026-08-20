@@ -32,6 +32,8 @@
 #include <powsybl/iidm/Generator.hpp>
 #include <powsybl/iidm/extensions/iidm/ActivePowerControl.hpp>
 #include <powsybl/iidm/extensions/iidm/CoordinatedReactiveControl.hpp>
+#include <memory>
+#include <string>
 
 namespace DYN {
 

@@ -28,6 +28,7 @@
 #include "DYNTrace.h"
 #include <limits>
 #include <sstream>
+#include <string>
 
 namespace DYN {
 

@@ -21,6 +21,8 @@
 #define MODELER_DATAINTERFACE_DYNSHUNTCOMPENSATORINTERFACE_H_
 
 #include "DYNComponentInterface.hpp"
+#include <memory>
+#include <string>
 
 namespace DYN {
 class BusInterface;

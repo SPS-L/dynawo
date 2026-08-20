@@ -31,6 +31,8 @@
 #include "DYNVoltageLevelInterfaceIIDM.h"
 #include "DYNCommon.h"
 #include "make_unique.hpp"
+#include <memory>
+#include <string>
 
 namespace DYN {
 

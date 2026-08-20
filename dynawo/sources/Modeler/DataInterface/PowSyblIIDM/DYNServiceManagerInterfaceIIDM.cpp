@@ -28,6 +28,9 @@
 #include "DYNShuntCompensatorInterfaceIIDM.h"
 #include "DYNSwitchInterfaceIIDM.h"
 #include "DYNStaticVarCompensatorInterfaceIIDM.h"
+#include <memory>
+#include <algorithm>
+#include <string>
 
 
 namespace DYN {

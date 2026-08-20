@@ -17,6 +17,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string>
 
 void ModelicaVFormatMessage(const char *string, va_list args) {
   char buff[512];

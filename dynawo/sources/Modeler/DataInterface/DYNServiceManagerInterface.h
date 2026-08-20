@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 #include "DYNBusInterface.h"
+#include <memory>
 
 namespace DYN {
 

@@ -33,6 +33,8 @@
 #ifdef _ADEPT_
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #include "adept.h"
+#include <memory>
+#include <string>
 #pragma GCC diagnostic error "-Wunused-parameter"
 #endif
 

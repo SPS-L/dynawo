@@ -31,6 +31,7 @@
 
 #ifdef _ADEPT_
 #include "adept.h"
+#include <memory>
 #endif  // MODELER_MODELMANAGER_DYNMODELMODELICA_H_
 namespace parameters {
 class ParametersSet;
