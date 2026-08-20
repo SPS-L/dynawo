@@ -22,6 +22,8 @@
 #include "DYNGraph.h"
 #include "DYNMacrosMessage.h"
 #include <boost/graph/dijkstra_shortest_paths.hpp>
+#include <limits>
+#include <string>
 
 using std::string;
 using std::vector;

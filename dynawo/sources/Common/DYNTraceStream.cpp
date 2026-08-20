@@ -20,6 +20,7 @@
  */
 #include "DYNTrace.h"
 #include "DYNTraceStream.h"
+#include <string>
 
 namespace DYN {
 

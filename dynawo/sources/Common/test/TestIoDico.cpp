@@ -25,6 +25,8 @@
 #include "DYNMessageTimeline.h"
 #include "DYNMacrosMessage.h"
 #include "DYNTerminate.h"
+#include <memory>
+#include <string>
 
 
 namespace DYN {

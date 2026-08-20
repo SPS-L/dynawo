@@ -28,6 +28,8 @@
 #include "DYNCommon.h"
 #include "DYNMacrosMessage.h"
 #include "DYNExecUtils.h"
+#include <algorithm>
+#include <cmath>
 
 using std::string;
 

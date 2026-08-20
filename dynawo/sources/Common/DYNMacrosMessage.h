@@ -18,6 +18,7 @@
 #include "DYNMessageTimeline.h"
 #include "DYNError.h"
 #include "DYNTerminate.h"
+#include <string>
 
 #ifdef __clang__
 #pragma clang diagnostic push

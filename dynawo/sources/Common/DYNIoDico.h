@@ -26,6 +26,8 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <boost/noncopyable.hpp>
+#include <memory>
+#include <string>
 
 
 namespace DYN {

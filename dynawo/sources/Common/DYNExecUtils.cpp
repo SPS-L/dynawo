@@ -28,6 +28,7 @@
 
 #include <boost/filesystem.hpp>
 #include <boost/process.hpp>
+#include <string>
 namespace ps = boost::process;
 
 using std::string;

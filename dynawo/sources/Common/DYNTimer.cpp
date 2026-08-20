@@ -23,6 +23,7 @@
 
 #include <thread>
 #include <sstream>
+#include <string>
 
 namespace DYN {
 

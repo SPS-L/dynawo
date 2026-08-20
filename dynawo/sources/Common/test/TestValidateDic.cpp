@@ -16,6 +16,7 @@
 #include "DYNExecUtils.h"
 #include "DYNFileSystemUtils.h"
 #include "gtest_dynawo.h"
+#include <string>
 
 namespace DYN {
 
