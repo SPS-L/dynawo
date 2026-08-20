@@ -31,6 +31,7 @@
 #include "DYNTrace.h"
 #include "DYNVariableForModel.h"
 #include "DYNParameter.h"
+#include <string>
 #include "DYNModelConstants.h"
 
 using std::vector;

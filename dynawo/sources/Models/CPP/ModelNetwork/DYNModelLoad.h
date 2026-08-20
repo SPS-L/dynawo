@@ -26,6 +26,8 @@
 
 #include "DYNModelBus.h"
 #include "DYNNetworkComponent.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 class LoadInterface;

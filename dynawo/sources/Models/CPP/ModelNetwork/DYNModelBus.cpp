@@ -15,6 +15,8 @@
 #include "DYNModelSubNetwork.hpp"
 #include "DYNModelNetwork.h"
 #include "DYNBusInterface.h"
+#include <memory>
+#include <string>
 #include "DYNModelSwitch.h"
 #include "DYNVariableForModel.h"
 

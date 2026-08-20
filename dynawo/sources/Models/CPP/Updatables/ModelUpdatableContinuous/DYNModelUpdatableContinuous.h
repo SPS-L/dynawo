@@ -25,6 +25,7 @@
 #include "DYNModelUpdatable.h"
 #include "DYNSubModelFactory.h"
 #include "DYNSparseMatrix.h"
+#include <string>
 
 namespace DYN {
 class DataInterface;

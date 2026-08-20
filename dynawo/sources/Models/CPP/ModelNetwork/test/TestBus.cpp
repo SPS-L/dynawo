@@ -35,6 +35,9 @@
 
 #include "DYNModelBusInjected.h"
 #include "gtest_dynawo.h"
+#include <memory>
+#include <algorithm>
+#include <string>
 
 using boost::shared_ptr;
 

@@ -56,6 +56,10 @@
 #include "DYNModelNetwork.h"
 #include "DYNMessageTimeline.h"
 #include "DYNModelVoltageLevel.h"
+#include <memory>
+#include <algorithm>
+#include <limits>
+#include <string>
 
 using parameters::ParametersSet;
 

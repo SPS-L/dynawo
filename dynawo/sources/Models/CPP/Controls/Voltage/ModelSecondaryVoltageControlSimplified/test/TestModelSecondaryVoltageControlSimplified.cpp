@@ -29,6 +29,8 @@
 #include "DYNElement.h"
 
 #include "gtest_dynawo.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 

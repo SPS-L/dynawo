@@ -33,6 +33,8 @@
 
 #include <boost/shared_ptr.hpp>
 #include "DYNModelQuadripole.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 class ModelBus;

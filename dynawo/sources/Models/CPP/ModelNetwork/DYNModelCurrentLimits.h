@@ -23,6 +23,7 @@
 #include <vector>
 #include "CSTRConstraint.h"
 #include "DYNEnumUtils.h"
+#include <string>
 
 namespace DYN {
 class ModelNetwork;

@@ -12,6 +12,7 @@
 //
 
 #include "DYNModelSwitchFactory.h"
+#include <memory>
 
 namespace DYN {
 

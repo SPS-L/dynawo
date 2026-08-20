@@ -15,6 +15,8 @@
 #define MODELS_CPP_MODELNETWORK_DYNMODELBUS_H_
 
 #include "DYNNetworkComponent.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 class SubNetwork;

@@ -22,6 +22,7 @@
 #include <sstream>
 
 #include "DYNModelTapChanger.h"
+#include <string>
 
 namespace DYN {
 
