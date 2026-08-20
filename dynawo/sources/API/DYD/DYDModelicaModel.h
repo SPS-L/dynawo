@@ -27,6 +27,8 @@
 
 #include <map>
 #include <vector>
+#include <memory>
+#include <string>
 
 namespace dynamicdata {
 

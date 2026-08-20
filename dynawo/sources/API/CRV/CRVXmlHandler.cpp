@@ -31,6 +31,7 @@
 #include "CRVCurvesCollection.h"
 #include "CRVXmlHandler.h"
 #include "CRVCurve.h"
+#include <memory>
 
 namespace lambda = boost::phoenix;
 namespace lambda_args = lambda::placeholders;

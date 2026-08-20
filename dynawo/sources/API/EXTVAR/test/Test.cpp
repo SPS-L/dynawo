@@ -27,6 +27,7 @@
 #include "EXTVARVariablesCollection.h"
 
 #include <memory>
+#include <string>
 
 INIT_XML_DYNAWO;
 

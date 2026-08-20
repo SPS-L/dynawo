@@ -22,6 +22,7 @@
 #include "CSTRConstraint.h"
 
 #include "make_unique.hpp"
+#include <memory>
 
 
 namespace constraints {

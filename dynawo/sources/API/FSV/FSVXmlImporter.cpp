@@ -26,6 +26,8 @@
 #include <fstream>
 #include <xml/sax/parser/ParserException.h>
 #include <xml/sax/parser/ParserFactory.h>
+#include <memory>
+#include <string>
 
 
 using std::string;

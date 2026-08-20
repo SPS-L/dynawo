@@ -26,6 +26,8 @@
 #include "PARXmlHandler.h"
 #include "PARXmlImporter.h"
 #include "DYNExecUtils.h"
+#include <memory>
+#include <string>
 
 using std::string;
 

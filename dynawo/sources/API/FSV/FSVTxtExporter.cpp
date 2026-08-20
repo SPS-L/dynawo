@@ -23,6 +23,7 @@
 #include "DYNCommon.h"
 #include "DYNMacrosMessage.h"
 #include "FSVTxtExporter.h"
+#include <string>
 
 namespace finalStateValues {
 

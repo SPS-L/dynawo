@@ -22,6 +22,7 @@
 #include "DYDMacroStaticReferenceFactory.h"
 #include "DYDMacroStaticReference.h"
 #include "DYDStaticRef.h"
+#include <memory>
 
 namespace dynamicdata {
 

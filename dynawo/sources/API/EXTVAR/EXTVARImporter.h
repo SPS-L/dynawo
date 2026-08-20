@@ -23,6 +23,7 @@
 #include <string>
 
 #include "EXTVARVariablesCollection.h"
+#include <memory>
 namespace externalVariables {
 
 #ifdef __clang__

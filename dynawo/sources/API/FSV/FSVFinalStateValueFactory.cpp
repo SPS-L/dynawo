@@ -21,6 +21,7 @@
 #include "FSVFinalStateValueFactory.h"
 
 #include "FSVFinalStateValue.h"
+#include <memory>
 
 
 namespace finalStateValues {

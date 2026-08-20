@@ -21,6 +21,7 @@
 #define API_PAR_PARPARAMETERSSETCOLLECTIONFACTORY_H_
 
 #include "PARParametersSetCollection.h"
+#include <memory>
 
 
 namespace parameters {

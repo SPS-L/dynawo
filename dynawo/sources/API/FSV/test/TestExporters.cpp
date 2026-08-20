@@ -25,6 +25,7 @@
 #include "FSVCsvExporter.h"
 #include "FSVTxtExporter.h"
 #include "gtest_dynawo.h"
+#include <memory>
 
 namespace finalStateValues {
 

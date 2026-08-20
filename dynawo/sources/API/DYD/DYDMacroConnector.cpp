@@ -22,6 +22,8 @@
 #include "DYDMacroConnection.h"
 #include "DYDMacroConnectionFactory.h"
 #include "DYNMacrosMessage.h"
+#include <memory>
+#include <string>
 
 using std::map;
 using std::string;

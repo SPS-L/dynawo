@@ -20,6 +20,7 @@
 #include "JOBJobsCollection.h"
 
 #include "JOBJobEntry.h"
+#include <memory>
 
 
 namespace job {

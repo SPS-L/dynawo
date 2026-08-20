@@ -14,6 +14,7 @@
 #include "JOBDynModelsEntryFactory.h"
 
 #include "JOBDynModelsEntry.h"
+#include <memory>
 
 namespace job {
 

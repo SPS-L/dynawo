@@ -29,6 +29,7 @@
 #include "PARParameter.h"
 #include "PARReferenceFactory.h"
 #include "PARReference.h"
+#include <memory>
 
 using boost::shared_ptr;
 

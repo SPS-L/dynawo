@@ -22,6 +22,7 @@
 
 #include "PARParameter.h"
 #include "PARParameterFactory.h"
+#include <string>
 
 using boost::shared_ptr;
 using std::string;

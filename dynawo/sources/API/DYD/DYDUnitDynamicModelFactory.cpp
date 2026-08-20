@@ -20,6 +20,8 @@
 #include "DYDUnitDynamicModelFactory.h"
 
 #include "DYDUnitDynamicModel.h"
+#include <memory>
+#include <string>
 
 using std::string;
 

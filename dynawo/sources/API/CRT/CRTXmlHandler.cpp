@@ -34,6 +34,8 @@
 #include "CRTCriteriaParams.h"
 #include "CRTCriteriaParamsFactory.h"
 #include "CRTCriteriaParamsVoltageLevel.h"
+#include <memory>
+#include <string>
 
 
 using std::string;

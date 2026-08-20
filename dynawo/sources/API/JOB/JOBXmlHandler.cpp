@@ -47,6 +47,8 @@
 #include "JOBModelsDirEntry.h"
 
 #include "DYNExecUtils.h"
+#include <memory>
+#include <string>
 
 using std::map;
 using std::string;

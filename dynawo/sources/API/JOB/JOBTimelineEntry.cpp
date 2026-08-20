@@ -18,6 +18,7 @@
  */
 
 #include "JOBTimelineEntry.h"
+#include <string>
 
 namespace job {
 

@@ -18,6 +18,7 @@
  */
 
 #include "JOBConstraintsEntry.h"
+#include <string>
 
 namespace job {
 

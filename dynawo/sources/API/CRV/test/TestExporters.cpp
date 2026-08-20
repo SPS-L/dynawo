@@ -25,6 +25,7 @@
 #include "CRVCurve.h"
 #include "CRVCsvExporter.h"
 #include "CRVXmlExporter.h"
+#include <memory>
 
 namespace curves {
 

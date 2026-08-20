@@ -23,6 +23,7 @@
 #include "DYDBlackBoxModel.h"
 
 #include <memory>
+#include <string>
 
 namespace dynamicdata {
 /**

@@ -20,6 +20,7 @@
 #include "DYNMacrosMessage.h"
 
 #include "EXTVARVariable.h"
+#include <string>
 
 using std::string;
 

@@ -27,6 +27,7 @@
 #include "DYDXmlHandler.h"
 #include "DYDXmlImporter.h"
 #include "DYNExecUtils.h"
+#include <string>
 
 using std::string;
 using std::vector;

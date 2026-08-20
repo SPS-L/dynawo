@@ -28,6 +28,8 @@
 #include "CRVXmlImporter.h"
 #include "CRVXmlHandler.h"
 #include "DYNExecUtils.h"
+#include <memory>
+#include <string>
 
 using std::string;
 namespace parser = xml::sax::parser;

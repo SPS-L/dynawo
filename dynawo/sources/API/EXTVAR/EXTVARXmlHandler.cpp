@@ -31,6 +31,8 @@
 #include "EXTVARVariablesCollectionFactory.h"
 #include "EXTVARXmlHandler.h"
 #include "EXTVARVariablesCollection.h"
+#include <memory>
+#include <string>
 
 using std::string;
 

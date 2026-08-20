@@ -18,6 +18,7 @@
  *
  */
 #include "TLEvent.h"
+#include <string>
 
 using std::string;
 

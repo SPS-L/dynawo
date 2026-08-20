@@ -17,6 +17,8 @@
 #include <boost/shared_ptr.hpp>
 #include <xml/sax/parser/ComposableDocumentHandler.h>
 #include <xml/sax/parser/ComposableElementHandler.h>
+#include <memory>
+#include <string>
 
 
 namespace criteria {

@@ -23,6 +23,7 @@
 #include "DYDImporter.h"
 
 #include <boost/shared_ptr.hpp>
+#include <string>
 
 namespace dynamicdata {
 

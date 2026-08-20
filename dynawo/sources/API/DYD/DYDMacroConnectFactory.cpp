@@ -19,6 +19,8 @@
 
 #include "DYDMacroConnectFactory.h"
 #include "DYDMacroConnect.h"
+#include <memory>
+#include <string>
 
 using std::string;
 

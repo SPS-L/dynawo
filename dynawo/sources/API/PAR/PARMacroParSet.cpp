@@ -19,6 +19,7 @@
 
 #include "PARMacroParSet.h"
 #include <iostream>
+#include <string>
 
 using std::string;
 

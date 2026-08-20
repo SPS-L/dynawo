@@ -29,6 +29,8 @@
 #include "DYDMacroStaticRef.h"
 
 #include "TestUtil.h"
+#include <memory>
+#include <string>
 
 namespace dynamicdata {
 //-----------------------------------------------------

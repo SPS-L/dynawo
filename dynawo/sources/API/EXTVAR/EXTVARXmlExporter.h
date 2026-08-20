@@ -22,6 +22,8 @@
 
 #include "EXTVARExporter.h"
 #include "EXTVARVariable.h"
+#include <memory>
+#include <string>
 
 // forward declaration to avoid transitive link to XML library, as XMl formatter is used only in private
 namespace xml {

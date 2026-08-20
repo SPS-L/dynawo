@@ -17,6 +17,7 @@
  */
 
 #include "JOBClockEntry.h"
+#include <string>
 
 namespace job {
 

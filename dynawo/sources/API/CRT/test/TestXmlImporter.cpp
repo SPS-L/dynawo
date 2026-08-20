@@ -24,6 +24,7 @@
 #include "CRTCriteria.h"
 #include "CRTCriteriaParams.h"
 #include "DYNCommon.h"
+#include <memory>
 
 using DYN::doubleEquals;
 
