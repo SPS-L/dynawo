@@ -13,6 +13,7 @@
 #include "GeneratorPQ_Dyn.h"
 #include "GeneratorPQ_Dyn_definition.h"
 #include "GeneratorPQ_Dyn_literal.h"
+#include <memory>
 
 
 namespace DYN {

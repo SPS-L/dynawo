@@ -23,6 +23,8 @@
 #include "DYNMacrosMessage.h"
 
 #include <vector>
+#include <memory>
+#include <string>
 
 namespace DYN {
 

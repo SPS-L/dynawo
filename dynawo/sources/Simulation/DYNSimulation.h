@@ -38,6 +38,7 @@
 #include "DYNDataInterface.h"
 #include "DYNSolverFactory.h"
 #include "DYNModeler.h"
+#include <string>
 #include "CRVHdf5Exporter.h"
 
 namespace timeline {
