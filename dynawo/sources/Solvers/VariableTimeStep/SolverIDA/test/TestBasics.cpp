@@ -41,6 +41,8 @@
 #include "DYNTrace.h"
 #include "TLTimelineFactory.h"
 #include "DYNMacrosMessage.h"
+#include <memory>
+#include <string>
 
 INIT_XML_DYNAWO;
 

@@ -413,5 +413,6 @@ class Solver::Impl : public Solver, private boost::noncopyable {
 }  // end of namespace DYN
 
 #include "DYNSolverImpl.hpp"
+#include <memory>
 
 #endif  // SOLVERS_COMMON_DYNSOLVERIMPL_H_
