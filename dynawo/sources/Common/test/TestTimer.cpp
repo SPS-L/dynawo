@@ -11,6 +11,7 @@
 // simulation tool for power systems.
 //
 
+#include <chrono>
 #include <stdexcept>
 
 #include "gtest_dynawo.h"
@@ -227,15 +228,16 @@ TEST(TimerTest, testEnumTimerNestingAttributesToParent) {
     Timer outer(PHASE_SOLVER_STEP);
     {
       Timer inner(PHASE_NR_SOLVE);
+      // Force inner's real duration past elapsed()'s microsecond truncation
+      // floor so the recorded edge is deterministically nonzero, without a
+      // scheduler-dependent sleep.
+      const auto until = std::chrono::steady_clock::now() + std::chrono::microseconds(2);
+      while (std::chrono::steady_clock::now() < until) {}
     }
   }
   ASSERT_EQ(Timers::instance().phaseCalls(PHASE_SOLVER_STEP), 1u);
   ASSERT_EQ(Timers::instance().phaseCalls(PHASE_NR_SOLVE), 1u);
-  // A construct/destruct pair this small can complete in under one
-  // microsecond once the process is warm, and elapsed() truncates at
-  // microsecond resolution, so the recorded edge can legitimately be exactly
-  // zero. Same tolerance as testEnumTimerRecordsOnDestruction above.
-  ASSERT_TRUE(Timers::instance().phaseParentChild(PHASE_SOLVER_STEP, PHASE_NR_SOLVE) >= 0.);
+  ASSERT_TRUE(Timers::instance().phaseParentChild(PHASE_SOLVER_STEP, PHASE_NR_SOLVE) > 0.);
   ASSERT_TRUE(Timers::instance().phaseExclusive(PHASE_SOLVER_STEP) >= -1e-12);
 }
 
