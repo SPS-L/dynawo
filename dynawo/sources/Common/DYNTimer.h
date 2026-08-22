@@ -93,14 +93,21 @@ class Timers : private boost::noncopyable {
   /**
    * @brief accumulate one completed phase measurement
    *
-   * @param phase phase that completed
-   * @param parent phase active when it started, or PHASE_COUNT if none
+   * @param phase phase that completed, out of range (including PHASE_COUNT)
+   * is a no-op
+   * @param parent phase active when it started, or PHASE_COUNT if none; any
+   * out-of-range value, PHASE_COUNT included, is treated as "no parent"
    * @param time elapsed seconds
    */
   static void record(TimerPhase phase, TimerPhase parent, double time);
 
   /**
-   * @brief clear all phase statistics, used by tests
+   * @brief clear all phase statistics
+   *
+   * Called once per job by the explicit reporting point (see emitReport()
+   * and Simulation::terminate()) so a jobs file with more than one job gets
+   * one phase table per job instead of one table aggregated across all of
+   * them. Also used directly by tests to isolate cases from one another.
    */
   static void resetPhases();
 
@@ -114,15 +121,21 @@ class Timers : private boost::noncopyable {
    * in the cycle becomes unreliable. There is no such cycle among the
    * phases instrumented today.
    *
-   * @param phase phase being entered
-   * @return the phase that was active, or PHASE_COUNT if none
+   * @param phase phase being entered, out of range (including PHASE_COUNT)
+   * is a no-op
+   * @return the phase that was active, or PHASE_COUNT if none or if phase
+   * was out of range
    */
   static TimerPhase enter(TimerPhase phase);
 
   /**
    * @brief mark a phase as left
    *
-   * @param phase phase being left
+   * @param phase phase being left, out of range (including PHASE_COUNT) is a
+   * no-op. If phase is not the innermost phase currently on the stack (for
+   * example because enter()/exit() calls for two phases were interleaved
+   * out of order), the stack itself is left untouched: only the entry that
+   * actually matches the top is ever popped.
    */
   static void exit(TimerPhase phase);
 
@@ -214,7 +227,11 @@ class Timers : private boost::noncopyable {
   /**
    * @brief write the phase report to the trace log
    *
-   * Delegates to the singleton instance, see printPhaseReport_().
+   * Delegates to the singleton instance, see printPhaseReport_(). The
+   * trailing line also reports cycleDetected() and how many phases have a
+   * negative exclusive time: unlike the exclusive/root identity on that same
+   * line, which holds by construction and so cannot signal a problem, those
+   * two figures are the ones that can.
    */
   static void printPhaseReport();
 
@@ -230,6 +247,19 @@ class Timers : private boost::noncopyable {
    * @return true if the file was written
    */
   static bool exportPhasesCSV(const std::string& path);
+
+  /**
+   * @brief explicit reporting point: emit the phase report, and CSV if configured
+   *
+   * No-op if no phase has been entered since the last reset. Meant to be
+   * called once per job, while that job's own trace sinks are still
+   * installed, see Simulation::terminate(); callers are expected to call
+   * resetPhases() afterwards so the next job starts from a clean slate. The
+   * destructor keeps its own copy of the same "is there anything to report"
+   * logic as a fallback, for a timed process that never calls this
+   * explicitly.
+   */
+  static void emitReport();
 
  private:
   /**
@@ -297,6 +327,22 @@ class Timers : private boost::noncopyable {
    * @return true if the file was written
    */
   bool exportPhasesCSV_(const std::string& path) const;
+
+  /**
+   * @brief whether any phase has been measured since the last reset
+   * @return true if at least one phase has a nonzero call count
+   */
+  bool hasAnyPhase_() const;
+
+  /**
+   * @brief internal emit the phase report and CSV, if any phase was measured
+   *
+   * Shared by the explicit emitReport() entry point and by the destructor's
+   * fallback, see their documentation. Operates on this instance directly
+   * and never calls instance(), so it is safe to call from the destructor
+   * while the singleton is being torn down.
+   */
+  void emitReportIfAny_() const;
 
  private:
   std::map<std::string, double> timers_;  ///< association between timers and time elapsed

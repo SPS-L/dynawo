@@ -456,7 +456,11 @@ bool SolverCommonFixedTimeStep::setupNewAlgRestoration(modeChangeType_t modeChan
  */
 void
 SolverCommonFixedTimeStep::reinit() {
-  DYNAWO_TIMER_PHASE(PHASE_ROOT_EVAL);
+  // The whole algebraic-restoration driver, not root evaluation: it calls
+  // setupNewAlgRestoration() (itself PHASE_REINIT, self-nested and so
+  // counted once here), runs the KINSOL solve, and updates statistics. See
+  // the review finding that used to label this PHASE_ROOT_EVAL.
+  DYNAWO_TIMER_PHASE(PHASE_REINIT);
   int counter = 0;
   modeChangeType_t modeChangeType = model_->getModeChangeType();
 

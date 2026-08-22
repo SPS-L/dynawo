@@ -1340,6 +1340,18 @@ Simulation::terminate() {
     // re-enable logging for upper project
     Trace::enableLogging();
   }
+
+#if defined(_DEBUG_) || defined(PRINT_TIMERS)
+  // Explicit reporting point, while this job's own trace sinks (dynawo.log)
+  // are still installed: launchSimu() calls Trace::resetCustomAppenders()
+  // right after this job's terminate() returns, which would otherwise strip
+  // those sinks before the timing instrumentation's destructor-based
+  // fallback ever got a chance to run, sending the report to stderr instead
+  // of the job's own log. resetPhases() afterwards keeps a multi-job jobs
+  // file from aggregating every job's phases into one table.
+  Timers::emitReport();
+  Timers::resetPhases();
+#endif
 }
 
 void

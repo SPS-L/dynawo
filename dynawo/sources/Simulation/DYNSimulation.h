@@ -551,6 +551,10 @@ class Simulation {
 
   /**
    * @brief end the simulation : export data, curves,...
+   *
+   * When the timing instrumentation is enabled, this is also the point
+   * where its phase report (and CSV, if configured) is emitted and phase
+   * statistics are reset for the next job, see Timers::emitReport().
    */
   void terminate();
 

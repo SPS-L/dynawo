@@ -368,6 +368,109 @@ TEST(TimerTest, testRootTotalMatchesSumOfExclusiveAcrossTwoRoots) {
   ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().rootTotal(), sumExclusive);
 }
 
+TEST(TimerTest, testEnterIsNoOpForOutOfRangePhase) {
+  // enter(PHASE_COUNT) used to push PHASE_COUNT onto phaseStack_ and
+  // then write phaseDepth_[PHASE_COUNT], one element past that array,
+  // corrupting whatever memory follows it (phaseStack_ itself, see
+  // DYNTimer.h's member layout). PHASE_COUNT is exactly the "no parent"
+  // sentinel this same API returns at the top level, so it is easy for a
+  // caller to pass it straight back in. enter() with an out-of-range phase
+  // must be a true no-op: it must return PHASE_COUNT without touching the
+  // stack, so a completely ordinary phase measurement taken right
+  // afterwards comes out exactly as if the out-of-range call had never
+  // happened.
+  Timers::resetPhases();
+  const TimerPhase outOfRange = static_cast<TimerPhase>(static_cast<int>(PHASE_COUNT) + 5);
+  ASSERT_EQ(Timers::enter(outOfRange), PHASE_COUNT);
+
+  const TimerPhase parent = Timers::enter(PHASE_SOLVER_STEP);
+  ASSERT_EQ(parent, PHASE_COUNT);
+  Timers::record(PHASE_SOLVER_STEP, parent, 2.0);
+  Timers::exit(PHASE_SOLVER_STEP);
+
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseTotal(PHASE_SOLVER_STEP), 2.0);
+  ASSERT_EQ(Timers::instance().phaseCalls(PHASE_SOLVER_STEP), 1u);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().rootTotal(), 2.0);
+}
+
+TEST(TimerTest, testExitIsNoOpForOutOfRangePhase) {
+  // exit() used to read and decrement phaseDepth_[phase] with no bounds
+  // check at all: any out-of-range phase, PHASE_COUNT included, reads and
+  // writes past that array. Guarded, this must be a no-op, so a real,
+  // nested phase measurement taken right afterwards is unaffected: unguarded,
+  // this specific out-of-range value corrupts phaseStack_'s own internal
+  // state (it lands past the small gap between phaseDepth_ and phaseStack_
+  // that a bare PHASE_COUNT falls into on this layout) so that the process
+  // aborts with a heap-corruption error once phaseStack_ is torn down.
+  Timers::resetPhases();
+  Timers::exit(static_cast<TimerPhase>(static_cast<int>(PHASE_COUNT) + 1));
+
+  const TimerPhase pOuter = Timers::enter(PHASE_SOLVER_STEP);
+  const TimerPhase pInner = Timers::enter(PHASE_NR_SOLVE);
+  Timers::record(PHASE_NR_SOLVE, pInner, 0.4);
+  Timers::exit(PHASE_NR_SOLVE);
+  Timers::record(PHASE_SOLVER_STEP, pOuter, 1.0);
+  Timers::exit(PHASE_SOLVER_STEP);
+
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseParentChild(PHASE_SOLVER_STEP, PHASE_NR_SOLVE), 0.4);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseExclusive(PHASE_SOLVER_STEP), 0.6);
+}
+
+TEST(TimerTest, testRecordIsNoOpForOutOfRangePhase) {
+  // record(PHASE_COUNT, ...) used to write phaseTime_[PHASE_COUNT], one
+  // element past that array. phaseTime_ (double) and phaseCalls_ (uint64_t)
+  // are adjacent, same-size members, so the out-of-bounds write landed
+  // exactly on phaseCalls_[0], PHASE_SIMULATION_LOOP's call count: it must
+  // stay untouched, and so must every other statistic.
+  Timers::resetPhases();
+  Timers::record(PHASE_COUNT, PHASE_COUNT, 1.0);
+
+  ASSERT_EQ(Timers::instance().phaseCalls(PHASE_SIMULATION_LOOP), 0u);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseTotal(PHASE_SIMULATION_LOOP), 0.0);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().rootTotal(), 0.0);
+}
+
+TEST(TimerTest, testRecordGuardsOutOfRangeParent) {
+  // record()'s parent argument also indexes parentChild_[parent][...]
+  // once phase itself is known valid. The pre-fix guard excluded only
+  // parent == PHASE_COUNT ("parent != PHASE_COUNT"); any other
+  // out-of-range value, for instance a parent corrupted past PHASE_COUNT,
+  // still indexed past parentChild_'s rows instead of being folded into the
+  // "no parent" path. Use a value the enum's declared members never take to
+  // exercise exactly that: rootTotal(), which only Rule 3's "no parent"
+  // branch increments, is the discriminator, since it is what silently
+  // fails to accumulate if the out-of-range parent is mistaken for a real
+  // row index instead.
+  Timers::resetPhases();
+  const TimerPhase corruptParent = static_cast<TimerPhase>(static_cast<int>(PHASE_COUNT) + 3);
+  Timers::record(PHASE_SOLVER_STEP, corruptParent, 1.0);
+
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseTotal(PHASE_SOLVER_STEP), 1.0);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().rootTotal(), 1.0);
+}
+
+TEST(TimerTest, testExitDoesNotPopMismatchedStackTop) {
+  // exit_ used to pop the stack unconditionally, regardless of whether
+  // the phase being left was actually the one on top. Timer a(X); Timer
+  // b(Y); a.stop(); would pop Y's entry off while decrementing depth[X].
+  // Reproduce that shape through the static API directly: enter X then Y,
+  // but exit X out of order while Y is still the innermost open phase.
+  Timers::resetPhases();
+  Timers::enter(PHASE_SOLVER_STEP);
+  Timers::enter(PHASE_NR_SOLVE);
+  Timers::exit(PHASE_SOLVER_STEP);  // out of order: must not touch the stack
+  Timers::exit(PHASE_NR_SOLVE);     // now legitimately closes NR_SOLVE
+
+  // Had the mismatched exit above popped, PHASE_NR_SOLVE's entry would
+  // already have been gone before this second exit ever ran, and PHASE_SOLVER_STEP
+  // would have been silently dropped off the stack instead: this enter()
+  // would then see an empty stack (PHASE_COUNT) rather than the still-open
+  // PHASE_SOLVER_STEP.
+  ASSERT_EQ(Timers::enter(PHASE_IO), PHASE_SOLVER_STEP);
+  Timers::exit(PHASE_IO);
+  Timers::exit(PHASE_SOLVER_STEP);
+}
+
 TEST(TimerTest, testStackUnwindsOnThrow) {
   Timers::resetPhases();
   try {

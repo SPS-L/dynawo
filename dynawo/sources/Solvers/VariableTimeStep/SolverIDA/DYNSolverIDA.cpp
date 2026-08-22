@@ -783,6 +783,10 @@ void SolverIDA::updateAlgebraicRestorationStatistics() {
  */
 void
 SolverIDA::reinit() {
+  // Same algebraic-restoration driver role as SolverCommonFixedTimeStep::reinit(),
+  // carrying the same phase for symmetry between the fixed and variable time
+  // step solvers, see the note on PHASE_REINIT.
+  DYNAWO_TIMER_PHASE(PHASE_REINIT);
   int counter = 0;
   modeChangeType_t modeChangeType = model_->getModeChangeType();
   if (modeChangeType == NO_MODE) return;
