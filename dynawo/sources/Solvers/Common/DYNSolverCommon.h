@@ -72,6 +72,19 @@ class SolverCommon {
   static bool installKLUTiming(SUNLinearSolver LS);
 
   /**
+   * @brief remove phase timing from a KLU linear solver instance, if installed
+   *
+   * Restores the original setup routine and frees the registry slot the
+   * instance held, so it can be reused by a later solver. Must be called
+   * before the solver instance is freed, and before its memory could be
+   * reused by an unrelated allocation, since the registry keys on the
+   * pointer value. Safe to call on an instance that was never instrumented.
+   *
+   * @param LS linear solver to remove timing from
+   */
+  static void uninstallKLUTiming(SUNLinearSolver LS);
+
+  /**
    * @brief Print the largest residuals errors
    *
    * @param fErr vector containing a pair with the residual function value and the global index of the residual function

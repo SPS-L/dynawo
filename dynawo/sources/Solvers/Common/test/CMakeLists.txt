@@ -12,6 +12,7 @@ set(MODULE_NAME SOLVERCOMMON_unittest)
 
 set(MODULE_SOURCES
     TestBasics.cpp
+    TestKLUTiming.cpp
 )
 
 add_executable(${MODULE_NAME} ${MODULE_SOURCES})

@@ -40,16 +40,19 @@ struct KLUSetupEntry {
   int (*origSetup)(SUNLinearSolver, SUNMatrix);  ///< routine replaced by the wrapper
 };
 
-const size_t MAX_KLU_SOLVERS = 8;
-KLUSetupEntry g_kluTable[MAX_KLU_SOLVERS];
-size_t g_kluCount = 0;
+const size_t MAX_KLU_SOLVERS = 16;  ///< headroom above the live-instance count seen in practice, not itself the fix for exhaustion
+// thread_local to match Timers::instance(): concurrent construction on two threads must not race on a shared count or
+// overwrite each other's entries, which would otherwise leave the losing solver wrapped with no registry entry.
+thread_local KLUSetupEntry g_kluTable[MAX_KLU_SOLVERS];  ///< live instrumented solvers, this thread only
+thread_local size_t g_kluCount = 0;  ///< number of live entries in g_kluTable
+thread_local bool g_kluCapacityWarned = false;  ///< one-shot guard for the table-full warning, this thread only
 
 /**
  * @brief timed replacement for a KLU solver's setup routine
  *
  * @param LS linear solver being set up
  * @param A matrix to factorise
- * @return the original routine's return code
+ * @return the original routine's return code, or a hard failure if LS has no registry entry
  */
 int profiledKLUSetup(SUNLinearSolver LS, SUNMatrix A) {
   for (size_t i = 0; i < g_kluCount; ++i) {
@@ -58,7 +61,12 @@ int profiledKLUSetup(SUNLinearSolver LS, SUNMatrix A) {
       return g_kluTable[i].origSetup(LS, A);
     }
   }
-  return SUNLS_SUCCESS;
+  // The wrapper is installed on LS->ops->setup but the registry entry is gone: reachable only if the entry was
+  // evicted or never recorded, both bugs elsewhere in this file. Returning SUNLS_SUCCESS here without calling any
+  // setup routine would let KINSOL or IDA proceed against a stale or uninitialised factorisation, so fail hard.
+  DYN::Trace::warn() << "DYNSolverCommon: KLU setup wrapper invoked on a solver with no registry entry, "
+                      << "refusing to factorise instead of silently skipping it" << DYN::Trace::endline;
+  return SUNLS_PACKAGE_FAIL_UNREC;
 }
 #endif
 
@@ -73,8 +81,14 @@ SolverCommon::installKLUTiming(SUNLinearSolver LS) {
     return false;
   if (LS->ops->setup == profiledKLUSetup)
     return false;  // already instrumented
-  if (g_kluCount >= MAX_KLU_SOLVERS)
+  if (g_kluCount >= MAX_KLU_SOLVERS) {
+    if (!g_kluCapacityWarned) {
+      Trace::warn() << "DYNSolverCommon: KLU timing registry is full, this solver instance will not be timed"
+                    << Trace::endline;
+      g_kluCapacityWarned = true;
+    }
     return false;
+  }
   g_kluTable[g_kluCount].solver = LS;
   g_kluTable[g_kluCount].origSetup = LS->ops->setup;
   ++g_kluCount;
@@ -83,6 +97,23 @@ SolverCommon::installKLUTiming(SUNLinearSolver LS) {
 #else
   (void)LS;
   return false;
+#endif
+}
+
+void
+SolverCommon::uninstallKLUTiming(SUNLinearSolver LS) {
+#if defined(_DEBUG_) || defined(PRINT_TIMERS)
+  for (size_t i = 0; i < g_kluCount; ++i) {
+    if (g_kluTable[i].solver == LS) {
+      if (LS != NULL && LS->ops != NULL)
+        LS->ops->setup = g_kluTable[i].origSetup;
+      g_kluTable[i] = g_kluTable[g_kluCount - 1];
+      --g_kluCount;
+      return;
+    }
+  }
+#else
+  (void)LS;
 #endif
 }
 

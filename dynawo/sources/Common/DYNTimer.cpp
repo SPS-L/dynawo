@@ -190,10 +190,15 @@ Timers::record_(const TimerPhase phase, const TimerPhase parent, const double ti
   if (time > phaseMax_[phase])
     phaseMax_[phase] = time;
 
-  // Rule 3: no edge at the top level, and never a self edge.
+  // Rule 3: no edge at the top level, and never a self edge. Both of those
+  // excluded cases leave the whole measurement in this phase's own exclusive
+  // time with nothing subtracted anywhere else, so both accumulate into
+  // rootTotal_ the same way: see the note on rootTotal() for why this must
+  // be a plain else, not conditioned on parent == PHASE_COUNT, to keep the
+  // sum-of-exclusives identity unconditional.
   if (parent != PHASE_COUNT && parent != phase)
     parentChild_[parent][phase] += time;
-  else if (parent == PHASE_COUNT)
+  else
     rootTotal_ += time;
 }
 

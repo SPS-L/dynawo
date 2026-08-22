@@ -105,6 +105,9 @@ SolverIDA::cleanIDA() {
     sundialsMatrix_ = NULL;
   }
   if (linearSolver_ != NULL) {
+    // Remove the timing registry entry before the pointer is freed and its memory can be reused by an unrelated
+    // allocation, otherwise a later solver constructed at the same address would inherit this one's stale entry.
+    SolverCommon::uninstallKLUTiming(linearSolver_);
     SUNLinSolFree(linearSolver_);
     linearSolver_ = NULL;
   }

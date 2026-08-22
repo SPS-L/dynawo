@@ -157,11 +157,13 @@ class Timers : private boost::noncopyable {
   /**
    * @brief time spent in a phase excluding all of its children
    *
-   * The sum of phaseExclusive() over every phase equals the sum of every
-   * measurement recorded with parent == PHASE_COUNT, that is, the total of
-   * every root, not just one: Dynawo has more than one root phase (for
-   * example both PHASE_CALCULATE_IC and PHASE_SIMULATION_LOOP are entered
-   * with no active parent).
+   * The sum of phaseExclusive() over every phase equals rootTotal(): see its
+   * documentation for the precise definition. It is not simply the sum of
+   * every root's phaseTotal(), a self edge (parent == phase, Rule 3's
+   * excluded case, see the recursion note on enter()) is also never
+   * subtracted from anything by phaseParentChild(), so its whole time stays
+   * in its own phaseExclusive() exactly like a root's does, and rootTotal()
+   * counts it the same way.
    *
    * @note this identity, and the per-phase value itself, only hold when the
    * instrumented phases form no cycle: see the recursion note on enter().
@@ -180,14 +182,19 @@ class Timers : private boost::noncopyable {
   double phaseParentChild(TimerPhase parent, TimerPhase child) const;
 
   /**
-   * @brief accumulated total of every measurement recorded at top level
+   * @brief accumulated total of every measurement that produces no parent/child edge
    *
-   * "At top level" means recorded with parent == PHASE_COUNT, that is, with
-   * no active parent phase on the stack at the time it was entered. Dynawo
-   * has more than one such root (for example both PHASE_CALCULATE_IC and
-   * PHASE_SIMULATION_LOOP are entered with no active parent), so this is the
-   * sum over every root, not just one. It equals the sum of phaseExclusive()
-   * over every phase, see the identity noted on phaseExclusive().
+   * A measurement produces no parentChild_ edge in exactly two cases: it was
+   * entered with no active parent (parent == PHASE_COUNT; Dynawo has more
+   * than one such root, for example both PHASE_CALCULATE_IC and
+   * PHASE_SIMULATION_LOOP are entered with no active parent), or it is a
+   * self edge (parent == phase), which Rule 3 excludes from parentChild_.
+   * Either way the whole measurement remains in phaseExclusive() for that
+   * phase and nowhere else, so rootTotal() accumulates both cases the same
+   * way. This makes the identity below unconditional, with no precondition
+   * on whether self edges occur.
+   *
+   * This equals the sum of phaseExclusive() over every phase.
    *
    * @return seconds
    */

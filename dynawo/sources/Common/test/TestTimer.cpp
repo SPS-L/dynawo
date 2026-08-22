@@ -126,6 +126,22 @@ TEST(TimerTest, testSelfEdgeNeverRecordedEvenWithoutNesting) {
   ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseExclusive(PHASE_REINIT), 1.0);
 }
 
+TEST(TimerTest, testRootTotalIncludesSelfEdgeMeasurements) {
+  // A self edge (parent == phase, the same case exercised in
+  // testSelfEdgeNeverRecordedEvenWithoutNesting) produces no parentChild_
+  // edge, so its whole time stays in phaseExclusive(). rootTotal() must
+  // count it too, or the sum-of-exclusives identity breaks on exactly this
+  // case. This distinguishes the two possible definitions: a rootTotal_
+  // update conditioned narrowly on parent == PHASE_COUNT would leave
+  // rootTotal() at 0.0 here while phaseExclusive() reads 1.0, and only the
+  // unconditional else accumulates both to the same 1.0.
+  Timers::resetPhases();
+  Timers::record(PHASE_REINIT, PHASE_REINIT, 1.0);
+
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseExclusive(PHASE_REINIT), 1.0);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().rootTotal(), 1.0);
+}
+
 TEST(TimerTest, testRecursionCountedOnce) {
   Timers::resetPhases();
   const TimerPhase pOuter = Timers::enter(PHASE_REINIT);
