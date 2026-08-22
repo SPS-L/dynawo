@@ -364,8 +364,10 @@ double Timer::elapsed() const {
   if (isStopped_) {
     return 0.;
   }
-  const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - startPoint_);
-  return static_cast<double>(duration.count()) / 1000000;  // For the result in seconds
+  // Full precision: a duration_cast to microseconds truncates towards zero
+  // and loses up to 1 microsecond per call, which dominates the measurement
+  // for short, frequently called phases.
+  return std::chrono::duration<double>(std::chrono::steady_clock::now() - startPoint_).count();
 }
 
 }  // namespace DYN
