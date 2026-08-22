@@ -21,11 +21,41 @@
 
 #include "DYNTimer.h"
 
+#include <limits>
 #include <thread>
 #include <sstream>
 #include <string>
 
 namespace DYN {
+
+const char*
+phaseToString(const TimerPhase phase) {
+  switch (phase) {
+    case PHASE_SIMULATION_LOOP: return "SimulationLoop";
+    case PHASE_SOLVER_SOLVE:    return "SolverSolve";
+    case PHASE_CALCULATE_IC:    return "CalculateIC";
+    case PHASE_SOLVER_STEP:     return "SolverStep";
+    case PHASE_JACOBIAN_EVAL:   return "JacobianEval";
+    case PHASE_RESIDUAL_EVAL:   return "ResidualEval";
+    case PHASE_ROOT_EVAL:       return "RootEval";
+    case PHASE_MODE_EVAL:       return "ModeEval";
+    case PHASE_DISCRETE_EVAL:   return "DiscreteEval";
+    case PHASE_NR_SOLVE:        return "NRSolve";
+    case PHASE_MATRIX_COPY:     return "MatrixCopy";
+    case PHASE_KINSOL_SOLVE:    return "KINSOLSolve";
+    case PHASE_REINIT:          return "Reinit";
+    case PHASE_IO:              return "IO";
+    case PHASE_KLU_SYMBOLIC:    return "KLUSymbolic";
+    case PHASE_KLU_SETUP:       return "KLUSetup";
+    case PHASE_CURVES_UPDATE:   return "CurvesUpdate";
+    case PHASE_COUNT:           return "None";
+  }
+  return "Unknown";
+}
+
+Timers::Timers() {
+  resetPhases_();
+}
 
 Timers::~Timers() {
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
@@ -53,6 +83,56 @@ Timers::add_(const std::string& name, const double time) {
   std::string name_formatted = ss.str();
   timers_[name_formatted] += time;
   nbAppels_[name_formatted] += 1;
+}
+
+void
+Timers::resetPhases() {
+  instance().resetPhases_();
+}
+
+void
+Timers::resetPhases_() {
+  for (int i = 0; i < PHASE_COUNT; ++i) {
+    phaseTime_[i] = 0.;
+    phaseCalls_[i] = 0;
+    phaseMin_[i] = std::numeric_limits<double>::max();
+    phaseMax_[i] = 0.;
+  }
+}
+
+void
+Timers::record(const TimerPhase phase, const TimerPhase parent, const double time) {
+  instance().record_(phase, parent, time);
+}
+
+void
+Timers::record_(const TimerPhase phase, const TimerPhase /*parent*/, const double time) {
+  phaseTime_[phase] += time;
+  phaseCalls_[phase] += 1;
+  if (time < phaseMin_[phase])
+    phaseMin_[phase] = time;
+  if (time > phaseMax_[phase])
+    phaseMax_[phase] = time;
+}
+
+double
+Timers::phaseTotal(const TimerPhase phase) const {
+  return phaseTime_[phase];
+}
+
+uint64_t
+Timers::phaseCalls(const TimerPhase phase) const {
+  return phaseCalls_[phase];
+}
+
+double
+Timers::phaseMinMs(const TimerPhase phase) const {
+  return (phaseCalls_[phase] == 0) ? 0. : phaseMin_[phase] * 1000.;
+}
+
+double
+Timers::phaseMaxMs(const TimerPhase phase) const {
+  return (phaseCalls_[phase] == 0) ? 0. : phaseMax_[phase] * 1000.;
 }
 
 Timer::Timer(const std::string& name) :

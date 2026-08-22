@@ -12,6 +12,7 @@ set(MODULE_NAME COMMON_unittest)
 
 set(MODULE_SOURCES
     TestBitMask.cpp
+    TestTimer.cpp
     TestGraph.cpp
     TestParameter.cpp
     TestErrorQueue.cpp
