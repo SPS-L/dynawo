@@ -18,6 +18,8 @@ target_include_directories(dynawo_SolverKINCommon
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<INSTALL_INTERFACE:${INCLUDEDIR_NAME}>
     $<TARGET_PROPERTY:Sundials::Sundials_NVECSERIAL,INTERFACE_INCLUDE_DIRECTORIES>
+  PRIVATE
+    $<TARGET_PROPERTY:dynawo_SolverCommon,INTERFACE_INCLUDE_DIRECTORIES>
   )
 
 target_link_libraries(dynawo_SolverKINCommon
@@ -26,6 +28,8 @@ target_link_libraries(dynawo_SolverKINCommon
     Sundials::Sundials_KINSOL
     Sundials::Sundials_NVECSERIAL
     Sundials::Sundials_SUNLINSOLKLU
+  PRIVATE
+    dynawo_SolverCommon
   )
 
 add_library(dynawo_SolverKINSubModel SHARED DYNSolverKINSubModel.cpp)

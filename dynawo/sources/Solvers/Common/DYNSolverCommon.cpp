@@ -29,7 +29,62 @@
 #include "DYNTimer.h"
 #include "DYNTrace.h"
 
+namespace {
+
+#if defined(_DEBUG_) || defined(PRINT_TIMERS)
+/**
+ * @brief association between a KLU linear solver and its original setup routine
+ */
+struct KLUSetupEntry {
+  SUNLinearSolver solver;  ///< instrumented solver
+  int (*origSetup)(SUNLinearSolver, SUNMatrix);  ///< routine replaced by the wrapper
+};
+
+const size_t MAX_KLU_SOLVERS = 8;
+KLUSetupEntry g_kluTable[MAX_KLU_SOLVERS];
+size_t g_kluCount = 0;
+
+/**
+ * @brief timed replacement for a KLU solver's setup routine
+ *
+ * @param LS linear solver being set up
+ * @param A matrix to factorise
+ * @return the original routine's return code
+ */
+int profiledKLUSetup(SUNLinearSolver LS, SUNMatrix A) {
+  for (size_t i = 0; i < g_kluCount; ++i) {
+    if (g_kluTable[i].solver == LS) {
+      DYNAWO_TIMER_PHASE(PHASE_KLU_SETUP);
+      return g_kluTable[i].origSetup(LS, A);
+    }
+  }
+  return SUNLS_SUCCESS;
+}
+#endif
+
+}  // namespace
+
 namespace DYN {
+
+bool
+SolverCommon::installKLUTiming(SUNLinearSolver LS) {
+#if defined(_DEBUG_) || defined(PRINT_TIMERS)
+  if (LS == NULL || LS->ops == NULL || LS->ops->setup == NULL)
+    return false;
+  if (LS->ops->setup == profiledKLUSetup)
+    return false;  // already instrumented
+  if (g_kluCount >= MAX_KLU_SOLVERS)
+    return false;
+  g_kluTable[g_kluCount].solver = LS;
+  g_kluTable[g_kluCount].origSetup = LS->ops->setup;
+  ++g_kluCount;
+  LS->ops->setup = profiledKLUSetup;
+  return true;
+#else
+  (void)LS;
+  return false;
+#endif
+}
 
 bool
 SolverCommon::copySparseToKINSOL(const SparseMatrix& smj, SUNMatrix& JJ, const int& size, sunindextype * lastRowVals) {
@@ -73,7 +128,10 @@ void SolverCommon::propagateMatrixStructureChangeToKINSOL(const SparseMatrix& sm
   bool matrixStructChange = copySparseToKINSOL(smj, JJ, size, *lastRowVals);
 
   if (matrixStructChange) {
-    SUNLinSol_KLUReInit(LS, JJ, SM_NNZ_S(JJ), 2);  // reinit symbolic factorisation
+    {
+      DYNAWO_TIMER_PHASE(PHASE_KLU_SYMBOLIC);
+      SUNLinSol_KLUReInit(LS, JJ, SM_NNZ_S(JJ), 2);  // reinit symbolic factorisation
+    }
     if (*lastRowVals != NULL) {
       free(*lastRowVals);
     }

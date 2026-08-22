@@ -180,6 +180,20 @@ class Timers : private boost::noncopyable {
   double phaseParentChild(TimerPhase parent, TimerPhase child) const;
 
   /**
+   * @brief accumulated total of every measurement recorded at top level
+   *
+   * "At top level" means recorded with parent == PHASE_COUNT, that is, with
+   * no active parent phase on the stack at the time it was entered. Dynawo
+   * has more than one such root (for example both PHASE_CALCULATE_IC and
+   * PHASE_SIMULATION_LOOP are entered with no active parent), so this is the
+   * sum over every root, not just one. It equals the sum of phaseExclusive()
+   * over every phase, see the identity noted on phaseExclusive().
+   *
+   * @return seconds
+   */
+  double rootTotal() const;
+
+  /**
    * @brief whether an indirect recursion has been detected since the last reset
    *
    * True once enter() has detected a phase re-entered while already on the
@@ -285,6 +299,7 @@ class Timers : private boost::noncopyable {
   double phaseMin_[PHASE_COUNT];  ///< shortest single measurement per phase, seconds
   double phaseMax_[PHASE_COUNT];  ///< longest single measurement per phase, seconds
   double parentChild_[PHASE_COUNT][PHASE_COUNT];  ///< time a child spent directly under a parent, seconds
+  double rootTotal_;  ///< accumulated total of every measurement recorded with parent == PHASE_COUNT, seconds
   int phaseDepth_[PHASE_COUNT];  ///< current nesting depth per phase, for the recursion rule
   std::vector<TimerPhase> phaseStack_;  ///< phases currently entered, innermost last
   bool cycleWarned_;  ///< true once the one-shot indirect-recursion warning has fired

@@ -261,6 +261,7 @@ SolverIDA::init(const std::shared_ptr<Model>& model, const double t0, const doub
   linearSolver_ = SUNLinSol_KLU(sundialsVectorY_, sundialsMatrix_, sundialsContext_);
   if (linearSolver_ == NULL)
     throw DYNError(Error::SUNDIALS_ERROR, SolverFuncErrorIDA, "SUNLinSol_KLU");
+  SolverCommon::installKLUTiming(linearSolver_);
 
   /* Attach the matrix and linear solver */
   flag = IDASetLinearSolver(IDAMem_, linearSolver_, sundialsMatrix_);

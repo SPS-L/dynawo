@@ -61,6 +61,17 @@ class SolverCommon {
                                                      sunindextype** lastRowVals, SUNLinearSolver& LS, bool log);
 
   /**
+   * @brief install phase timing on a KLU linear solver instance
+   *
+   * Idempotent: installing twice leaves exactly one wrapper in place and
+   * preserves the original setup routine.
+   *
+   * @param LS linear solver to instrument
+   * @return true if a wrapper was installed by this call
+   */
+  static bool installKLUTiming(SUNLinearSolver LS);
+
+  /**
    * @brief Print the largest residuals errors
    *
    * @param fErr vector containing a pair with the residual function value and the global index of the residual function

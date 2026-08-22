@@ -131,6 +131,7 @@ Timers::resetPhases_() {
     for (int j = 0; j < PHASE_COUNT; ++j)
       parentChild_[i][j] = 0.;
   }
+  rootTotal_ = 0.;
   phaseStack_.clear();
   cycleWarned_ = false;
 }
@@ -192,6 +193,8 @@ Timers::record_(const TimerPhase phase, const TimerPhase parent, const double ti
   // Rule 3: no edge at the top level, and never a self edge.
   if (parent != PHASE_COUNT && parent != phase)
     parentChild_[parent][phase] += time;
+  else if (parent == PHASE_COUNT)
+    rootTotal_ += time;
 }
 
 double
@@ -239,6 +242,11 @@ Timers::phaseParentChild(const TimerPhase parent, const TimerPhase child) const 
   return parentChild_[parent][child];
 }
 
+double
+Timers::rootTotal() const {
+  return rootTotal_;
+}
+
 bool
 Timers::cycleDetected() const {
   return cycleWarned_;
@@ -264,6 +272,18 @@ Timers::printPhaseReport_() const {
        << std::setw(16) << phaseExclusive(phase)  // seconds
        << std::setw(11) << phaseCalls(phase) << "\n";
   }
+
+  // Identity check: the sum of every phase's exclusive time equals the sum
+  // of every measurement recorded at top level (rootTotal()), see the note
+  // on rootTotal() and phaseExclusive(). The CSV carries no parent
+  // information, so this line is the only place a run's own numbers can be
+  // read back and checked against each other.
+  double sumExclusive = 0.;
+  for (int i = 0; i < PHASE_COUNT; ++i)
+    sumExclusive += phaseExclusive(static_cast<TimerPhase>(i));
+  ss << "  root total (s): " << std::fixed << std::setprecision(6) << rootTotal()
+     << "   sum of exclusive (s): " << sumExclusive << "\n";
+
   Trace::info() << ss.str() << Trace::endline;
 }
 

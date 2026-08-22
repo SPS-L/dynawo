@@ -304,6 +304,46 @@ TEST(TimerTest, testCsvExportFailsOnUnwritablePath) {
   ASSERT_FALSE(Timers::exportPhasesCSV("/nonexistent-directory-xyz/out.csv"));
 }
 
+TEST(TimerTest, testKluSetupNestsUnderJacobianEval) {
+  Timers::resetPhases();
+  const TimerPhase pJac = Timers::enter(PHASE_JACOBIAN_EVAL);
+  const TimerPhase pSetup = Timers::enter(PHASE_KLU_SETUP);
+  Timers::record(PHASE_KLU_SETUP, pSetup, 0.4);
+  Timers::exit(PHASE_KLU_SETUP);
+  Timers::record(PHASE_JACOBIAN_EVAL, pJac, 1.0);
+  Timers::exit(PHASE_JACOBIAN_EVAL);
+
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseParentChild(PHASE_JACOBIAN_EVAL, PHASE_KLU_SETUP), 0.4);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseExclusive(PHASE_JACOBIAN_EVAL), 0.6);
+}
+
+TEST(TimerTest, testRootTotalMatchesSumOfExclusiveAcrossTwoRoots) {
+  // rootTotal() must come from record_()'s own bookkeeping of parent ==
+  // PHASE_COUNT measurements, not be derived after the fact: a mutation that
+  // fails to accumulate it (stays 0), accumulates it on every record instead
+  // of only root ones (would pick up the nested SOLVER_SOLVE time too), or
+  // only tracks a single root instead of summing every root, all disagree
+  // with at least one of the two assertions below.
+  Timers::resetPhases();
+  const TimerPhase pIc = Timers::enter(PHASE_CALCULATE_IC);
+  Timers::record(PHASE_CALCULATE_IC, pIc, 0.3);
+  Timers::exit(PHASE_CALCULATE_IC);
+
+  const TimerPhase pLoop = Timers::enter(PHASE_SIMULATION_LOOP);
+  const TimerPhase pSolve = Timers::enter(PHASE_SOLVER_SOLVE);
+  Timers::record(PHASE_SOLVER_SOLVE, pSolve, 0.4);
+  Timers::exit(PHASE_SOLVER_SOLVE);
+  Timers::record(PHASE_SIMULATION_LOOP, pLoop, 1.0);
+  Timers::exit(PHASE_SIMULATION_LOOP);
+
+  double sumExclusive = 0.;
+  for (int i = 0; i < PHASE_COUNT; ++i)
+    sumExclusive += Timers::instance().phaseExclusive(static_cast<TimerPhase>(i));
+
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().rootTotal(), 1.3);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().rootTotal(), sumExclusive);
+}
+
 TEST(TimerTest, testStackUnwindsOnThrow) {
   Timers::resetPhases();
   try {

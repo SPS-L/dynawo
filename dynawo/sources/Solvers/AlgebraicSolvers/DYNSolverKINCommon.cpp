@@ -28,6 +28,7 @@
 #include <sstream>
 
 #include "DYNSolverKINCommon.h"
+#include "DYNSolverCommon.h"
 #include "DYNTimer.h"
 #include "DYNTrace.h"
 #include "DYNMacrosMessage.h"
@@ -141,6 +142,7 @@ SolverKINCommon::initCommon(const double fnormtol, const double initialaddtol, c
   linearSolver_ = SUNLinSol_KLU(sundialsVectorY_, sundialsMatrix_, sundialsContext_);
   if (linearSolver_ == NULL)
       throw DYNError(Error::SUNDIALS_ERROR, SolverFuncErrorKINSOL, "SUNLinSol_KLU");
+  SolverCommon::installKLUTiming(linearSolver_);
   flag = KINSetLinearSolver(KINMem_, linearSolver_, sundialsMatrix_);
   if (flag < 0)
       throw DYNError(Error::SUNDIALS_ERROR, SolverFuncErrorKINSOL, "KINKLU");
