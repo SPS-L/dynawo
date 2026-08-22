@@ -23,6 +23,9 @@
 
 #include "DYNTrace.h"
 
+#include <cstdlib>
+#include <fstream>
+#include <iomanip>
 #include <limits>
 #include <thread>
 #include <sstream>
@@ -63,6 +66,23 @@ Timers::~Timers() {
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   for (const auto& timer : timers_)
     std::cout << "TIMER[" << timer.first << "] = " << timer.second << " seconds in " << nbAppels_[timer.first] << " calls" << std::endl;
+
+  // Instance methods only below: instance() must not be re-entered while
+  // this singleton is being torn down, see printPhaseReport_() and
+  // exportPhasesCSV_().
+  bool anyPhase = false;
+  for (int i = 0; i < PHASE_COUNT; ++i) {
+    if (phaseCalls_[i] > 0) {
+      anyPhase = true;
+      break;
+    }
+  }
+  if (anyPhase) {
+    printPhaseReport_();
+    const char* const out = std::getenv("DYNAWO_TIMERS_OUTPUT");
+    if (out != NULL)
+      exportPhasesCSV_(std::string(out));
+  }
 #endif
 }
 
@@ -214,6 +234,55 @@ Timers::phaseParentChild(const TimerPhase parent, const TimerPhase child) const 
 bool
 Timers::cycleDetected() const {
   return cycleWarned_;
+}
+
+void
+Timers::printPhaseReport() {
+  instance().printPhaseReport_();
+}
+
+void
+Timers::printPhaseReport_() const {
+  std::stringstream ss;
+  ss << "Phase timing\n";
+  ss << "  phase                 total (s)   exclusive (s)      calls\n";
+  for (int i = 0; i < PHASE_COUNT; ++i) {
+    const TimerPhase phase = static_cast<TimerPhase>(i);
+    if (phaseCalls(phase) == 0)
+      continue;
+    ss << "  " << std::left << std::setw(20) << phaseToString(phase)
+       << std::right << std::fixed << std::setprecision(6)
+       << std::setw(12) << phaseTotal(phase)  // seconds
+       << std::setw(16) << phaseExclusive(phase)  // seconds
+       << std::setw(11) << phaseCalls(phase) << "\n";
+  }
+  Trace::info() << ss.str() << Trace::endline;
+}
+
+bool
+Timers::exportPhasesCSV(const std::string& path) {
+  return instance().exportPhasesCSV_(path);
+}
+
+bool
+Timers::exportPhasesCSV_(const std::string& path) const {
+  std::ofstream ofs(path.c_str());
+  if (!ofs.is_open())
+    return false;
+  ofs << "phase,total_seconds,exclusive_seconds,call_count,min_ms,max_ms\n";
+  for (int i = 0; i < PHASE_COUNT; ++i) {
+    const TimerPhase phase = static_cast<TimerPhase>(i);
+    if (phaseCalls(phase) == 0)
+      continue;
+    ofs << phaseToString(phase) << ","
+        << std::fixed << std::setprecision(6) << phaseTotal(phase) << ","  // seconds
+        << phaseExclusive(phase) << ","  // seconds
+        << phaseCalls(phase) << ","
+        << std::setprecision(4) << phaseMinMs(phase) << ","  // milliseconds
+        << phaseMaxMs(phase) << "\n";  // milliseconds
+  }
+  ofs.close();
+  return !ofs.fail();
 }
 
 Timer::Timer(const std::string& name) :

@@ -12,7 +12,10 @@
 //
 
 #include <chrono>
+#include <cstdio>
+#include <fstream>
 #include <stdexcept>
+#include <string>
 
 #include "gtest_dynawo.h"
 #include "DYNCommon.h"
@@ -239,6 +242,56 @@ TEST(TimerTest, testEnumTimerNestingAttributesToParent) {
   ASSERT_EQ(Timers::instance().phaseCalls(PHASE_NR_SOLVE), 1u);
   ASSERT_TRUE(Timers::instance().phaseParentChild(PHASE_SOLVER_STEP, PHASE_NR_SOLVE) > 0.);
   ASSERT_TRUE(Timers::instance().phaseExclusive(PHASE_SOLVER_STEP) >= -1e-12);
+}
+
+TEST(TimerTest, testCsvExportContentAndHeader) {
+  Timers::resetPhases();
+  const TimerPhase pStep = Timers::enter(PHASE_SOLVER_STEP);
+  const TimerPhase pNr = Timers::enter(PHASE_NR_SOLVE);
+  Timers::record(PHASE_NR_SOLVE, pNr, 0.25);
+  Timers::exit(PHASE_NR_SOLVE);
+  Timers::record(PHASE_SOLVER_STEP, pStep, 1.0);
+  Timers::exit(PHASE_SOLVER_STEP);
+
+  const std::string path = "phase_export_test.csv";
+  ASSERT_TRUE(Timers::exportPhasesCSV(path));
+
+  std::ifstream ifs(path.c_str());
+  ASSERT_TRUE(ifs.is_open());
+  std::string header;
+  std::getline(ifs, header);
+  ASSERT_EQ(header, "phase,total_seconds,exclusive_seconds,call_count,min_ms,max_ms");
+
+  bool sawStep = false;
+  bool sawNr = false;
+  bool sawUntouched = false;
+  std::string line;
+  while (std::getline(ifs, line)) {
+    if (line.find("SolverStep,") == 0) {
+      sawStep = true;
+      // total 1.0 s, exclusive 0.75 s, one call, min/max 1000 ms: the seconds
+      // and milliseconds columns must not be swapped or share a scale.
+      ASSERT_EQ(line, "SolverStep,1.000000,0.750000,1,1000.0000,1000.0000");
+    }
+    if (line.find("NRSolve,") == 0) {
+      sawNr = true;
+      // total 0.25 s, exclusive 0.25 s (no children), one call, min/max 250 ms.
+      ASSERT_EQ(line, "NRSolve,0.250000,0.250000,1,250.0000,250.0000");
+    }
+    if (line.find("MatrixCopy,") == 0)
+      sawUntouched = true;
+  }
+  ASSERT_TRUE(sawStep);
+  ASSERT_TRUE(sawNr);
+  ASSERT_FALSE(sawUntouched);  // phases never entered are omitted
+  ifs.close();
+  std::remove(path.c_str());
+}
+
+TEST(TimerTest, testCsvExportFailsOnUnwritablePath) {
+  Timers::resetPhases();
+  Timers::record(PHASE_IO, PHASE_COUNT, 0.1);
+  ASSERT_FALSE(Timers::exportPhasesCSV("/nonexistent-directory-xyz/out.csv"));
 }
 
 TEST(TimerTest, testStackUnwindsOnThrow) {

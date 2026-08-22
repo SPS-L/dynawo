@@ -190,6 +190,26 @@ class Timers : private boost::noncopyable {
    */
   bool cycleDetected() const;
 
+  /**
+   * @brief write the phase report to the trace log
+   *
+   * Delegates to the singleton instance, see printPhaseReport_().
+   */
+  static void printPhaseReport();
+
+  /**
+   * @brief write phase statistics as CSV
+   *
+   * Delegates to the singleton instance, see exportPhasesCSV_(). Columns are
+   * total_seconds and exclusive_seconds in seconds, min_ms and max_ms in
+   * milliseconds, see phaseTotal(), phaseExclusive(), phaseMinMs() and
+   * phaseMaxMs() for the unit of each source accessor.
+   *
+   * @param path destination file
+   * @return true if the file was written
+   */
+  static bool exportPhasesCSV(const std::string& path);
+
  private:
   /**
    * @brief default constructor, zeroes the phase accumulators
@@ -235,6 +255,27 @@ class Timers : private boost::noncopyable {
    * @param phase phase being left
    */
   void exit_(TimerPhase phase);
+
+  /**
+   * @brief internal write the phase report to the trace log
+   *
+   * Operates on this instance directly and never calls instance(), so it is
+   * safe to call from the destructor while the singleton is being torn down.
+   */
+  void printPhaseReport_() const;
+
+  /**
+   * @brief internal write phase statistics as CSV
+   *
+   * Operates on this instance directly and never calls instance(), so it is
+   * safe to call from the destructor while the singleton is being torn down.
+   * Columns are total_seconds and exclusive_seconds in seconds, min_ms and
+   * max_ms in milliseconds.
+   *
+   * @param path destination file
+   * @return true if the file was written
+   */
+  bool exportPhasesCSV_(const std::string& path) const;
 
  private:
   std::map<std::string, double> timers_;  ///< association between timers and time elapsed
