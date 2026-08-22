@@ -97,7 +97,37 @@ Timers::resetPhases_() {
     phaseCalls_[i] = 0;
     phaseMin_[i] = std::numeric_limits<double>::max();
     phaseMax_[i] = 0.;
+    phaseDepth_[i] = 0;
+    for (int j = 0; j < PHASE_COUNT; ++j)
+      parentChild_[i][j] = 0.;
   }
+  phaseStack_.clear();
+}
+
+TimerPhase
+Timers::enter(const TimerPhase phase) {
+  return instance().enter_(phase);
+}
+
+TimerPhase
+Timers::enter_(const TimerPhase phase) {
+  const TimerPhase parent = phaseStack_.empty() ? PHASE_COUNT : phaseStack_.back();
+  phaseStack_.push_back(phase);
+  phaseDepth_[phase] += 1;
+  return parent;
+}
+
+void
+Timers::exit(const TimerPhase phase) {
+  instance().exit_(phase);
+}
+
+void
+Timers::exit_(const TimerPhase phase) {
+  if (!phaseStack_.empty())
+    phaseStack_.pop_back();
+  if (phaseDepth_[phase] > 0)
+    phaseDepth_[phase] -= 1;
 }
 
 void
@@ -106,13 +136,22 @@ Timers::record(const TimerPhase phase, const TimerPhase parent, const double tim
 }
 
 void
-Timers::record_(const TimerPhase phase, const TimerPhase /*parent*/, const double time) {
+Timers::record_(const TimerPhase phase, const TimerPhase parent, const double time) {
+  // Rule 2: an inner instance of a phase already on the stack records nothing,
+  // its time is already contained in the outermost instance's total.
+  if (phaseDepth_[phase] > 1)
+    return;
+
   phaseTime_[phase] += time;
   phaseCalls_[phase] += 1;
   if (time < phaseMin_[phase])
     phaseMin_[phase] = time;
   if (time > phaseMax_[phase])
     phaseMax_[phase] = time;
+
+  // Rule 3: no edge at the top level, and never a self edge.
+  if (parent != PHASE_COUNT && parent != phase)
+    parentChild_[parent][phase] += time;
 }
 
 double
@@ -133,6 +172,19 @@ Timers::phaseMinMs(const TimerPhase phase) const {
 double
 Timers::phaseMaxMs(const TimerPhase phase) const {
   return (phaseCalls_[phase] == 0) ? 0. : phaseMax_[phase] * 1000.;
+}
+
+double
+Timers::phaseExclusive(const TimerPhase phase) const {
+  double exclusive = phaseTime_[phase];
+  for (int c = 0; c < PHASE_COUNT; ++c)
+    exclusive -= parentChild_[phase][c];
+  return exclusive;
+}
+
+double
+Timers::phaseParentChild(const TimerPhase parent, const TimerPhase child) const {
+  return parentChild_[parent][child];
 }
 
 Timer::Timer(const std::string& name) :

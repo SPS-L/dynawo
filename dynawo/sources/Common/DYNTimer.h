@@ -105,6 +105,21 @@ class Timers : private boost::noncopyable {
   static void resetPhases();
 
   /**
+   * @brief mark a phase as entered and report its parent
+   *
+   * @param phase phase being entered
+   * @return the phase that was active, or PHASE_COUNT if none
+   */
+  static TimerPhase enter(TimerPhase phase);
+
+  /**
+   * @brief mark a phase as left
+   *
+   * @param phase phase being left
+   */
+  static void exit(TimerPhase phase);
+
+  /**
    * @brief total inclusive time accumulated for a phase
    * @param phase phase to query
    * @return seconds
@@ -131,6 +146,21 @@ class Timers : private boost::noncopyable {
    * @return milliseconds, or 0 if never measured
    */
   double phaseMaxMs(TimerPhase phase) const;
+
+  /**
+   * @brief time spent in a phase excluding all of its children
+   * @param phase phase to query
+   * @return seconds
+   */
+  double phaseExclusive(TimerPhase phase) const;
+
+  /**
+   * @brief time a child accumulated while nested directly under a parent
+   * @param parent parent phase
+   * @param child child phase
+   * @return seconds
+   */
+  double phaseParentChild(TimerPhase parent, TimerPhase child) const;
 
  private:
   /**
@@ -165,6 +195,19 @@ class Timers : private boost::noncopyable {
    */
   void resetPhases_();
 
+  /**
+   * @brief internal mark a phase as entered
+   * @param phase phase being entered
+   * @return the phase that was active, or PHASE_COUNT if none
+   */
+  TimerPhase enter_(TimerPhase phase);
+
+  /**
+   * @brief internal mark a phase as left
+   * @param phase phase being left
+   */
+  void exit_(TimerPhase phase);
+
  private:
   std::map<std::string, double> timers_;  ///< association between timers and time elapsed
   std::map<std::string, int32_t> nbAppels_;  ///< association between timers and number of call
@@ -172,6 +215,9 @@ class Timers : private boost::noncopyable {
   uint64_t phaseCalls_[PHASE_COUNT];  ///< completed measurements per phase
   double phaseMin_[PHASE_COUNT];  ///< shortest single measurement per phase, seconds
   double phaseMax_[PHASE_COUNT];  ///< longest single measurement per phase, seconds
+  double parentChild_[PHASE_COUNT][PHASE_COUNT];  ///< time a child spent directly under a parent, seconds
+  int phaseDepth_[PHASE_COUNT];  ///< current nesting depth per phase, for the recursion rule
+  std::vector<TimerPhase> phaseStack_;  ///< phases currently entered, innermost last
 };
 
 /**
