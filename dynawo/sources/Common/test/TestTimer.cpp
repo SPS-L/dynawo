@@ -42,6 +42,21 @@ TEST(TimerTest, testPhaseToStringCoversEveryPhase) {
   }
 }
 
+TEST(TimerTest, testAccessorsAreSafeForPhaseCount) {
+  // PHASE_COUNT is the documented "no parent" sentinel and is exactly what
+  // enter() returns at the top level, so every accessor must tolerate it
+  // (and any other out-of-range index) without indexing past the arrays.
+  Timers::resetPhases();
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseTotal(PHASE_COUNT), 0.0);
+  ASSERT_EQ(Timers::instance().phaseCalls(PHASE_COUNT), 0u);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseMinMs(PHASE_COUNT), 0.0);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseMaxMs(PHASE_COUNT), 0.0);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseExclusive(PHASE_COUNT), 0.0);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseParentChild(PHASE_COUNT, PHASE_COUNT), 0.0);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseParentChild(PHASE_REINIT, PHASE_COUNT), 0.0);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseParentChild(PHASE_COUNT, PHASE_REINIT), 0.0);
+}
+
 TEST(TimerTest, testEnterReturnsParent) {
   Timers::resetPhases();
   ASSERT_EQ(Timers::enter(PHASE_SOLVER_STEP), PHASE_COUNT);
@@ -66,27 +81,43 @@ TEST(TimerTest, testExclusiveExcludesChild) {
 }
 
 TEST(TimerTest, testExclusiveSubtractsEveryChildNotAChosenSubset) {
-  // This is the M2 regression: SOLVER_STEP has three children here and all
-  // three must be subtracted, not an enumerated subset of them.
+  // Regression coverage for phaseExclusive() subtracting an enumerated
+  // subset of phases instead of looping over every one of them: give
+  // PHASE_SOLVER_STEP a child recording under every other phase in the
+  // enum, so no hand-picked enumeration, however large, can pass this.
   Timers::resetPhases();
   const TimerPhase pStep = Timers::enter(PHASE_SOLVER_STEP);
 
-  const TimerPhase pNr = Timers::enter(PHASE_NR_SOLVE);
-  Timers::record(PHASE_NR_SOLVE, pNr, 0.5);
-  Timers::exit(PHASE_NR_SOLVE);
+  const double childTime = 0.1;
+  double sumOfChildren = 0.;
+  for (int c = 0; c < PHASE_COUNT; ++c) {
+    if (c == PHASE_SOLVER_STEP)
+      continue;
+    const TimerPhase child = static_cast<TimerPhase>(c);
+    const TimerPhase pChild = Timers::enter(child);
+    Timers::record(child, pChild, childTime);
+    Timers::exit(child);
+    sumOfChildren += childTime;
+  }
 
-  const TimerPhase pRoot = Timers::enter(PHASE_ROOT_EVAL);
-  Timers::record(PHASE_ROOT_EVAL, pRoot, 0.2);
-  Timers::exit(PHASE_ROOT_EVAL);
-
-  const TimerPhase pMode = Timers::enter(PHASE_MODE_EVAL);
-  Timers::record(PHASE_MODE_EVAL, pMode, 0.1);
-  Timers::exit(PHASE_MODE_EVAL);
-
-  Timers::record(PHASE_SOLVER_STEP, pStep, 1.0);
+  const double total = 10.0;
+  Timers::record(PHASE_SOLVER_STEP, pStep, total);
   Timers::exit(PHASE_SOLVER_STEP);
 
-  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseExclusive(PHASE_SOLVER_STEP), 0.2);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseExclusive(PHASE_SOLVER_STEP), total - sumOfChildren);
+}
+
+TEST(TimerTest, testSelfEdgeNeverRecordedEvenWithoutNesting) {
+  // Rule 3's self-edge exclusion is otherwise unreachable in test: at any
+  // nesting depth greater than one, rule 2 returns before the edge code
+  // runs, so a record with parent == phase and no enclosing enter() is the
+  // only way to exercise it.
+  Timers::resetPhases();
+  Timers::record(PHASE_REINIT, PHASE_REINIT, 1.0);
+
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseTotal(PHASE_REINIT), 1.0);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseParentChild(PHASE_REINIT, PHASE_REINIT), 0.0);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseExclusive(PHASE_REINIT), 1.0);
 }
 
 TEST(TimerTest, testRecursionCountedOnce) {
@@ -134,8 +165,17 @@ TEST(TimerTest, testExclusiveNeverNegative) {
     ASSERT_TRUE(Timers::instance().phaseExclusive(static_cast<TimerPhase>(i)) >= -1e-12);
 }
 
-TEST(TimerTest, testExclusiveSumEqualsRootTotal) {
+TEST(TimerTest, testExclusiveSumEqualsSumOfAllRootTotals) {
+  // The exclusive-time identity holds over every root, not just one:
+  // Dynawo has more than one phase entered with no active parent
+  // (PHASE_CALCULATE_IC and PHASE_SIMULATION_LOOP both start the stack
+  // empty), so the sum of every phase's exclusive time must equal the sum
+  // of every root's total, not the total of a single chosen root.
   Timers::resetPhases();
+  const TimerPhase pIc = Timers::enter(PHASE_CALCULATE_IC);
+  Timers::record(PHASE_CALCULATE_IC, pIc, 0.3);
+  Timers::exit(PHASE_CALCULATE_IC);
+
   const TimerPhase pLoop = Timers::enter(PHASE_SIMULATION_LOOP);
   const TimerPhase pSolve = Timers::enter(PHASE_SOLVER_SOLVE);
   const TimerPhase pStep = Timers::enter(PHASE_SOLVER_STEP);
@@ -149,7 +189,25 @@ TEST(TimerTest, testExclusiveSumEqualsRootTotal) {
   double sum = 0.;
   for (int i = 0; i < PHASE_COUNT; ++i)
     sum += Timers::instance().phaseExclusive(static_cast<TimerPhase>(i));
-  ASSERT_DOUBLE_EQUALS_DYNAWO(sum, Timers::instance().phaseTotal(PHASE_SIMULATION_LOOP));
+  const double sumOfRoots = Timers::instance().phaseTotal(PHASE_CALCULATE_IC) +
+      Timers::instance().phaseTotal(PHASE_SIMULATION_LOOP);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(sum, sumOfRoots);
+}
+
+TEST(TimerTest, testIndirectRecursionSetsCycleDetectedFlag) {
+  // A -> B -> A: PHASE_SOLVER_STEP is already open when it is entered again
+  // while PHASE_REINIT, not itself, is on top of the stack. This is the
+  // indirect-recursion case enter() cannot attribute correctly; it must be
+  // detected rather than silently mis-report.
+  Timers::resetPhases();
+  ASSERT_FALSE(Timers::instance().cycleDetected());
+  Timers::enter(PHASE_SOLVER_STEP);
+  Timers::enter(PHASE_REINIT);
+  Timers::enter(PHASE_SOLVER_STEP);
+  ASSERT_TRUE(Timers::instance().cycleDetected());
+  Timers::exit(PHASE_SOLVER_STEP);
+  Timers::exit(PHASE_REINIT);
+  Timers::exit(PHASE_SOLVER_STEP);
 }
 
 }  // namespace DYN

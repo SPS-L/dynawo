@@ -21,6 +21,8 @@
 
 #include "DYNTimer.h"
 
+#include "DYNTrace.h"
+
 #include <limits>
 #include <thread>
 #include <sstream>
@@ -102,6 +104,7 @@ Timers::resetPhases_() {
       parentChild_[i][j] = 0.;
   }
   phaseStack_.clear();
+  cycleWarned_ = false;
 }
 
 TimerPhase
@@ -112,6 +115,15 @@ Timers::enter(const TimerPhase phase) {
 TimerPhase
 Timers::enter_(const TimerPhase phase) {
   const TimerPhase parent = phaseStack_.empty() ? PHASE_COUNT : phaseStack_.back();
+  // Indirect recursion (A -> B -> A): phase is already open somewhere on the
+  // stack but is not the current top. Not supported, see enter()'s Doxygen;
+  // warn once per instance rather than assert, since the build that runs
+  // cross-validation is not necessarily a debug build.
+  if (!cycleWarned_ && phaseDepth_[phase] > 0 && !phaseStack_.empty() && phaseStack_.back() != phase) {
+    Trace::warn() << "DYNTimer: indirect recursion detected on phase " << phaseToString(phase)
+                  << ", its exclusive time attribution is no longer reliable" << Trace::endline;
+    cycleWarned_ = true;
+  }
   phaseStack_.push_back(phase);
   phaseDepth_[phase] += 1;
   return parent;
@@ -156,26 +168,36 @@ Timers::record_(const TimerPhase phase, const TimerPhase parent, const double ti
 
 double
 Timers::phaseTotal(const TimerPhase phase) const {
+  if (phase >= PHASE_COUNT)
+    return 0.;
   return phaseTime_[phase];
 }
 
 uint64_t
 Timers::phaseCalls(const TimerPhase phase) const {
+  if (phase >= PHASE_COUNT)
+    return 0;
   return phaseCalls_[phase];
 }
 
 double
 Timers::phaseMinMs(const TimerPhase phase) const {
+  if (phase >= PHASE_COUNT)
+    return 0.;
   return (phaseCalls_[phase] == 0) ? 0. : phaseMin_[phase] * 1000.;
 }
 
 double
 Timers::phaseMaxMs(const TimerPhase phase) const {
+  if (phase >= PHASE_COUNT)
+    return 0.;
   return (phaseCalls_[phase] == 0) ? 0. : phaseMax_[phase] * 1000.;
 }
 
 double
 Timers::phaseExclusive(const TimerPhase phase) const {
+  if (phase >= PHASE_COUNT)
+    return 0.;
   double exclusive = phaseTime_[phase];
   for (int c = 0; c < PHASE_COUNT; ++c)
     exclusive -= parentChild_[phase][c];
@@ -184,7 +206,14 @@ Timers::phaseExclusive(const TimerPhase phase) const {
 
 double
 Timers::phaseParentChild(const TimerPhase parent, const TimerPhase child) const {
+  if (parent >= PHASE_COUNT || child >= PHASE_COUNT)
+    return 0.;
   return parentChild_[parent][child];
+}
+
+bool
+Timers::cycleDetected() const {
+  return cycleWarned_;
 }
 
 Timer::Timer(const std::string& name) :

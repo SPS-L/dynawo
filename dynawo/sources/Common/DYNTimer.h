@@ -107,6 +107,13 @@ class Timers : private boost::noncopyable {
   /**
    * @brief mark a phase as entered and report its parent
    *
+   * @note indirect recursion (entering a phase that is already on the stack
+   * but is not the current top, for example a cycle A -> B -> A) is not
+   * supported: it is detected and a one-shot warning is emitted through
+   * Trace::warn(), but the exclusive time attributed to the phases involved
+   * in the cycle becomes unreliable. There is no such cycle among the
+   * phases instrumented today.
+   *
    * @param phase phase being entered
    * @return the phase that was active, or PHASE_COUNT if none
    */
@@ -122,35 +129,45 @@ class Timers : private boost::noncopyable {
   /**
    * @brief total inclusive time accumulated for a phase
    * @param phase phase to query
-   * @return seconds
+   * @return seconds, or 0 if phase is PHASE_COUNT or otherwise out of range
    */
   double phaseTotal(TimerPhase phase) const;
 
   /**
    * @brief number of completed measurements for a phase
    * @param phase phase to query
-   * @return call count
+   * @return call count, or 0 if phase is PHASE_COUNT or otherwise out of range
    */
   uint64_t phaseCalls(TimerPhase phase) const;
 
   /**
    * @brief shortest single measurement for a phase
    * @param phase phase to query
-   * @return milliseconds, or 0 if never measured
+   * @return milliseconds, or 0 if never measured, phase is PHASE_COUNT, or otherwise out of range
    */
   double phaseMinMs(TimerPhase phase) const;
 
   /**
    * @brief longest single measurement for a phase
    * @param phase phase to query
-   * @return milliseconds, or 0 if never measured
+   * @return milliseconds, or 0 if never measured, phase is PHASE_COUNT, or otherwise out of range
    */
   double phaseMaxMs(TimerPhase phase) const;
 
   /**
    * @brief time spent in a phase excluding all of its children
+   *
+   * The sum of phaseExclusive() over every phase equals the sum of every
+   * measurement recorded with parent == PHASE_COUNT, that is, the total of
+   * every root, not just one: Dynawo has more than one root phase (for
+   * example both PHASE_CALCULATE_IC and PHASE_SIMULATION_LOOP are entered
+   * with no active parent).
+   *
+   * @note this identity, and the per-phase value itself, only hold when the
+   * instrumented phases form no cycle: see the recursion note on enter().
+   *
    * @param phase phase to query
-   * @return seconds
+   * @return seconds, or 0 if phase is PHASE_COUNT or otherwise out of range
    */
   double phaseExclusive(TimerPhase phase) const;
 
@@ -158,9 +175,20 @@ class Timers : private boost::noncopyable {
    * @brief time a child accumulated while nested directly under a parent
    * @param parent parent phase
    * @param child child phase
-   * @return seconds
+   * @return seconds, or 0 if either phase is PHASE_COUNT or otherwise out of range
    */
   double phaseParentChild(TimerPhase parent, TimerPhase child) const;
+
+  /**
+   * @brief whether an indirect recursion has been detected since the last reset
+   *
+   * True once enter() has detected a phase re-entered while already on the
+   * stack but not at the top (a cycle such as A -> B -> A) and has emitted
+   * its one-shot warning. See the recursion note on enter().
+   *
+   * @return true if such a cycle has been detected
+   */
+  bool cycleDetected() const;
 
  private:
   /**
@@ -218,6 +246,7 @@ class Timers : private boost::noncopyable {
   double parentChild_[PHASE_COUNT][PHASE_COUNT];  ///< time a child spent directly under a parent, seconds
   int phaseDepth_[PHASE_COUNT];  ///< current nesting depth per phase, for the recursion rule
   std::vector<TimerPhase> phaseStack_;  ///< phases currently entered, innermost last
+  bool cycleWarned_;  ///< true once the one-shot indirect-recursion warning has fired
 };
 
 /**
