@@ -26,12 +26,14 @@
 #include "DYNModel.h"
 #include "DYNSolverCommon.h"
 #include "DYNSparseMatrix.h"
+#include "DYNTimer.h"
 #include "DYNTrace.h"
 
 namespace DYN {
 
 bool
 SolverCommon::copySparseToKINSOL(const SparseMatrix& smj, SUNMatrix& JJ, const int& size, sunindextype * lastRowVals) {
+  DYNAWO_TIMER_PHASE(PHASE_MATRIX_COPY);
   bool matrixStructChange = false;
   if (SM_NNZ_S(JJ) < smj.nbElem()) {
     free(SM_INDEXPTRS_S(JJ));

@@ -1027,6 +1027,9 @@ Simulation::simulate() {
     }
     int currentIterNb = 0;
     double nextTimeStep = 0;
+
+    {
+    DYNAWO_TIMER_PHASE(PHASE_SIMULATION_LOOP);
     while (!end() && !SignalHandler::gotExitSignal() && criteriaChecked) {
       double elapsed = timer.elapsed();
       double timeout = jobEntry_->getSimulationEntry()->getTimeout();
@@ -1106,6 +1109,7 @@ Simulation::simulate() {
         }
         intermediateStates_.pop_front();
       }
+    }
     }
 
     // If we haven't evaluated the calculated variables for the last iteration before, we must do it here if it might be used in the post process
@@ -1200,6 +1204,7 @@ Simulation::getFailingCriteria(std::vector<std::pair<double, std::string> >& fai
 
 void
 Simulation::updateCurves(const bool updateCalculatedVariable) {
+  DYNAWO_TIMER_PHASE(PHASE_CURVES_UPDATE);
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer timer("Simulation::updateCurves()");
 #endif
@@ -1266,6 +1271,7 @@ Simulation::setCriteriaStep(const int step) {
 
 void
 Simulation::terminate() {
+  DYNAWO_TIMER_PHASE(PHASE_IO);
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer timer("Simulation::terminate()");
 #endif

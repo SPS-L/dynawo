@@ -246,6 +246,7 @@ Solver::Impl::resetStats() {
 
 void
 Solver::Impl::solve(const double tAim, double& tNxt) {
+  DYNAWO_TIMER_PHASE(PHASE_SOLVER_SOLVE);
   // Solving
   state_.reset();
   model_->reinitMode();
@@ -263,6 +264,8 @@ Solver::Impl::evalZMode(vector<state_g>& G0, vector<state_g>& G1, const double t
 #endif
   bool change = false;
 
+  {
+  DYNAWO_TIMER_PHASE(PHASE_DISCRETE_EVAL);
   // evalZ part
   bool nonSilentZChange;
   int i = 0;
@@ -296,13 +299,17 @@ Solver::Impl::evalZMode(vector<state_g>& G0, vector<state_g>& G1, const double t
   } while (nonSilentZChange);
 
   std::copy(G1.begin(), G1.end(), G0.begin());
+  }
 
+  {
+  DYNAWO_TIMER_PHASE(PHASE_MODE_EVAL);
   // evalMode part
   model_->evalMode(time);
   ++stats_.nme_;
   if (model_->modeChange()) {
     change = true;
     state_.setFlags(ModeChange);
+  }
   }
 
   return change;

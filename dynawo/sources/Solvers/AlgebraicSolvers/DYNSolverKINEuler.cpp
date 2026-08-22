@@ -73,6 +73,7 @@ SolverKINEuler::init(const std::shared_ptr<Model>& model, Solver* timeSchemeSolv
 
 int
 SolverKINEuler::evalF_KIN(N_Vector yy, N_Vector rr, void* data) {
+  DYNAWO_TIMER_PHASE(PHASE_RESIDUAL_EVAL);
   SolverKINEuler* solver = reinterpret_cast<SolverKINEuler*> (data);
   Model& model = solver->getModel();
   Solver& timeSchemeSolver = solver->getTimeSchemeSolver();
@@ -127,6 +128,7 @@ SolverKINEuler::evalF_KIN(N_Vector yy, N_Vector rr, void* data) {
 int
 SolverKINEuler::evalJ_KIN(N_Vector /*yy*/, N_Vector /*rr*/,
         SUNMatrix JJ, void* data, N_Vector /*tmp1*/, N_Vector /*tmp2*/) {
+  DYNAWO_TIMER_PHASE(PHASE_JACOBIAN_EVAL);
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer timer("SolverKINEuler::evalJ_KIN");
 #endif

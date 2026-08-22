@@ -33,6 +33,7 @@
 #include "DYNMacrosMessage.h"
 #include "DYNSolverKINEuler.h"
 #include "DYNSolverKINAlgRestoration.h"
+#include "DYNTimer.h"
 #include "DYNTrace.h"
 #include "DYNModel.h"
 
@@ -86,6 +87,7 @@ SolverTRAP::init(const std::shared_ptr<Model>& model, const double t0, const dou
 
 void
 SolverTRAP::calculateIC(const double /*tEnd*/) {
+  DYNAWO_TIMER_PHASE(PHASE_CALCULATE_IC);
   calculateICCommon();
   setDifferentialVariablesIndices();
 
@@ -138,6 +140,7 @@ SolverTRAP::setSolverSpecificParameters() {
 }
 
 void SolverTRAP::solveStep(const double tAim, double& tNxt) {
+  DYNAWO_TIMER_PHASE(PHASE_SOLVER_STEP);
   solveStepCommon(tAim, tNxt);
 
   // Velocity recalculated after each time step.

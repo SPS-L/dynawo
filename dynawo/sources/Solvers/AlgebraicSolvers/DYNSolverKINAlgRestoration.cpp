@@ -30,6 +30,7 @@
 #include "DYNModel.h"
 #include "DYNSolverCommon.h"
 #include "DYNSparseMatrix.h"
+#include "DYNTimer.h"
 
 #include "DYNTrace.h"
 #include "DYNMacrosMessage.h"
@@ -161,6 +162,7 @@ SolverKINAlgRestoration::initVarAndEqTypes() {
 void
 SolverKINAlgRestoration::setupNewAlgebraicRestoration(const double fnormtol, const double initialaddtol, const double scsteptol,
   const double mxnewtstep, const int msbset, const int mxiter, int const printfl) {
+  DYNAWO_TIMER_PHASE(PHASE_REINIT);
   const unsigned int numFPrevious = numF_;
   numF_ = initVarAndEqTypes();
   if (numF_ == 0)
@@ -233,6 +235,7 @@ SolverKINAlgRestoration::updateKINSOLSettings(const double fnormtol, const doubl
 
 int
 SolverKINAlgRestoration::evalF_KIN(N_Vector yy, N_Vector rr, void *data) {
+  DYNAWO_TIMER_PHASE(PHASE_RESIDUAL_EVAL);
   SolverKINAlgRestoration* solver = reinterpret_cast<SolverKINAlgRestoration*>(data);
   Model& model = solver->getModel();
 
@@ -314,6 +317,7 @@ SolverKINAlgRestoration::checkJacobian(const SparseMatrix& smj, Model& model) {
 int
 SolverKINAlgRestoration::evalJ_KIN(N_Vector /*yy*/, N_Vector /*rr*/,
          SUNMatrix JJ, void* data, N_Vector /*tmp1*/, N_Vector /*tmp2*/) {
+  DYNAWO_TIMER_PHASE(PHASE_JACOBIAN_EVAL);
   SolverKINAlgRestoration* solver = reinterpret_cast<SolverKINAlgRestoration*> (data);
   Model& model = solver->getModel();
 
@@ -340,6 +344,7 @@ SolverKINAlgRestoration::evalJ_KIN(N_Vector /*yy*/, N_Vector /*rr*/,
 int
 SolverKINAlgRestoration::evalJPrim_KIN(N_Vector /*yy*/, N_Vector /*rr*/,
         SUNMatrix JJ, void* data, N_Vector /*tmp1*/, N_Vector /*tmp2*/) {
+  DYNAWO_TIMER_PHASE(PHASE_JACOBIAN_EVAL);
   SolverKINAlgRestoration* solver = reinterpret_cast<SolverKINAlgRestoration*> (data);
   Model& model = solver->getModel();
 

@@ -331,6 +331,7 @@ SolverIDA::init(const std::shared_ptr<Model>& model, const double t0, const doub
 
 void
 SolverIDA::calculateIC(const double /*tEnd*/) {
+  DYNAWO_TIMER_PHASE(PHASE_CALCULATE_IC);
 #ifdef _DEBUG_
   vector<double> y0;
   y0.assign(vectorY_.begin(), vectorY_.end());
@@ -525,6 +526,7 @@ SolverIDA::analyseFlag(const int & flag) {
 int
 SolverIDA::evalF(realtype tres, N_Vector yy, N_Vector yp,
         N_Vector rr, void* data) {
+  DYNAWO_TIMER_PHASE(PHASE_RESIDUAL_EVAL);
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer timer("SolverIDA::evalF");
 #endif
@@ -629,6 +631,7 @@ SolverIDA::printWeightedErrors() const {
 int
 SolverIDA::evalG(realtype tres, N_Vector yy, N_Vector yp, realtype* gout,
         void* data) {
+  DYNAWO_TIMER_PHASE(PHASE_ROOT_EVAL);
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer timer("SolverIDA::evalG");
 #endif
@@ -654,6 +657,7 @@ SolverIDA::evalJ(realtype tt, realtype cj,
         N_Vector yy, N_Vector yp, N_Vector /*rr*/,
         SUNMatrix JJ, void* data,
         N_Vector /*tmp1*/, N_Vector /*tmp2*/, N_Vector /*tmp3*/) {
+  DYNAWO_TIMER_PHASE(PHASE_JACOBIAN_EVAL);
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer timer("SolverIDA::evalJ");
 #endif
@@ -675,6 +679,7 @@ SolverIDA::evalJ(realtype tt, realtype cj,
 
 void
 SolverIDA::solveStep(double tAim, double& tNxt) {
+  DYNAWO_TIMER_PHASE(PHASE_SOLVER_STEP);
   int flag = IDASolve(IDAMem_, tAim, &tNxt, sundialsVectorY_, sundialsVectorYp_, IDA_ONE_STEP);
 
   string msg;

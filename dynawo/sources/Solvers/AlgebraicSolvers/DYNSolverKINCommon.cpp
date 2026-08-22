@@ -28,6 +28,7 @@
 #include <sstream>
 
 #include "DYNSolverKINCommon.h"
+#include "DYNTimer.h"
 #include "DYNTrace.h"
 #include "DYNMacrosMessage.h"
 
@@ -184,6 +185,7 @@ SolverKINCommon::initCommon(const double fnormtol, const double initialaddtol, c
 
 int
 SolverKINCommon::solveCommon(const int strategy) {
+  DYNAWO_TIMER_PHASE(PHASE_KINSOL_SOLVE);
   const int flag = KINSol(KINMem_, sundialsVectorY_, strategy, sundialsVectorYScale_, sundialsVectorFScale_);
   analyseFlag(flag);
 

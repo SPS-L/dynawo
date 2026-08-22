@@ -37,6 +37,7 @@
 #include "DYNMacrosMessage.h"
 #include "DYNSolverKINEuler.h"
 #include "DYNSolverKINAlgRestoration.h"
+#include "DYNTimer.h"
 #include "DYNTrace.h"
 #include "DYNModel.h"
 
@@ -241,6 +242,7 @@ void SolverCommonFixedTimeStep::solveStepCommon(double /*tAim*/, double& tNxt) {
 
 void
 SolverCommonFixedTimeStep::calculateICCommon() {
+  DYNAWO_TIMER_PHASE(PHASE_ROOT_EVAL);
   Trace::debug() << DYNLog(CalculateIC) << Trace::endline;
   // Root evaluation before the initialization
   // --------------------------------
@@ -261,6 +263,7 @@ SolverCommonFixedTimeStep::calculateICCommon() {
 
 bool
 SolverCommonFixedTimeStep::calculateICCommonModeChange(int& counter, bool& change) {
+  DYNAWO_TIMER_PHASE(PHASE_ROOT_EVAL);
   // Updating discrete variable values and mode
   model_->evalG(tSolve_, g1_);
   if (std::equal(g0_.begin(), g0_.end(), g1_.begin())) {
@@ -308,6 +311,7 @@ SolverCommonFixedTimeStep::SolverStatus_t SolverCommonFixedTimeStep::analyzeResu
 
 int
 SolverCommonFixedTimeStep::callAlgebraicSolver() {
+  DYNAWO_TIMER_PHASE(PHASE_NR_SOLVE);
   int flag = 0;
   if (skipNextNR_) {
     return KIN_INITIAL_GUESS_OK;
@@ -331,6 +335,7 @@ SolverCommonFixedTimeStep::callAlgebraicSolver() {
 }
 
 void SolverCommonFixedTimeStep::updateZAndMode(SolverStatus_t& status) {
+  DYNAWO_TIMER_PHASE(PHASE_ROOT_EVAL);
   // Evaluate root values after the time step (using updated y and yp)
   model_->evalG(tSolve_ + h_, g1_);
   ++stats_.ngeInternal_;
@@ -451,6 +456,7 @@ bool SolverCommonFixedTimeStep::setupNewAlgRestoration(modeChangeType_t modeChan
  */
 void
 SolverCommonFixedTimeStep::reinit() {
+  DYNAWO_TIMER_PHASE(PHASE_ROOT_EVAL);
   int counter = 0;
   modeChangeType_t modeChangeType = model_->getModeChangeType();
 
