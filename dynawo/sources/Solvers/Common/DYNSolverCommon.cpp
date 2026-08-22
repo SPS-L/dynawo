@@ -46,6 +46,7 @@ const size_t MAX_KLU_SOLVERS = 16;  ///< headroom above the live-instance count 
 thread_local KLUSetupEntry g_kluTable[MAX_KLU_SOLVERS];  ///< live instrumented solvers, this thread only
 thread_local size_t g_kluCount = 0;  ///< number of live entries in g_kluTable
 thread_local bool g_kluCapacityWarned = false;  ///< one-shot guard for the table-full warning, this thread only
+thread_local bool g_kluMissWarned = false;  ///< one-shot guard for the unregistered-solver warning, this thread only
 
 /**
  * @brief timed replacement for a KLU solver's setup routine
@@ -63,9 +64,14 @@ int profiledKLUSetup(SUNLinearSolver LS, SUNMatrix A) {
   }
   // The wrapper is installed on LS->ops->setup but the registry entry is gone: reachable only if the entry was
   // evicted or never recorded, both bugs elsewhere in this file. Returning SUNLS_SUCCESS here without calling any
-  // setup routine would let KINSOL or IDA proceed against a stale or uninitialised factorisation, so fail hard.
-  DYN::Trace::warn() << "DYNSolverCommon: KLU setup wrapper invoked on a solver with no registry entry, "
-                      << "refusing to factorise instead of silently skipping it" << DYN::Trace::endline;
+  // setup routine would let KINSOL or IDA proceed against a stale or uninitialised factorisation, so fail hard
+  // unconditionally; only the logging below is throttled, since a retry loop in KINSOL or IDA could call setup
+  // repeatedly before giving up, turning a diagnostic into log spam.
+  if (!g_kluMissWarned) {
+    DYN::Trace::warn() << "DYNSolverCommon: KLU setup wrapper invoked on a solver with no registry entry, "
+                        << "refusing to factorise instead of silently skipping it" << DYN::Trace::endline;
+    g_kluMissWarned = true;
+  }
   return SUNLS_PACKAGE_FAIL_UNREC;
 }
 #endif
