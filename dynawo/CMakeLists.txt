@@ -17,6 +17,7 @@ endif()
 
 option(BUILD_TESTS "Choose to build the unit tests")
 option(BUILD_TESTS_COVERAGE "Choose to build tests coverage")
+option(DYNAWO_TIMERS "Enable timing instrumentation and phase accounting" OFF)
 
 # Add custom cmake modules to the path
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -236,6 +237,12 @@ endif()
 
 # For compatibility with old makefiles
 add_definitions(-D_DYNAWO_)
+
+# Timing instrumentation, see documentation/configuringDynawo
+if(DYNAWO_TIMERS)
+  add_definitions(-DPRINT_TIMERS)
+  message(STATUS "Timing instrumentation enabled")
+endif()
 
 # For ADEPT
 set(USE_ADEPT ON CACHE BOOL "")

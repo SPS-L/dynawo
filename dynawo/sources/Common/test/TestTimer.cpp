@@ -11,6 +11,8 @@
 // simulation tool for power systems.
 //
 
+#include <stdexcept>
+
 #include "gtest_dynawo.h"
 #include "DYNCommon.h"
 #include "DYNTimer.h"
@@ -208,6 +210,48 @@ TEST(TimerTest, testIndirectRecursionSetsCycleDetectedFlag) {
   Timers::exit(PHASE_SOLVER_STEP);
   Timers::exit(PHASE_REINIT);
   Timers::exit(PHASE_SOLVER_STEP);
+}
+
+TEST(TimerTest, testEnumTimerRecordsOnDestruction) {
+  Timers::resetPhases();
+  {
+    Timer t(PHASE_MATRIX_COPY);
+  }
+  ASSERT_EQ(Timers::instance().phaseCalls(PHASE_MATRIX_COPY), 1u);
+  ASSERT_TRUE(Timers::instance().phaseTotal(PHASE_MATRIX_COPY) >= 0.);
+}
+
+TEST(TimerTest, testEnumTimerNestingAttributesToParent) {
+  Timers::resetPhases();
+  {
+    Timer outer(PHASE_SOLVER_STEP);
+    {
+      Timer inner(PHASE_NR_SOLVE);
+    }
+  }
+  ASSERT_EQ(Timers::instance().phaseCalls(PHASE_SOLVER_STEP), 1u);
+  ASSERT_EQ(Timers::instance().phaseCalls(PHASE_NR_SOLVE), 1u);
+  // A construct/destruct pair this small can complete in under one
+  // microsecond once the process is warm, and elapsed() truncates at
+  // microsecond resolution, so the recorded edge can legitimately be exactly
+  // zero. Same tolerance as testEnumTimerRecordsOnDestruction above.
+  ASSERT_TRUE(Timers::instance().phaseParentChild(PHASE_SOLVER_STEP, PHASE_NR_SOLVE) >= 0.);
+  ASSERT_TRUE(Timers::instance().phaseExclusive(PHASE_SOLVER_STEP) >= -1e-12);
+}
+
+TEST(TimerTest, testStackUnwindsOnThrow) {
+  Timers::resetPhases();
+  try {
+    Timer outer(PHASE_SOLVER_STEP);
+    throw std::runtime_error("unwind");
+  } catch (const std::runtime_error&) {
+    // the RAII destructor must have popped the stack
+  }
+  {
+    Timer t(PHASE_IO);
+  }
+  // If the stack had leaked, PHASE_IO would be attributed under SOLVER_STEP.
+  ASSERT_DOUBLE_EQUALS_DYNAWO(Timers::instance().phaseParentChild(PHASE_SOLVER_STEP, PHASE_IO), 0.0);
 }
 
 }  // namespace DYN

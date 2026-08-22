@@ -219,14 +219,36 @@ Timers::cycleDetected() const {
 Timer::Timer(const std::string& name) :
 name_(name),
 startPoint_(std::chrono::steady_clock::now()),
-isStopped_(false) {
+isStopped_(false),
+phase_(PHASE_COUNT),
+parentPhase_(PHASE_COUNT) {
+}
+
+Timer::Timer(const TimerPhase phase) :
+name_(),
+startPoint_(std::chrono::steady_clock::now()),
+isStopped_(false),
+phase_(phase),
+parentPhase_(Timers::enter(phase)) {
 }
 
 void
 Timer::stop() {
+  if (isStopped_)
+    return;
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   const double elapsedTime = elapsed();
-  Timers::add(name_, elapsedTime);
+  if (phase_ == PHASE_COUNT) {
+    Timers::add(name_, elapsedTime);
+  } else {
+    // record before exit: the recursion rule reads the depth of the phase
+    // while it is still on the stack.
+    Timers::record(phase_, parentPhase_, elapsedTime);
+    Timers::exit(phase_);
+  }
+#else
+  if (phase_ != PHASE_COUNT)
+    Timers::exit(phase_);
 #endif
   isStopped_ = true;
 }

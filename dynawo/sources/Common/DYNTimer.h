@@ -265,6 +265,13 @@ class Timer : private boost::noncopyable {
   explicit Timer(const std::string& name);
 
   /**
+   * @brief constructor for a timed phase
+   *
+   * @param phase phase to time
+   */
+  explicit Timer(TimerPhase phase);
+
+  /**
    * @brief destructor
    */
   ~Timer();
@@ -284,8 +291,19 @@ class Timer : private boost::noncopyable {
   std::string name_;  ///< name of timer
   std::chrono::steady_clock::time_point startPoint_;  ///< start time point of the timer
   bool isStopped_;  ///< @b true is the timer is stopped
+  TimerPhase phase_;  ///< phase being timed, PHASE_COUNT for a named timer
+  TimerPhase parentPhase_;  ///< phase active when this timer started
 };
 
 }  // namespace DYN
+
+// Phase instrumentation. Expands to nothing unless timing is enabled, so that
+// default builds pay no clock read in hot paths such as the KINSOL residual
+// and Jacobian callbacks.
+#if defined(_DEBUG_) || defined(PRINT_TIMERS)
+  #define DYNAWO_TIMER_PHASE(phase) DYN::Timer dynawoTimer_##phase(DYN::phase)
+#else
+  #define DYNAWO_TIMER_PHASE(phase) ((void)0)
+#endif
 
 #endif  // COMMON_DYNTIMER_H_
