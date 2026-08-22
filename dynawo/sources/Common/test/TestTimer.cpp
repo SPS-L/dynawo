@@ -247,8 +247,16 @@ TEST(TimerTest, testEnumTimerNestingAttributesToParent) {
 TEST(TimerTest, testCsvExportContentAndHeader) {
   Timers::resetPhases();
   const TimerPhase pStep = Timers::enter(PHASE_SOLVER_STEP);
-  const TimerPhase pNr = Timers::enter(PHASE_NR_SOLVE);
-  Timers::record(PHASE_NR_SOLVE, pNr, 0.25);
+  // NR_SOLVE is recorded twice with different durations (0.1 s and 0.4 s) so
+  // its min and max genuinely differ: a same-unit min/max column swap in the
+  // CSV writer would otherwise be undetectable, since a phase measured only
+  // once has phaseMinMs() == phaseMaxMs() and a swap produces byte-identical
+  // output.
+  const TimerPhase pNr1 = Timers::enter(PHASE_NR_SOLVE);
+  Timers::record(PHASE_NR_SOLVE, pNr1, 0.1);
+  Timers::exit(PHASE_NR_SOLVE);
+  const TimerPhase pNr2 = Timers::enter(PHASE_NR_SOLVE);
+  Timers::record(PHASE_NR_SOLVE, pNr2, 0.4);
   Timers::exit(PHASE_NR_SOLVE);
   Timers::record(PHASE_SOLVER_STEP, pStep, 1.0);
   Timers::exit(PHASE_SOLVER_STEP);
@@ -269,14 +277,16 @@ TEST(TimerTest, testCsvExportContentAndHeader) {
   while (std::getline(ifs, line)) {
     if (line.find("SolverStep,") == 0) {
       sawStep = true;
-      // total 1.0 s, exclusive 0.75 s, one call, min/max 1000 ms: the seconds
-      // and milliseconds columns must not be swapped or share a scale.
-      ASSERT_EQ(line, "SolverStep,1.000000,0.750000,1,1000.0000,1000.0000");
+      // total 1.0 s, exclusive 0.5 s (1.0 minus the two NR_SOLVE children,
+      // 0.1 + 0.4), one call, min/max 1000 ms.
+      ASSERT_EQ(line, "SolverStep,1.000000,0.500000,1,1000.0000,1000.0000");
     }
     if (line.find("NRSolve,") == 0) {
       sawNr = true;
-      // total 0.25 s, exclusive 0.25 s (no children), one call, min/max 250 ms.
-      ASSERT_EQ(line, "NRSolve,0.250000,0.250000,1,250.0000,250.0000");
+      // total 0.5 s (0.1 + 0.4), exclusive 0.5 s (no children of its own),
+      // two calls, min 100 ms, max 400 ms: min and max differ on purpose,
+      // see the fixture comment above.
+      ASSERT_EQ(line, "NRSolve,0.500000,0.500000,2,100.0000,400.0000");
     }
     if (line.find("MatrixCopy,") == 0)
       sawUntouched = true;

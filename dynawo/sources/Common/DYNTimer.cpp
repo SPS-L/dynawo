@@ -70,18 +70,26 @@ Timers::~Timers() {
   // Instance methods only below: instance() must not be re-entered while
   // this singleton is being torn down, see printPhaseReport_() and
   // exportPhasesCSV_().
-  bool anyPhase = false;
-  for (int i = 0; i < PHASE_COUNT; ++i) {
-    if (phaseCalls_[i] > 0) {
-      anyPhase = true;
-      break;
+  //
+  // A destructor unwinding at thread_local teardown has nowhere to propagate
+  // an exception to: letting one escape here would terminate the process.
+  // Losing the timing report is strictly preferable, so swallow everything.
+  try {
+    bool anyPhase = false;
+    for (int i = 0; i < PHASE_COUNT; ++i) {
+      if (phaseCalls_[i] > 0) {
+        anyPhase = true;
+        break;
+      }
     }
-  }
-  if (anyPhase) {
-    printPhaseReport_();
-    const char* const out = std::getenv("DYNAWO_TIMERS_OUTPUT");
-    if (out != NULL)
-      exportPhasesCSV_(std::string(out));
+    if (anyPhase) {
+      printPhaseReport_();
+      const char* const out = std::getenv("DYNAWO_TIMERS_OUTPUT");
+      if (out != NULL)
+        exportPhasesCSV_(std::string(out));
+    }
+  } catch (...) {
+    // Deliberately empty: see the comment above.
   }
 #endif
 }
