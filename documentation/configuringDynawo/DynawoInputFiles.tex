@@ -895,6 +895,68 @@ Here are a few rules to follow to write models variables names:
 
 The factor attribute default value is 1. Values recorded in curves are multiplied by this factor.
 
+\section{Timing instrumentation}
+
+\Dynawo can be built with an internal timing instrumentation that measures how much wall-clock time is spent in the main phases of the simulation and of the algebraic and differential solvers. It is controlled by the CMake option \texttt{DYNAWO\_TIMERS}, which is \texttt{OFF} by default. When it is set to \texttt{ON}, \Dynawo is built with the compile-time macro \texttt{PRINT\_TIMERS} defined, which activates the instrumentation. A reader who prefers not to pass a CMake option can instead uncomment the line \texttt{// \#define PRINT\_TIMERS} near the top of \texttt{DYNTimer.h} and rebuild: both routes define the same macro and have the same effect. When the instrumentation is disabled, which is the default either way, every instrumentation point compiles to nothing, so a default build pays no cost for it, not even a clock read.
+
+\subsection{The timed phases}
+
+When enabled, the instrumentation times 17 phases of the simulation and solver code. A phase can be nested inside another phase, in which case the outer phase is its parent. The phases are:
+
+\begin{itemize}
+  \item \texttt{SimulationLoop}: the main time-stepping loop, from the first step to the end of the run. It does not include the initial condition calculation, which happens earlier;
+  \item \texttt{SolverSolve}: one call to the solver's per-step entry point, which resets the step state, reinitializes the model's mode and calls the solver's step function;
+  \item \texttt{CalculateIC}: the computation of consistent initial conditions, performed once during initialization, before the simulation loop starts;
+  \item \texttt{SolverStep}: the numerical integration of one time step, whether by a fixed time step solver (SIM, TRAP) or by a variable time step solver (IDA);
+  \item \texttt{JacobianEval}: one Jacobian evaluation callback handed to the SUNDIALS solver. This callback is shared by more than one solver (algebraic restoration, implicit Euler and, separately, IDA), so this phase aggregates calls coming from several places in the code;
+  \item \texttt{ResidualEval}: one residual, that is equation system, evaluation callback handed to the SUNDIALS solver, aggregated the same way as \texttt{JacobianEval};
+  \item \texttt{RootEval}: evaluation of the root, that is discrete event detection, functions: IDA's root-finding callback handed to SUNDIALS, and, for the fixed time step solvers, the related bookkeeping performed before, during and after a step;
+  \item \texttt{ModeEval}: evaluation of the model's mode;
+  \item \texttt{DiscreteEval}: evaluation of the model's discrete variables;
+  \item \texttt{NRSolve}: the Newton-Raphson style algebraic solve performed once per step by the fixed time step solvers;
+  \item \texttt{MatrixCopy}: copying \Dynawo's sparse Jacobian into the SUNDIALS matrix structure;
+  \item \texttt{KINSOLSolve}: the call to the SUNDIALS KINSOL nonlinear solve itself;
+  \item \texttt{Reinit}: (re)configuring the KINSOL instance used for algebraic restoration, both once during initialization and again whenever a mode change during the run requires a new algebraic restoration;
+  \item \texttt{IO}: writing the simulation's final output, at the end of the run;
+  \item \texttt{KLUSymbolic}: the KLU symbolic refactorization, triggered whenever the Jacobian's sparsity pattern changes;
+  \item \texttt{KLUSetup}: the KLU numeric factorization performed by the SUNDIALS linear solver;
+  \item \texttt{CurvesUpdate}: updating the values of the curves selected for export.
+\end{itemize}
+
+\subsubsection{A caveat on the KLU-related phases}
+
+\texttt{MatrixCopy}, \texttt{KLUSymbolic} and \texttt{KLUSetup} also include work performed during model initialization that is not accounted for under \texttt{JacobianEval}. The routine that copies the Jacobian and triggers the symbolic refactorization is also reached from the code that performs the local algebraic initialization of each submodel, which is outside the set of phases instrumented today; the KLU setup wrapper, in turn, is installed on every KINSOL instance created by the solvers, including the one used for that local initialization. In other words, some \texttt{MatrixCopy}, \texttt{KLUSymbolic} and \texttt{KLUSetup} calls happen with no corresponding \texttt{JacobianEval} call above them. On the Nordic test system this shows up as 58 \texttt{MatrixCopy} calls against 38 \texttt{JacobianEval} calls: a reader comparing those two counts should not read the difference as a bug in the instrumentation.
+
+\subsection{Inclusive and exclusive time}
+
+For each phase, the instrumentation records an inclusive time, the total time spent in the phase including everything called from within it, and an exclusive time. The exclusive time is the inclusive time with every child phase's time subtracted, not a chosen subset of children: whatever time was spent inside any other instrumented phase while this one was active is removed, all of it.
+
+\Dynawo has more than one entry point with no active parent phase: for instance, the initial condition calculation (\texttt{CalculateIC}) is performed during initialization, before the simulation loop is entered, so a run has at least two independent top-level phases, \texttt{CalculateIC} and \texttt{SimulationLoop}, not one. Because of this, the identity that holds is: \textbf{the sum of every phase's exclusive time equals the sum of every measurement that was recorded with no parent phase}. It is not the same as the total time of \texttt{SimulationLoop} alone, and should not be compared against it. The trace report described below prints both quantities on a trailing line, so this identity can be checked against a run's own numbers.
+
+A phase nested inside itself, directly or through a chain of calls that returns to it, is counted once: only the time of its outermost instance is recorded, so a self-nested call neither doubles the phase's total time nor appears as its own child. Indirect recursion, meaning a phase re-entered while it is already open somewhere on the call stack but is not the innermost open phase, for instance a cycle where phase A calls phase B which calls phase A again, is a different case: it is detected and reported with a one-shot warning, because the exclusive time of the phases involved in such a cycle can no longer be attributed correctly.
+
+\subsection{The CSV output}
+
+When the instrumentation is enabled, setting the environment variable \texttt{DYNAWO\_TIMERS\_OUTPUT} to a file path makes \Dynawo write the phase statistics to that file, in CSV format, once the run ends. If the variable is not set, no such file is written. Phases that were never entered during the run are omitted from the file.
+
+The columns, in order, are \texttt{phase}, \texttt{total\_seconds}, \texttt{exclusive\_seconds}, \texttt{call\_count}, \texttt{min\_ms} and \texttt{max\_ms}. The first three columns, total time, exclusive time and call count, are expressed in seconds; the last two, the shortest and longest single measurement recorded for the phase, are expressed in milliseconds.
+
+The same information, together with the identity described above, is also written as a short table to the simulation log whenever at least one phase was entered.
+
+\subsubsection{Reading the output: a worked example}
+
+The following is an excerpt of the CSV file produced by a run of the Nordic test system with the instrumentation enabled:
+
+\begin{lstlisting}[language=bash,numbers=none]
+phase,total_seconds,exclusive_seconds,call_count,min_ms,max_ms
+JacobianEval,0.053047,0.052833,38,1.1750,1.8650
+MatrixCopy,0.000146,0.000146,58,0.0000,0.0170
+KLUSymbolic,0.000070,0.000070,53,0.0000,0.0170
+KLUSetup,0.016934,0.016934,58,0.0040,0.6470
+\end{lstlisting}
+
+\texttt{JacobianEval} was entered 38 times for a total of about 53.0 ms, of which 52.8 ms is exclusive: a small remainder, about 0.2 ms, was spent inside other instrumented phases, \texttt{MatrixCopy} and \texttt{KLUSymbolic} among them, while a Jacobian evaluation was on the call stack. \texttt{MatrixCopy} and \texttt{KLUSymbolic} are themselves cheap and have no instrumented children of their own, so for both of them the total and exclusive columns are equal. Both were also called more often than \texttt{JacobianEval}, 58 and 53 times against 38: the extra calls are the ones described in the caveat above, reached from local algebraic initialization rather than from a Jacobian evaluation. \texttt{KLUSetup} is called from yet another site, the SUNDIALS linear solver's own setup routine, and is the most expensive of the four in total time even though each individual call is brief; its longest single call here reached 0.647 ms.
+
 \section{Basic errors in input files}
 
 While trying to create its own input files, the user might encounter some error messages. This section provides basic explanations for the most common error messages related to the input files. \\
