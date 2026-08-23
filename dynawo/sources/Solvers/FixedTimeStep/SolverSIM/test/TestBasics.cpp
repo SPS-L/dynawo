@@ -1000,6 +1000,8 @@ TEST(ParametersTest, testParameters) {
   params->addParameter(parameters::ParameterFactory::newParameter("optimizeAlgebraicResidualsEvaluations", false));
   params->addParameter(parameters::ParameterFactory::newParameter("optimizeReinitAlgebraicResidualsEvaluations", false));
   params->addParameter(parameters::ParameterFactory::newParameter("skipNRIfInitialGuessOK", false));
+  params->addParameter(parameters::ParameterFactory::newParameter("freshJacobianRetry", false));
+  params->addParameter(parameters::ParameterFactory::newParameter("freshJacobianAfterEvent", false));
   params->addParameter(parameters::ParameterFactory::newParameter("minimumModeChangeTypeForAlgebraicRestoration", std::string("ALGEBRAIC_J_UPDATE")));
   params->addParameter(parameters::ParameterFactory::newParameter("order1Prediction", false));
   params->addParameter(parameters::ParameterFactory::newParameter("printResiduals", false));
@@ -1008,7 +1010,7 @@ TEST(ParametersTest, testParameters) {
   params->addParameter(parameters::ParameterFactory::newParameter("multipleStrategiesForAlgebraicRestoration", false));
   ASSERT_NO_THROW(solver->setParametersFromPARFile(params));
   ASSERT_NO_THROW(solver->setSolverParameters());
-  ASSERT_EQ(solver->getParametersMap().size(), 45);
+  ASSERT_EQ(solver->getParametersMap().size(), 47);
 }
 
 TEST(ParametersTest, testParametersInit) {
@@ -1059,7 +1061,7 @@ TEST(ParametersTest, testParametersInit) {
   params->addParameter(parameters::ParameterFactory::newParameter("multipleStrategiesForAlgebraicRestoration", false));
   ASSERT_NO_THROW(solver->setParametersFromPARFile(params));
   ASSERT_NO_THROW(solver->setSolverParameters());
-  ASSERT_EQ(solver->getParametersMap().size(), 45);
+  ASSERT_EQ(solver->getParametersMap().size(), 47);
 }
 
 TEST(SimulationTest, testSolverSIMTestPredictionOrder1) {
