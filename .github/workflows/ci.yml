@@ -108,7 +108,13 @@ jobs:
           util/envDynawo.sh nrt || { cat nrt/output/${branch}/report.html && cat nrt/output/${branch}/nrt_nok.txt && exit 1; };
 
   coverage:
-    if: github.event_name == 'push'
+    # The Sonarcloud step below uploads to the project named in
+    # sonar-project.properties, which is dynawo_dynawo under the dynawo
+    # organisation, using secrets.SONAR_TOKEN. GitHub does not copy secrets
+    # into forks, so on any fork this job fails at that step regardless of
+    # the code being tested. Restrict it to the repository that owns the
+    # Sonar project; build-linux and build-windows still run everywhere.
+    if: github.event_name == 'push' && github.repository == 'dynawo/dynawo'
     runs-on: ubuntu-latest
     container: dynawo/dynawo-ci:latest
     env:
