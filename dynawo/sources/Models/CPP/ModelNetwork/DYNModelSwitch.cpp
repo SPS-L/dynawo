@@ -280,38 +280,63 @@ ModelSwitch::close() {
 
 void
 ModelSwitch::evalJt(const double /*cj*/, const int rowOffset, SparseMatrix& jt) {
-  // Column for node current / real part of the voltage (i depending on re(V))
-  // --------------------------------------------------------------------------
+  if (network_->getPatternInvariantTopology()) {
+    // Superset sparsity: both columns always hold the same three entries
+    // (bus1, bus2, self) in fixed order so the pattern is invariant across
+    // switch states. Inactive entries hold structural zeros (addTermForced).
+    //   closed, normal       : ur1 - ur2 = 0  -> bus coupling entries active
+    //   closed, loop-breaking: irsw - 1  = 0  -> self entry active
+    //   open (or bus1 off)   : irsw      = 0  -> self entry active
+    const bool busCoupling = (getConnectionState() == CLOSED && !modelBus1_->getSwitchOff() && !inLoop_);
 
-  // Switching column
-  jt.changeCol();
+    // Column for the real part
+    jt.changeCol();
+    jt.addTermForced(modelBus1_->urYNum() + rowOffset, busCoupling ? +1. : 0.);
+    jt.addTermForced(modelBus2_->urYNum() + rowOffset, busCoupling ? -1. : 0.);
+    jt.addTermForced(irYNum_ + rowOffset, busCoupling ? 0. : +1.);
 
-  if (getConnectionState() == CLOSED && !modelBus1_->getSwitchOff()) {  // Close switch
-    if (inLoop_) {  // Switch breaking a loop : irsw - 1 = 0
+    // Column for the imaginary part
+    jt.changeCol();
+    jt.addTermForced(modelBus1_->uiYNum() + rowOffset, busCoupling ? +1. : 0.);
+    jt.addTermForced(modelBus2_->uiYNum() + rowOffset, busCoupling ? -1. : 0.);
+    jt.addTermForced(iiYNum_ + rowOffset, busCoupling ? 0. : +1.);
+  } else {
+    // Default state-dependent sparsity: entries emitted only for the active equation form,
+    // so the pattern changes when the switch state changes.
+
+    // Column for node current / real part of the voltage (i depending on re(V))
+    // --------------------------------------------------------------------------
+
+    // Switching column
+    jt.changeCol();
+
+    if (getConnectionState() == CLOSED && !modelBus1_->getSwitchOff()) {  // Close switch
+      if (inLoop_) {  // Switch breaking a loop : irsw - 1 = 0
+        jt.addTerm(irYNum_ + rowOffset, +1);
+      } else {  // "Normal" case : ur1 - ur2 = 0
+        jt.addTerm(modelBus1_->urYNum() + rowOffset, +1.);
+        jt.addTerm(modelBus2_->urYNum() + rowOffset, -1.);
+      }
+    } else {  // Open switch : irsw = 0
       jt.addTerm(irYNum_ + rowOffset, +1);
-    } else {  // "Normal" case : ur1 - ur2 = 0
-      jt.addTerm(modelBus1_->urYNum() + rowOffset, +1.);
-      jt.addTerm(modelBus2_->urYNum() + rowOffset, -1.);
     }
-  } else {  // Open switch : irsw = 0
-    jt.addTerm(irYNum_ + rowOffset, +1);
-  }
 
-  // Column for node current / imaginary part of the voltage (i depending on im(V))
-  // ------------------------------------------------------------------------------
+    // Column for node current / imaginary part of the voltage (i depending on im(V))
+    // ------------------------------------------------------------------------------
 
-  // Switching column
-  jt.changeCol();
+    // Switching column
+    jt.changeCol();
 
-  if (getConnectionState() == CLOSED && !modelBus1_->getSwitchOff()) {  // Close switch
-    if (inLoop_) {  // Switch breaking a loop : iisw -1 = 0
+    if (getConnectionState() == CLOSED && !modelBus1_->getSwitchOff()) {  // Close switch
+      if (inLoop_) {  // Switch breaking a loop : iisw -1 = 0
+        jt.addTerm(iiYNum_ + rowOffset, +1.);
+      } else {  // "Normal" case : ui1 - ui2 = 0
+        jt.addTerm(modelBus1_->uiYNum() + rowOffset, +1.);
+        jt.addTerm(modelBus2_->uiYNum() + rowOffset, -1.);
+      }
+    } else {  // Open switch : iisw = 0
       jt.addTerm(iiYNum_ + rowOffset, +1.);
-    } else {  // "Normal" case : ui1 - ui2 = 0
-      jt.addTerm(modelBus1_->uiYNum() + rowOffset, +1.);
-      jt.addTerm(modelBus2_->uiYNum() + rowOffset, -1.);
     }
-  } else {  // Open switch : iisw = 0
-    jt.addTerm(iiYNum_ + rowOffset, +1.);
   }
 }
 
