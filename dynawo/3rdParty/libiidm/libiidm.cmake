@@ -56,7 +56,9 @@ else()
     SOURCE_DIR        "${DOWNLOAD_DIR}/${package_name}"
 
     CMAKE_CACHE_ARGS  -DCMAKE_CXX_COMPILER:STRING=${CMAKE_CXX_COMPILER}
-                      -DCMAKE_CXX_FLAGS_INIT:STRING=$<$<CONFIG:Debug>:-O0>
+                      "-DCMAKE_CXX_FLAGS_INIT:STRING=-include cmath -Wno-cpp $<$<CONFIG:Debug>:-O0>"
+                      -DCMAKE_CXX_STANDARD:STRING=14
+                      -DCMAKE_CXX_STANDARD_REQUIRED:BOOL=ON
 
     CMAKE_ARGS        "-DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>"
                       "-DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}"
