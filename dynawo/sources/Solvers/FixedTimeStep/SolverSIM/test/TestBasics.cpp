@@ -1154,4 +1154,42 @@ TEST(SimulationTest, testSolverSIMTestPredictionOrder0) {
   ASSERT_DOUBLE_EQUALS_DYNAWO(yp[0], -0.980296);
 }
 
+TEST(SimulationTest, testSolverSIMPatternInvariantTopologyDowngrade) {
+  const double tStart = 0.;
+  const double tStop = 5.;
+  std::pair<SolverFactory::SolverPtr, std::shared_ptr<Model> > p = initSolverAndModel("jobs/solverTestSwitch.dyd",
+  "jobs/solverTestSwitch.iidm", "jobs/solverTestSwitch.par", tStart, tStop, true, 3);
+  SolverFactory::SolverPtr& solver = p.first;
+  std::shared_ptr<Model>& model = p.second;
+
+  double tCurrent = tStart;
+  // step to just before the event at t=2 (same cadence as testSolverSIMAlgebraicMode)
+  solver->solve(tStop, tCurrent);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(tCurrent, 1.);
+  // the step where the switch event fires: voltage-level-internal topology change,
+  // par opts in (patternInvariantTopology=true) -> downgraded severity
+  solver->solve(tStop, tCurrent);
+  ASSERT_EQ(solver->getState().getFlags(ModeChange), true);
+  ASSERT_EQ(model->getModeChangeType(), ALGEBRAIC_MODE);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(tCurrent, 2.);
+}
+
+TEST(SimulationTest, testSolverSIMPatternInvariantTopologyFlagOff) {
+  const double tStart = 0.;
+  const double tStop = 5.;
+  std::pair<SolverFactory::SolverPtr, std::shared_ptr<Model> > p = initSolverAndModel("jobs/solverTestSwitch.dyd",
+  "jobs/solverTestSwitch.iidm", "jobs/solverTestSwitchFlagOff.par", tStart, tStop, true, 3);
+  SolverFactory::SolverPtr& solver = p.first;
+  std::shared_ptr<Model>& model = p.second;
+
+  double tCurrent = tStart;
+  solver->solve(tStop, tCurrent);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(tCurrent, 1.);
+  // flag off: today's behaviour, full J-update severity
+  solver->solve(tStop, tCurrent);
+  ASSERT_EQ(solver->getState().getFlags(ModeChange), true);
+  ASSERT_EQ(model->getModeChangeType(), ALGEBRAIC_J_UPDATE_MODE);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(tCurrent, 2.);
+}
+
 }  // namespace DYN
