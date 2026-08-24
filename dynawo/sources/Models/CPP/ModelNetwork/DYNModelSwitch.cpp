@@ -280,7 +280,26 @@ ModelSwitch::close() {
 
 void
 ModelSwitch::evalJt(const double /*cj*/, const int rowOffset, SparseMatrix& jt) {
-  if (network_->getPatternInvariantTopology()) {
+  // The superset form is deliberately NOT used while the network is being
+  // initialized.
+  //
+  // ModelNetwork's own local initialization solves for the switch currents
+  // through SolverKINSubModel, which hands this Jacobian straight to KLU.
+  // SolverKINAlgRestoration, by contrast, routes it through
+  // SparseMatrix::erase, which rebuilds with addTerm and so drops the
+  // structural zeros again. During initialization the matrix is close enough
+  // to singular that KLU fails on the explicit zeros: the solve yields NaN
+  // without raising, ModelSwitch::setInitialCurrents stores those NaNs as the
+  // initial switch currents, and global initialization cannot converge.
+  //
+  // Both guards are needed. isInitModel covers the switch-current solve;
+  // getIsInitProcess covers the rest of the initialization phase, where the
+  // network is solved as an ordinary submodel and isInitModel is already false.
+  //
+  // Excluding initialization costs nothing. The superset exists to hold the
+  // pattern steady ACROSS topology events, and initialization runs once,
+  // before any event.
+  if (network_->getPatternInvariantTopology() && !network_->isInitModel() && !network_->getIsInitProcess()) {
     // Superset sparsity: both columns always hold the same three entries
     // (bus1, bus2, self) in fixed order so the pattern is invariant across
     // switch states. Inactive entries hold structural zeros (addTermForced).
