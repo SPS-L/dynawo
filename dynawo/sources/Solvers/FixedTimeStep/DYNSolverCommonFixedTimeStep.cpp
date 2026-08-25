@@ -81,7 +81,6 @@ printfl_(0),
 skipNextNR_(false),
 skipAlgebraicResidualsEvaluation_(false),
 optimizeAlgebraicResidualsEvaluations_(true),
-freshJacobianRetry_(false),
 freshJacobianAfterEvent_(false),
 skipNRIfInitialGuessOK_(true),
 nbLastTimeSimulated_(0) {
@@ -107,7 +106,6 @@ SolverCommonFixedTimeStep::defineSpecificParametersCommon() {
   parameters_.insert(make_pair("mxiter", ParameterSolver("mxiter", VAR_TYPE_INT, optional)));
   parameters_.insert(make_pair("printfl", ParameterSolver("printfl", VAR_TYPE_INT, optional)));
   parameters_.insert(make_pair("optimizeAlgebraicResidualsEvaluations", ParameterSolver("optimizeAlgebraicResidualsEvaluations", VAR_TYPE_BOOL, optional)));
-  parameters_.insert(make_pair("freshJacobianRetry", ParameterSolver("freshJacobianRetry", VAR_TYPE_BOOL, optional)));
   parameters_.insert(make_pair("freshJacobianAfterEvent", ParameterSolver("freshJacobianAfterEvent", VAR_TYPE_BOOL, optional)));
   parameters_.insert(make_pair("skipNRIfInitialGuessOK", ParameterSolver("skipNRIfInitialGuessOK", VAR_TYPE_BOOL, optional)));
 }
@@ -143,9 +141,6 @@ SolverCommonFixedTimeStep::setSolverSpecificParametersCommon() {
   const ParameterSolver& optimizeAlgebraicResidualsEvaluations = findParameter("optimizeAlgebraicResidualsEvaluations");
   if (optimizeAlgebraicResidualsEvaluations.hasValue())
     optimizeAlgebraicResidualsEvaluations_ = optimizeAlgebraicResidualsEvaluations.getValue<bool>();
-  const ParameterSolver& freshJacobianRetry = findParameter("freshJacobianRetry");
-  if (freshJacobianRetry.hasValue())
-    freshJacobianRetry_ = freshJacobianRetry.getValue<bool>();
   const ParameterSolver& freshJacobianAfterEvent = findParameter("freshJacobianAfterEvent");
   if (freshJacobianAfterEvent.hasValue())
     freshJacobianAfterEvent_ = freshJacobianAfterEvent.getValue<bool>();
@@ -382,17 +377,6 @@ SolverCommonFixedTimeStep::updateStatistics() {
 }
 
 void SolverCommonFixedTimeStep::handleDivergence(bool& redoStep) {
-  if (freshJacobianRetry_ && !factorizationForced_) {
-    // First failure ran on a stale Jacobian: retry the SAME step with a
-    // fresh factorization before reducing the step size. Self-limiting:
-    // a second failure has factorizationForced_ == true and falls through
-    // to the step-reduction path below.
-    factorizationForced_ = true;
-    redoStep = true;
-    hNew_ = h_;
-    restoreContinuousVariables();
-    return;
-  }
   if (doubleEquals(h_, hMin_)) {
     // Divergence or unstable root at minimum step length, fail to resolve problem
     throw DYNError(Error::SOLVER_ALGO, SolverFixedTimeStepConvFailMin, solverType());
