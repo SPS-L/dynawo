@@ -81,7 +81,6 @@ printfl_(0),
 skipNextNR_(false),
 skipAlgebraicResidualsEvaluation_(false),
 optimizeAlgebraicResidualsEvaluations_(true),
-freshJacobianAfterEvent_(false),
 skipNRIfInitialGuessOK_(true),
 nbLastTimeSimulated_(0) {
   minimalAcceptableStep_ = 0.1;
@@ -106,7 +105,6 @@ SolverCommonFixedTimeStep::defineSpecificParametersCommon() {
   parameters_.insert(make_pair("mxiter", ParameterSolver("mxiter", VAR_TYPE_INT, optional)));
   parameters_.insert(make_pair("printfl", ParameterSolver("printfl", VAR_TYPE_INT, optional)));
   parameters_.insert(make_pair("optimizeAlgebraicResidualsEvaluations", ParameterSolver("optimizeAlgebraicResidualsEvaluations", VAR_TYPE_BOOL, optional)));
-  parameters_.insert(make_pair("freshJacobianAfterEvent", ParameterSolver("freshJacobianAfterEvent", VAR_TYPE_BOOL, optional)));
   parameters_.insert(make_pair("skipNRIfInitialGuessOK", ParameterSolver("skipNRIfInitialGuessOK", VAR_TYPE_BOOL, optional)));
 }
 
@@ -141,9 +139,6 @@ SolverCommonFixedTimeStep::setSolverSpecificParametersCommon() {
   const ParameterSolver& optimizeAlgebraicResidualsEvaluations = findParameter("optimizeAlgebraicResidualsEvaluations");
   if (optimizeAlgebraicResidualsEvaluations.hasValue())
     optimizeAlgebraicResidualsEvaluations_ = optimizeAlgebraicResidualsEvaluations.getValue<bool>();
-  const ParameterSolver& freshJacobianAfterEvent = findParameter("freshJacobianAfterEvent");
-  if (freshJacobianAfterEvent.hasValue())
-    freshJacobianAfterEvent_ = freshJacobianAfterEvent.getValue<bool>();
   const ParameterSolver& skipNRIfInitialGuessOK = findParameter("skipNRIfInitialGuessOK");
   if (skipNRIfInitialGuessOK.hasValue())
     skipNRIfInitialGuessOK_ = skipNRIfInitialGuessOK.getValue<bool>();
@@ -411,11 +406,14 @@ void SolverCommonFixedTimeStep::handleRoot(bool& redoStep) {
   if (model_->getModeChangeType() == ALGEBRAIC_J_UPDATE_MODE) {
     factorizationForced_ = true;
   } else {
-    // A plain algebraic event never forces a factorization here. A topology event reported as
-    // ALGEBRAIC_MODE (pattern-invariant sparsity active) moves the operating point enough that the
-    // next step should not start on the pre-event Jacobian: when freshJacobianAfterEvent is set,
-    // force a fresh factorization (numeric-only, since the sparsity pattern is unchanged).
-    factorizationForced_ = (freshJacobianAfterEvent_ && model_->getPatternInvariantTopoChange());
+    // A plain algebraic event never forces a factorization here, and getPatternInvariantTopoChange()
+    // is false for one, so this keeps the stock behaviour. A topology event reported as
+    // ALGEBRAIC_MODE (patternInvariantTopology active) is different: it moves the operating point
+    // while leaving the sparsity pattern alone, so the next step must not start on the pre-event
+    // Jacobian. Forcing a factorization here costs a numeric refactorization only, the symbolic
+    // analysis being kept because the pattern comparison in
+    // SolverCommon::propagateMatrixStructureChangeToKINSOL finds no change.
+    factorizationForced_ = model_->getPatternInvariantTopoChange();
     increaseStep();
   }
   redoStep = false;
