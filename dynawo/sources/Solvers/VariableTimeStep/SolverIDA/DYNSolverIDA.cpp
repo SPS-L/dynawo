@@ -746,7 +746,14 @@ bool SolverIDA::setupNewAlgRestoration(modeChangeType_t modeChangeType) {
     solverKINNormal_->setupNewAlgebraicRestoration(fnormtolAlg_, initialaddtolAlg_, scsteptolAlg_, mxnewtstepAlg_, msbsetAlg_, mxiterAlg_, printflAlg_);
     setDifferentialVariablesIndices();
     solverKINYPrim_->setupNewAlgebraicRestoration(fnormtolAlg_, initialaddtolAlg_, scsteptolAlg_, mxnewtstepAlg_, msbsetAlg_, mxiterAlg_, printflAlg_);
-    return false;  // no J factorization
+    // A downgraded topology event reaches this branch as ALGEBRAIC_MODE, but it is not a
+    // plain algebraic mode change: the switch state moved the Jacobian's values even though
+    // patternInvariantTopology kept its pattern fixed. Returning false here would let the
+    // restoration solve run on a stale factorisation, which diverges on a large network.
+    // Forcing one factorisation costs the numeric step only, the symbolic analysis being
+    // retained because the pattern comparison finds no change. This mirrors what
+    // SolverCommonFixedTimeStep::handleRoot does for the fixed-step loop.
+    return model_->getPatternInvariantTopoChange();
   } else if (modeChangeType == ALGEBRAIC_J_UPDATE_MODE) {
     solverKINNormal_->setupNewAlgebraicRestoration(fnormtolAlgJ_, initialaddtolAlgJ_, scsteptolAlgJ_, mxnewtstepAlgJ_, msbsetAlgJ_, mxiterAlgJ_,
                                                    printflAlgJ_);
