@@ -81,6 +81,7 @@ printfl_(0),
 skipNextNR_(false),
 skipAlgebraicResidualsEvaluation_(false),
 optimizeAlgebraicResidualsEvaluations_(true),
+algebraicRestorationOnInvariantTopology_(false),
 skipNRIfInitialGuessOK_(true),
 nbLastTimeSimulated_(0) {
   minimalAcceptableStep_ = 0.1;
@@ -105,6 +106,8 @@ SolverCommonFixedTimeStep::defineSpecificParametersCommon() {
   parameters_.insert(make_pair("mxiter", ParameterSolver("mxiter", VAR_TYPE_INT, optional)));
   parameters_.insert(make_pair("printfl", ParameterSolver("printfl", VAR_TYPE_INT, optional)));
   parameters_.insert(make_pair("optimizeAlgebraicResidualsEvaluations", ParameterSolver("optimizeAlgebraicResidualsEvaluations", VAR_TYPE_BOOL, optional)));
+  parameters_.insert(make_pair("algebraicRestorationOnInvariantTopology",
+      ParameterSolver("algebraicRestorationOnInvariantTopology", VAR_TYPE_BOOL, optional)));
   parameters_.insert(make_pair("skipNRIfInitialGuessOK", ParameterSolver("skipNRIfInitialGuessOK", VAR_TYPE_BOOL, optional)));
 }
 
@@ -139,6 +142,9 @@ SolverCommonFixedTimeStep::setSolverSpecificParametersCommon() {
   const ParameterSolver& optimizeAlgebraicResidualsEvaluations = findParameter("optimizeAlgebraicResidualsEvaluations");
   if (optimizeAlgebraicResidualsEvaluations.hasValue())
     optimizeAlgebraicResidualsEvaluations_ = optimizeAlgebraicResidualsEvaluations.getValue<bool>();
+  const ParameterSolver& algebraicRestorationOnInvariantTopology = findParameter("algebraicRestorationOnInvariantTopology");
+  if (algebraicRestorationOnInvariantTopology.hasValue())
+    algebraicRestorationOnInvariantTopology_ = algebraicRestorationOnInvariantTopology.getValue<bool>();
   const ParameterSolver& skipNRIfInitialGuessOK = findParameter("skipNRIfInitialGuessOK");
   if (skipNRIfInitialGuessOK.hasValue())
     skipNRIfInitialGuessOK_ = skipNRIfInitialGuessOK.getValue<bool>();
@@ -478,8 +484,24 @@ SolverCommonFixedTimeStep::reinit() {
   int counter = 0;
   modeChangeType_t modeChangeType = model_->getModeChangeType();
 
-  if (modeChangeType < minimumModeChangeTypeForAlgebraicRestoration_)
+  // patternInvariantTopology downgrades a topology event's severity to state that the Jacobian
+  // PATTERN is unchanged. Whether the algebraic state needs re-solving is a different question,
+  // and minimumModeChangeTypeForAlgebraicRestoration was never meant to answer it, so a
+  // downgraded event is taken out of that comparison and decided here instead.
+  //
+  // The default is to skip. A fixed-time-step solver re-solves F(y) = 0 over every variable on
+  // the next step, algebraic ones included, so the restoration repeats work the next step does
+  // anyway; the cost is that the trajectory lags by one step at the event instant. Set
+  // algebraicRestorationOnInvariantTopology to keep the restoration where that transient matters.
+  // SolverIDA has no such parameter and always restores: it integrates from consistent initial
+  // conditions and has no per-step full solve to fall back on.
+  const bool patternInvariantTopoEvent = model_->getPatternInvariantTopoChange();
+  if (patternInvariantTopoEvent) {
+    if (!algebraicRestorationOnInvariantTopology_)
+      return;
+  } else if (modeChangeType < minimumModeChangeTypeForAlgebraicRestoration_) {
     return;
+  }
 
   const bool evaluateOnlyMode = optimizeReinitAlgebraicResidualsEvaluations_;
   skipAlgebraicResidualsEvaluation_ = false;

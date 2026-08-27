@@ -799,7 +799,12 @@ SolverIDA::reinit() {
   if (modeChangeType == NO_MODE) return;
 
   const bool evaluateOnlyMode = optimizeReinitAlgebraicResidualsEvaluations_;
-  if (modeChangeType >= minimumModeChangeTypeForAlgebraicRestoration_) {
+  // A downgraded topology event is exempt from the severity threshold, unconditionally.
+  // Unlike a fixed-time-step solver, IDA integrates from consistent initial conditions and
+  // has no per-step solve of the whole system to restore them, so the restoration cannot be
+  // skipped here and no parameter offers to.
+  const bool patternInvariantTopoEvent = model_->getPatternInvariantTopoChange();
+  if (patternInvariantTopoEvent || modeChangeType >= minimumModeChangeTypeForAlgebraicRestoration_) {
     do {
       model_->rotateBuffers();
       state_.reset();
