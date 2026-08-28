@@ -495,7 +495,11 @@ SolverCommonFixedTimeStep::reinit() {
   // algebraicRestorationOnInvariantTopology to keep the restoration where that transient matters.
   // SolverIDA has no such parameter and always restores: it integrates from consistent initial
   // conditions and has no per-step full solve to fall back on.
-  const bool patternInvariantTopoEvent = model_->getPatternInvariantTopoChange();
+  // The skip applies only when the step's events are ALL pattern-invariant. A step that also
+  // carries a structural event reports ALGEBRAIC_J_UPDATE_MODE while getPatternInvariantTopoChange()
+  // is still true, and that restoration is genuinely needed: testing the flag alone would skip it.
+  const bool patternInvariantTopoEvent =
+      model_->getPatternInvariantTopoChange() && modeChangeType < ALGEBRAIC_J_UPDATE_MODE;
   if (patternInvariantTopoEvent) {
     if (!algebraicRestorationOnInvariantTopology_)
       return;
