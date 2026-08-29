@@ -601,17 +601,12 @@ TEST(ModelsModelNetwork, ModelNetworkSwitchJt) {
   int offset = 3;
   sw->init(offset);
   SparseMatrix smj4;
-  // Row count enlarged to cover the yNum offset: init(int&) moves
-  // irYNum_/iiYNum_ to (pre-call offset)/(pre-call offset)+1 and, being
-  // pass-by-reference, leaves offset itself at (pre-call offset)+2 here.
-  // Superset sparsity now always emits the self entry (as a structural
-  // zero in this branch), so the matrix must have enough rows to hold it,
-  // unlike the pre-superset code, which never touched irYNum_/iiYNum_ in
-  // the closed/non-inLoop branch. Column count stays at size: evalJt always
-  // emits exactly 2 columns (sw->sizeY()), unaffected by the row offset.
+  // Rows must cover the yNum offset: init(int&) moves irYNum_/iiYNum_ to offset and offset+1,
+  // and the superset always emits the self entry, as a structural zero in this branch. Columns
+  // stay at size, evalJt emitting exactly sw->sizeY() of them regardless of the row offset.
   smj4.init(size + offset, size);
   sw->evalJt(1., 0, smj4);
-  ASSERT_EQ(smj4.nbElem(), 6);                     // was asserting smj (pre-existing quirk), fixed
+  ASSERT_EQ(smj4.nbElem(), 6);
   ASSERT_DOUBLE_EQUALS_DYNAWO(smj4.Ax_[0], 1.);
   ASSERT_DOUBLE_EQUALS_DYNAWO(smj4.Ax_[1], -1.);
   ASSERT_DOUBLE_EQUALS_DYNAWO(smj4.Ax_[2], 0.);
@@ -628,12 +623,10 @@ TEST(ModelsModelNetwork, ModelNetworkSwitchJt) {
   sw->evalJtPrim(0, smjPrime);
   ASSERT_EQ(smjPrime.nbElem(), 0);
 
-  // Default state-dependent sparsity: verify with the optimization
-  // flag off (the default), entries are emitted only when active, so the
-  // element count varies with switch state: closed/normal=4, in-loop=2, open=2.
-  // sw->init(offset) above moved irYNum_/iiYNum_ to rows 3/4, so the matrices
-  // are sized (size + offset) rows to hold the self entries the loop/open
-  // branches emit (row count does not affect nbElem/Ap_/Ax_).
+  // With the parameter off, entries are emitted only for the active form, so the element count
+  // follows the switch state: closed/normal 4, in-loop 2, open 2. The matrices are sized
+  // size + offset rows to hold the self entries the loop and open branches emit; the row count
+  // does not affect nbElem/Ap_/Ax_.
   network->setPatternInvariantTopology(false);
 
   SparseMatrix smjStockClosed;

@@ -548,9 +548,9 @@ ModelMulti::evalMode(const double t) {
     if (subModel->modeChange()) {
       modeChange_ = true;
     }
-    // Aggregated (OR) like modeChangeType_'s worst-of-the-timestep tracking, but unconditional:
-    // a sub model reports this per evalModeSub() call (not gated on its own high-water mark), so
-    // it must be latched here on every call and only cleared by reinitMode() (see below).
+    // Latched on every call and cleared only by reinitMode(): a sub model reports this per
+    // evalModeSub() call rather than against its own high-water mark, so the OR must be
+    // unconditional.
     if (subModel->getPatternInvariantTopoChange()) {
       patternInvariantTopoChange_ = true;
     }

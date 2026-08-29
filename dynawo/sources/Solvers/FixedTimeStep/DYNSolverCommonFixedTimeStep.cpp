@@ -412,13 +412,11 @@ void SolverCommonFixedTimeStep::handleRoot(bool& redoStep) {
   if (model_->getModeChangeType() == ALGEBRAIC_J_UPDATE_MODE) {
     factorizationForced_ = true;
   } else {
-    // A plain algebraic event never forces a factorization here, and getPatternInvariantTopoChange()
-    // is false for one, so this keeps the stock behaviour. A topology event reported as
-    // ALGEBRAIC_MODE (patternInvariantTopology active) is different: it moves the operating point
-    // while leaving the sparsity pattern alone, so the next step must not start on the pre-event
-    // Jacobian. Forcing a factorization here costs a numeric refactorization only, the symbolic
-    // analysis being kept because the pattern comparison in
-    // SolverCommon::propagateMatrixStructureChangeToKINSOL finds no change.
+    // A topology event reported as ALGEBRAIC_MODE has moved the operating point while leaving
+    // the sparsity pattern fixed, so the next step must not start on the pre-event Jacobian.
+    // The factorization it forces is numeric only: the symbolic analysis is kept, because the
+    // pattern comparison in SolverCommon::propagateMatrixStructureChangeToKINSOL finds no
+    // change. getPatternInvariantTopoChange() is false for a plain algebraic event.
     factorizationForced_ = model_->getPatternInvariantTopoChange();
     increaseStep();
   }
@@ -448,13 +446,10 @@ bool SolverCommonFixedTimeStep::setupNewAlgRestoration(modeChangeType_t modeChan
     if (hasPrediction())
       getSolverKINYPrim().setupNewAlgebraicRestoration(fnormtolAlg_, initialaddtolAlg_, scsteptolAlg_, mxnewtstepAlg_, msbsetAlg_, mxiterAlg_, printflAlg_);
 
-    // A downgraded topology event reaches this branch as ALGEBRAIC_MODE, but it is not a
-    // plain algebraic mode change: the switch state moved the Jacobian's values even though
-    // patternInvariantTopology kept its pattern fixed. Returning false here would let the
-    // restoration solve run on a stale factorisation, which diverges on a large network.
-    // Forcing one factorisation costs the numeric step only, the symbolic analysis being
-    // retained because the pattern comparison finds no change. This mirrors what
-    // SolverCommonFixedTimeStep::handleRoot does for the step loop.
+    // A pattern-invariant topology event reaches this branch as ALGEBRAIC_MODE, and the
+    // restoration solve needs a fresh factorization: the switch state moved the Jacobian's
+    // values, only its pattern is fixed. The factorization is numeric only, the symbolic
+    // analysis being retained because the pattern comparison finds no change.
     return model_->getPatternInvariantTopoChange();
   } else if (modeChangeType == ALGEBRAIC_J_UPDATE_MODE) {
     solverKINAlgRestoration_->setupNewAlgebraicRestoration(fnormtolAlgJ_, initialaddtolAlgJ_, scsteptolAlgJ_, mxnewtstepAlgJ_, msbsetAlgJ_, mxiterAlgJ_,
@@ -484,20 +479,16 @@ SolverCommonFixedTimeStep::reinit() {
   int counter = 0;
   modeChangeType_t modeChangeType = model_->getModeChangeType();
 
-  // patternInvariantTopology downgrades a topology event's severity to state that the Jacobian
-  // PATTERN is unchanged. Whether the algebraic state needs re-solving is a different question,
-  // and minimumModeChangeTypeForAlgebraicRestoration was never meant to answer it, so a
-  // downgraded event is taken out of that comparison and decided here instead.
+  // A pattern-invariant topology event is decided here rather than by
+  // minimumModeChangeTypeForAlgebraicRestoration, which compares severity only.
   //
-  // The default is to skip. A fixed-time-step solver re-solves F(y) = 0 over every variable on
-  // the next step, algebraic ones included, so the restoration repeats work the next step does
-  // anyway; the cost is that the trajectory lags by one step at the event instant. Set
-  // algebraicRestorationOnInvariantTopology to keep the restoration where that transient matters.
-  // SolverIDA has no such parameter and always restores: it integrates from consistent initial
-  // conditions and has no per-step full solve to fall back on.
-  // The skip applies only when the step's events are ALL pattern-invariant. A step that also
-  // carries a structural event reports ALGEBRAIC_J_UPDATE_MODE while getPatternInvariantTopoChange()
-  // is still true, and that restoration is genuinely needed: testing the flag alone would skip it.
+  // By default such an event skips algebraic restoration: this solver re-solves F(y) = 0 over
+  // every variable on the next step, algebraic ones included, so the algebraic state is restored
+  // there instead, at the cost of the trajectory lagging by one step at the event instant. Set
+  // algebraicRestorationOnInvariantTopology to keep the restoration.
+  //
+  // The skip requires every event on the step to be pattern-invariant. A step also carrying a
+  // structural event reports ALGEBRAIC_J_UPDATE_MODE, and keeps its restoration.
   const bool patternInvariantTopoEvent =
       model_->getPatternInvariantTopoChange() && modeChangeType < ALGEBRAIC_J_UPDATE_MODE;
   if (patternInvariantTopoEvent) {
