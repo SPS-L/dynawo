@@ -34,6 +34,7 @@
 #include "CSTRConstraint.h"
 
 #include "DYNModelBusInjected.h"
+#include "DYNDerivative.h"
 #include "gtest_dynawo.h"
 
 using boost::shared_ptr;
@@ -42,7 +43,8 @@ using boost::shared_ptr;
 namespace DYN {
 // need to return the voltage level so that it is not destroyed
 static std::pair<std::shared_ptr<ModelBusInjected>, std::shared_ptr<VoltageLevelInterfaceIIDM> >
-createModelBus(bool initModel, bool isNodeBreaker, powsybl::iidm::Network& networkIIDM, bool hasConnection = true) {
+createModelBus(bool initModel, bool isNodeBreaker, powsybl::iidm::Network& networkIIDM, bool hasConnection = true,
+    ModelNetwork** networkOut = nullptr) {
   powsybl::iidm::Substation& s = networkIIDM.newSubstation()
       .setId("S")
       .add();
@@ -76,6 +78,8 @@ createModelBus(bool initModel, bool isNodeBreaker, powsybl::iidm::Network& netwo
   std::shared_ptr<ModelBusInjected> bus1 = std::make_shared<ModelBusInjected>(bus1ItfIIDM, isNodeBreaker);
   bus1->setNetwork(network);
   bus1->setVoltageLevel(vl);
+  if (networkOut)
+    *networkOut = network;
   return std::make_pair(bus1, vlItfIIDM);
 }
 
@@ -1108,5 +1112,131 @@ TEST(ModelsModelNetwork, ModelNetworkBusCurrentU) {
 
   bus->switchOff();
   ASSERT_EQ(bus->getCurrentU(ModelBus::UType_), 0);
+}
+
+TEST(ModelsModelNetwork, ModelNetworkBusInjectedJtPatternInvariance) {
+  // A branch that opens zeroes its contributions to the bus accumulator.
+  // With patternInvariantTopology set, the emitted pattern must not change.
+  powsybl::iidm::Network networkIIDM("test", "test");
+  ModelNetwork* network = nullptr;
+  std::pair<std::shared_ptr<ModelBusInjected>, std::shared_ptr<VoltageLevelInterfaceIIDM> > p =
+      createModelBus(false, false, networkIIDM, true, &network);
+  std::shared_ptr<ModelBusInjected> bus = p.first;
+  network->setPatternInvariantTopology(true);
+  bus->initSize();
+
+  const int size = 8;
+
+  // Closed branch: non-zero coupling into two neighbouring voltages. These are
+  // branch contributions, so they are marked forced, as ModelLine does for its
+  // static-bus derivatives.
+  bus->derivatives()->reset();
+  bus->derivatives()->addDerivative(IR_DERIVATIVE, 0, 1.5, true);
+  bus->derivatives()->addDerivative(IR_DERIVATIVE, 2, -0.75, true);
+  bus->derivatives()->addDerivative(II_DERIVATIVE, 1, 1.5, true);
+  bus->derivatives()->addDerivative(II_DERIVATIVE, 3, -0.75, true);
+  SparseMatrix smjClosed;
+  smjClosed.init(size, size);
+  bus->evalJt(1., 0, smjClosed);
+
+  // Open branch: same indices, values now zero, still forced.
+  bus->derivatives()->reset();
+  bus->derivatives()->addDerivative(IR_DERIVATIVE, 0, 0., true);
+  bus->derivatives()->addDerivative(IR_DERIVATIVE, 2, 0., true);
+  bus->derivatives()->addDerivative(II_DERIVATIVE, 1, 0., true);
+  bus->derivatives()->addDerivative(II_DERIVATIVE, 3, 0., true);
+  SparseMatrix smjOpen;
+  smjOpen.init(size, size);
+  bus->evalJt(1., 0, smjOpen);
+
+  // nbElem() reads Ap_[nbCol_], which only reflects columns actually closed
+  // via changeCol(); this bus only ever closes 2 of the matrix's 8 columns, so
+  // the closed case's own element count is checked directly instead, and the
+  // invariance itself is checked on those two columns' Ap_/Ai_ entries.
+  ASSERT_EQ(smjClosed.Ap_[2], 4);
+  for (int i = 0; i < 3; ++i)
+    ASSERT_EQ(smjClosed.Ap_[i], smjOpen.Ap_[i]);
+  for (unsigned int i = 0; i < smjClosed.Ap_[2]; ++i)
+    ASSERT_EQ(smjClosed.Ai_[i], smjOpen.Ai_[i]);
+}
+
+TEST(ModelsModelNetwork, ModelNetworkBusInjectedJtFlagOffDropsZeros) {
+  // With the flag off the stock rule must hold exactly: zeros are dropped.
+  powsybl::iidm::Network networkIIDM("test", "test");
+  ModelNetwork* network = nullptr;
+  std::pair<std::shared_ptr<ModelBusInjected>, std::shared_ptr<VoltageLevelInterfaceIIDM> > p =
+      createModelBus(false, false, networkIIDM, true, &network);
+  std::shared_ptr<ModelBusInjected> bus = p.first;
+  network->setPatternInvariantTopology(false);
+  bus->initSize();
+
+  const int size = 8;
+  bus->derivatives()->reset();
+  bus->derivatives()->addDerivative(IR_DERIVATIVE, 0, 0.);
+  bus->derivatives()->addDerivative(IR_DERIVATIVE, 2, 0.);
+  bus->derivatives()->addDerivative(II_DERIVATIVE, 1, 0.);
+  bus->derivatives()->addDerivative(II_DERIVATIVE, 3, 0.);
+  SparseMatrix smj;
+  smj.init(size, size);
+  bus->evalJt(1., 0, smj);
+
+  ASSERT_EQ(smj.nbElem(), 0);
+  ASSERT_EQ(smj.Ap_[1], 0);
+  ASSERT_EQ(smj.Ap_[2], 0);
+}
+
+TEST(ModelsModelNetwork, ModelNetworkBusInjectedJtFlagOffIgnoresForcedMarks) {
+  // With the flag off, an entry a branch marked forced must still be
+  // emitted through plain addTerm, not addTermForced: useForcedTerms()
+  // is gated on the network's patternInvariantTopology_, so a per-entry
+  // forced mark on its own must not survive as a structural zero.
+  powsybl::iidm::Network networkIIDM("test", "test");
+  ModelNetwork* network = nullptr;
+  std::pair<std::shared_ptr<ModelBusInjected>, std::shared_ptr<VoltageLevelInterfaceIIDM> > p =
+      createModelBus(false, false, networkIIDM, true, &network);
+  std::shared_ptr<ModelBusInjected> bus = p.first;
+  network->setPatternInvariantTopology(false);
+  bus->initSize();
+
+  const int size = 8;
+  bus->derivatives()->reset();
+  bus->derivatives()->addDerivative(IR_DERIVATIVE, 0, 0., true);
+  bus->derivatives()->addDerivative(IR_DERIVATIVE, 2, 0., true);
+  bus->derivatives()->addDerivative(II_DERIVATIVE, 1, 0., true);
+  bus->derivatives()->addDerivative(II_DERIVATIVE, 3, 0., true);
+  SparseMatrix smj;
+  smj.init(size, size);
+  bus->evalJt(1., 0, smj);
+
+  ASSERT_EQ(smj.nbElem(), 0);
+  ASSERT_EQ(smj.Ap_[1], 0);
+  ASSERT_EQ(smj.Ap_[2], 0);
+}
+
+TEST(ModelsModelNetwork, ModelNetworkBusInjectedJtForcedSelectivity) {
+  // Approach B forces a structural zero only for the entries a branch
+  // contributes, not for every accumulator entry. With one forced and one
+  // unforced zero-valued entry under patternInvariantTopology, only the
+  // forced one may survive: if both survive the behaviour matches the
+  // rejected all-or-nothing approach, if neither survives the forcing is
+  // not reaching emission.
+  powsybl::iidm::Network networkIIDM("test", "test");
+  ModelNetwork* network = nullptr;
+  std::pair<std::shared_ptr<ModelBusInjected>, std::shared_ptr<VoltageLevelInterfaceIIDM> > p =
+      createModelBus(false, false, networkIIDM, true, &network);
+  std::shared_ptr<ModelBusInjected> bus = p.first;
+  network->setPatternInvariantTopology(true);
+  bus->initSize();
+
+  const int size = 8;
+  bus->derivatives()->reset();
+  bus->derivatives()->addDerivative(IR_DERIVATIVE, 0, 0., true);
+  bus->derivatives()->addDerivative(IR_DERIVATIVE, 2, 0., false);
+  SparseMatrix smj;
+  smj.init(size, size);
+  bus->evalJt(1., 0, smj);
+
+  ASSERT_EQ(smj.Ap_[1], 1);
+  ASSERT_EQ(smj.Ai_[0], 0);
 }
 }  // namespace DYN

@@ -429,7 +429,7 @@ class ModelNetwork : public ModelCPP, private boost::noncopyable {
   bool isInitModel_;  ///< whether the current model used is the init one
   bool withNodeBreakerTopology_;  ///< whether at least one voltageLevel has node breaker topology view
   bool deactivateZeroCrossingFunctions_;  ///< whether we use root functions
-  bool patternInvariantTopology_;  ///< invariant switch sparsity + voltage-level topology-event downgrade; param "patternInvariantTopology", default false
+  bool patternInvariantTopology_;  ///< invariant switch and line sparsity + voltage-level/line topology-event downgrade; param "patternInvariantTopology", default false
 
   std::unique_ptr<ModelBusContainer> busContainer_;  ///< all network buses
   std::vector<std::shared_ptr<ModelVoltageLevel> > vLevelComponents_;  ///< all voltage level components

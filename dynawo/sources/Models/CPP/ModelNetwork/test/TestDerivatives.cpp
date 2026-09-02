@@ -54,6 +54,49 @@ TEST(ModelsModelNetwork, ModelNetworkDerivative) {
   ASSERT_EQ(derivatives.empty(), false);
 }
 
+TEST(ModelsModelNetwork, ModelNetworkDerivativeForced) {
+  // These properties are load-bearing: loads, shunts and transformers add to
+  // the same bus indices a line forces, so an overwrite instead of an OR
+  // would silently cancel the forcing.
+  Derivatives derivatives;
+  derivatives.addValue(42, 5., true);
+  derivatives.addValue(8, 3., false);
+  ASSERT_EQ(derivatives.getValues().size(), 2);
+  ASSERT_EQ(derivatives.getIndices().size(), 2);
+  ASSERT_EQ(derivatives.getForced().size(), 2);
+
+  auto& indices = derivatives.getIndices();
+  auto& forced = derivatives.getForced();
+  auto it42 = std::find(indices.begin(), indices.end(), 42);
+  auto index42 = it42 - indices.begin();
+  auto it8 = std::find(indices.begin(), indices.end(), 8);
+  auto index8 = it8 - indices.begin();
+  ASSERT_EQ(forced[index42], true);
+  ASSERT_EQ(forced[index8], false);
+
+  // Adding an unforced contribution to an already-forced index must OR the
+  // flag rather than overwrite it.
+  derivatives.addValue(42, 1., false);
+  ASSERT_EQ(forced[index42], true);
+
+  // Adding a forced contribution to a not-yet-forced index must set the flag.
+  derivatives.addValue(8, 1., true);
+  ASSERT_EQ(forced[index8], true);
+
+  // values_, indices_ and forced_ stay the same length.
+  ASSERT_EQ(derivatives.getValues().size(), derivatives.getIndices().size());
+  ASSERT_EQ(derivatives.getIndices().size(), derivatives.getForced().size());
+
+  // reset() clears the forced flags along with the values, without
+  // shrinking any of the three vectors.
+  derivatives.reset();
+  ASSERT_EQ(forced[index42], false);
+  ASSERT_EQ(forced[index8], false);
+  ASSERT_EQ(derivatives.getValues().size(), 2);
+  ASSERT_EQ(derivatives.getIndices().size(), 2);
+  ASSERT_EQ(derivatives.getForced().size(), 2);
+}
+
 TEST(ModelsModelNetwork, ModelNetworkBusDerivative) {
   BusDerivatives derivatives;
   ASSERT_EQ(derivatives.getValues(IR_DERIVATIVE).size(), 0);

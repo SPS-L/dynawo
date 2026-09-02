@@ -1066,8 +1066,13 @@ ModelNetwork::evalMode(const double t) {
     switch (component->evalState(t)) {
     case NetworkComponent::TOPO_CHANGE:
       // Voltage-level-internal events (switches, buses, injection connection
-      // changes) keep an invariant Jacobian pattern with superset sparsity;
-      // structural events (line/transformer trips) still need a J update.
+      // changes) keep an invariant Jacobian pattern with superset sparsity.
+      // A line trip between two ordinary buses on the plain static line
+      // model qualifies for the same reason. Other structural component
+      // types, such as transformer trips, lines with a dynamic bus side or
+      // the dynamic line model, dangling lines, HVDC links and bridge
+      // quadripoles, are not covered by hasPatternInvariantTopologyChange()
+      // and need a J update.
       if (patternInvariantTopology_ && component->hasPatternInvariantTopologyChange()) {
         topoChangePatternInvariant = true;
       } else {

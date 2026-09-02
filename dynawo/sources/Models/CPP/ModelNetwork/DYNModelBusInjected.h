@@ -168,6 +168,12 @@ class ModelBusInjected : public ModelBus {  ///< Generic AC network bus
    */
   inline void logConstraint(bool sup, bool begin);
 
+  /**
+   * @brief whether Jacobian terms are emitted including their structural zeros
+   * @return true when superset sparsity applies, outside initialization
+   */
+  inline bool useForcedTerms() const;
+
  private:
   std::weak_ptr<BusInterface> bus_;  ///< reference to the bus interface object
 
