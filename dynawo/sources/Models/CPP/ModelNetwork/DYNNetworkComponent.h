@@ -325,6 +325,20 @@ class NetworkComponent {  ///< Base class for network component models
   virtual StateChange_t evalState(double time) = 0;
 
   /**
+   * @brief whether topology changes reported by this component leave the
+   * Jacobian sparsity pattern unchanged
+   *
+   * With superset sparsity (structural zeros for inactive entries) a
+   * component's Jacobian pattern stays fixed across its topology events, so
+   * ModelNetwork::evalMode reports ALGEBRAIC_J_VALUES_MODE for them.
+   *
+   * @return true if this component's topology changes preserve the pattern
+   */
+  virtual bool hasPatternInvariantTopologyChange() const {
+    return false;
+  }
+
+  /**
    * @brief set network
    * @param model model
    */

@@ -733,11 +733,11 @@ SolverIDA::solveStep(double tAim, double& tNxt) {
 }
 
 bool SolverIDA::setupNewAlgRestoration(modeChangeType_t modeChangeType) {
-  if (modeChangeType == ALGEBRAIC_MODE) {
+  if (modeChangeType == ALGEBRAIC_MODE || modeChangeType == ALGEBRAIC_J_VALUES_MODE) {
     solverKINNormal_->setupNewAlgebraicRestoration(fnormtolAlg_, initialaddtolAlg_, scsteptolAlg_, mxnewtstepAlg_, msbsetAlg_, mxiterAlg_, printflAlg_);
     setDifferentialVariablesIndices();
     solverKINYPrim_->setupNewAlgebraicRestoration(fnormtolAlg_, initialaddtolAlg_, scsteptolAlg_, mxnewtstepAlg_, msbsetAlg_, mxiterAlg_, printflAlg_);
-    return false;  // no J factorization
+    return modeChangeType == ALGEBRAIC_J_VALUES_MODE;
   } else if (modeChangeType == ALGEBRAIC_J_UPDATE_MODE) {
     solverKINNormal_->setupNewAlgebraicRestoration(fnormtolAlgJ_, initialaddtolAlgJ_, scsteptolAlgJ_, mxnewtstepAlgJ_, msbsetAlgJ_, mxiterAlgJ_,
                                                    printflAlgJ_);
@@ -779,7 +779,10 @@ SolverIDA::reinit() {
   if (modeChangeType == NO_MODE) return;
 
   const bool evaluateOnlyMode = optimizeReinitAlgebraicResidualsEvaluations_;
-  if (modeChangeType >= minimumModeChangeTypeForAlgebraicRestoration_) {
+  // ALGEBRAIC_J_VALUES_MODE is exempt from the severity threshold. IDA integrates from consistent
+  // initial conditions and has no per-step solve of the whole system to restore them, so its
+  // restoration is never skipped.
+  if (modeChangeType == ALGEBRAIC_J_VALUES_MODE || modeChangeType >= minimumModeChangeTypeForAlgebraicRestoration_) {
     do {
       model_->rotateBuffers();
       state_.reset();

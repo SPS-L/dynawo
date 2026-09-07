@@ -500,6 +500,42 @@ TEST(CommonTest, testSparseMatrix) {
   ASSERT_EQ(1, check_status.info);
 }
 
+TEST(CommonTest, testSparseMatrixAddTermForced) {
+  // stores the term unconditionally, including a zero value
+  SparseMatrix smj;
+  smj.init(3, 3);
+  smj.changeCol();
+  smj.addTermForced(0, 0.0);   // structural zero: stored
+  smj.addTermForced(1, 5.0);   // regular value: stored
+  smj.addTerm(2, 0.0);         // regular addTerm: dropped
+  smj.changeCol();
+  smj.changeCol();
+  ASSERT_EQ(smj.nbElem(), 2);
+  ASSERT_EQ(smj.Ap_[0], 0);
+  ASSERT_EQ(smj.Ap_[1], 2);
+  ASSERT_EQ(smj.Ai_[0], 0);
+  ASSERT_EQ(smj.Ai_[1], 1);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(smj.Ax_[0], 0.0);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(smj.Ax_[1], 5.0);
+  ASSERT_EQ(smj.withoutNan(), true);
+  ASSERT_EQ(smj.withoutInf(), true);
+
+  // NaN / Inf tracking is preserved
+  SparseMatrix smj2;
+  smj2.init(2, 2);
+  smj2.changeCol();
+  const double zero = 0.0;
+  smj2.addTermForced(0, 1. / zero);
+  smj2.changeCol();
+  ASSERT_EQ(smj2.withoutInf(), false);
+
+  SparseMatrix smj3;
+  smj3.init(2, 2);
+  smj3.changeCol();
+  smj3.addTermForced(0, nan(""));
+  smj3.changeCol();
+  ASSERT_EQ(smj3.withoutNan(), false);
+}
 
 TEST(CommonTest, testEnumUtils) {
   ASSERT_EQ(modeChangeType2Str(NO_MODE), "No mode change");
@@ -543,5 +579,20 @@ TEST(CommonTest, testLevensteinDistance) {
 TEST(CommonTest, testdouble2String) {
   ASSERT_EQ(double2String(123456789.123456789), "1.2345679e+08");
   ASSERT_EQ(double2String(1234.1234), "1234.1234000");
+}
+
+TEST(CommonTest, testModeChangeTypeOrdering) {
+  // The solvers compare modes with < and >, and aggregate with a maximum.
+  // ALGEBRAIC_J_VALUES_MODE must sit strictly between the two algebraic levels.
+  ASSERT_LT(NO_MODE, DIFFERENTIAL_MODE);
+  ASSERT_LT(DIFFERENTIAL_MODE, ALGEBRAIC_MODE);
+  ASSERT_LT(ALGEBRAIC_MODE, ALGEBRAIC_J_VALUES_MODE);
+  ASSERT_LT(ALGEBRAIC_J_VALUES_MODE, ALGEBRAIC_J_UPDATE_MODE);
+}
+
+TEST(CommonTest, testModeChangeType2StrCoversNewValue) {
+  ASSERT_EQ(modeChangeType2Str(ALGEBRAIC_MODE), "Algebraic mode change");
+  ASSERT_EQ(modeChangeType2Str(ALGEBRAIC_J_VALUES_MODE), "Algebraic mode (with J value update) change");
+  ASSERT_EQ(modeChangeType2Str(ALGEBRAIC_J_UPDATE_MODE), "Algebraic mode (with J recalculation) change");
 }
 }  // namespace DYN

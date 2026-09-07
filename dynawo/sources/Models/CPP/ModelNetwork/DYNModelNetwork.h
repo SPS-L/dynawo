@@ -278,6 +278,25 @@ class ModelNetwork : public ModelCPP, private boost::noncopyable {
   }
 
   /**
+   * @brief get whether the pattern-invariant topology optimization is enabled
+   * @return whether the pattern-invariant topology optimization is enabled
+   */
+  inline bool getPatternInvariantTopology() const {
+    return patternInvariantTopology_;
+  }
+
+  /**
+   * @brief set whether the pattern-invariant topology optimization is enabled
+   *
+   * Exposed for unit tests; production code sets this via the "patternInvariantTopology" parameter.
+   *
+   * @param patternInvariantTopology whether the pattern-invariant topology optimization is enabled
+   */
+  inline void setPatternInvariantTopology(const bool patternInvariantTopology) {
+    patternInvariantTopology_ = patternInvariantTopology;
+  }
+
+  /**
    * @copydoc ModelCPP::initParams()
    */
   void initParams() override;
@@ -410,6 +429,7 @@ class ModelNetwork : public ModelCPP, private boost::noncopyable {
   bool isInitModel_;  ///< whether the current model used is the init one
   bool withNodeBreakerTopology_;  ///< whether at least one voltageLevel has node breaker topology view
   bool deactivateZeroCrossingFunctions_;  ///< whether we use root functions
+  bool patternInvariantTopology_;  ///< invariant switch sparsity + voltage-level topology-event downgrade; param "patternInvariantTopology", default false
 
   std::unique_ptr<ModelBusContainer> busContainer_;  ///< all network buses
   std::vector<std::shared_ptr<ModelVoltageLevel> > vLevelComponents_;  ///< all voltage level components
