@@ -33,6 +33,8 @@
 #include "DYNModelVoltageLevel.h"
 #include "DYNModelBusInjected.h"
 #include "DYNModelNetwork.h"
+#include "DYNDerivative.h"
+#include "DYNCommon.h"
 #include "TLTimelineFactory.h"
 #include "DYNSparseMatrix.h"
 #include "DYNVariable.h"
@@ -996,6 +998,123 @@ TEST(ModelsModelNetwork, ModelNetworkTwoWindingsTransformerJt) {
   smjPrime.init(size, size);
   t2w->evalJtPrim(0, smjPrime);
   ASSERT_EQ(smjPrime.nbElem(), 0);
+}
+
+TEST(ModelsModelNetwork, ModelNetworkTwoWindingsTransformerHasPatternInvariantTopologyChange) {
+  // A transformer trip leaves the bus Jacobian pattern fixed under superset
+  // sparsity, so it is downgradable. Unlike ModelLine this holds in every
+  // configuration: the transformer has no dynamic-bus or dynamic-model
+  // variant, and knownBus_ is fixed at construction, so evalDerivatives
+  // emits the same index set whatever the connection state.
+  const std::unique_ptr<ModelTwoWindingsTransformer> t2wClosed =
+      createModelTwoWindingsTransformer(false, false, true, false).first;
+  ASSERT_TRUE(t2wClosed->hasPatternInvariantTopologyChange());
+
+  const std::unique_ptr<ModelTwoWindingsTransformer> t2wOpen =
+      createModelTwoWindingsTransformer(true, false, true, false).first;
+  ASSERT_TRUE(t2wOpen->hasPatternInvariantTopologyChange());
+
+  // knownBus_ == BUS1: only side 1 carries a bus interface.
+  const std::unique_ptr<ModelTwoWindingsTransformer> t2wBus1 =
+      createModelTwoWindingsTransformer(false, false, true, false, true, true, false).first;
+  ASSERT_TRUE(t2wBus1->hasPatternInvariantTopologyChange());
+
+  // knownBus_ == BUS2: only side 2 carries a bus interface.
+  const std::unique_ptr<ModelTwoWindingsTransformer> t2wBus2 =
+      createModelTwoWindingsTransformer(false, false, true, false, true, false, true).first;
+  ASSERT_TRUE(t2wBus2->hasPatternInvariantTopologyChange());
+}
+
+// Collect one bus accumulator's indices and forced marks for both derivative
+// types, so two connection states can be compared entry by entry.
+static void
+collectBusDerivatives(const std::shared_ptr<ModelBus>& bus,
+                      std::vector<int>& indices, std::vector<char>& forced,
+                      std::vector<double>& values) {
+  indices.clear();
+  forced.clear();
+  values.clear();
+  for (const typeDerivative_t type : {IR_DERIVATIVE, II_DERIVATIVE}) {
+    const std::vector<int>& busIndices = bus->derivatives()->getIndices(type);
+    const std::vector<char>& busForced = bus->derivatives()->getForced(type);
+    const std::vector<double>& busValues = bus->derivatives()->getValues(type);
+    indices.insert(indices.end(), busIndices.begin(), busIndices.end());
+    forced.insert(forced.end(), busForced.begin(), busForced.end());
+    values.insert(values.end(), busValues.begin(), busValues.end());
+  }
+}
+
+TEST(ModelsModelNetwork, ModelNetworkTwoWindingsTransformerDerivativesPatternInvariance) {
+  // The claim the reclassification rests on: a transformer contributes the
+  // same set of bus derivative indices whether it is CLOSED or OPEN, and
+  // marks every one of them forced, so ModelBusInjected::evalJt keeps them
+  // as structural zeros and the trip changes values but not the pattern.
+  std::pair<std::unique_ptr<ModelTwoWindingsTransformer>, std::shared_ptr<ModelVoltageLevel> > closedPair =
+      createModelTwoWindingsTransformer(false, false, true, false);
+  const std::unique_ptr<ModelTwoWindingsTransformer>& t2wClosed = closedPair.first;
+  ASSERT_EQ(t2wClosed->getConnectionState(), CLOSED);
+  t2wClosed->initSize();
+  t2wClosed->evalYMat();
+  t2wClosed->getModelBus1()->derivatives()->reset();
+  t2wClosed->getModelBus2()->derivatives()->reset();
+  t2wClosed->evalDerivatives(1.);
+
+  std::vector<int> closedIndices1, closedIndices2;
+  std::vector<char> closedForced1, closedForced2;
+  std::vector<double> closedValues1, closedValues2;
+  collectBusDerivatives(t2wClosed->getModelBus1(), closedIndices1, closedForced1, closedValues1);
+  collectBusDerivatives(t2wClosed->getModelBus2(), closedIndices2, closedForced2, closedValues2);
+
+  // knownBus_ == BUS1_BUS2 emits 8 entries per bus, 4 per derivative type.
+  ASSERT_EQ(closedIndices1.size(), 8);
+  ASSERT_EQ(closedIndices2.size(), 8);
+
+  std::pair<std::unique_ptr<ModelTwoWindingsTransformer>, std::shared_ptr<ModelVoltageLevel> > openPair =
+      createModelTwoWindingsTransformer(true, false, true, false);
+  const std::unique_ptr<ModelTwoWindingsTransformer>& t2wOpen = openPair.first;
+  ASSERT_EQ(t2wOpen->getConnectionState(), OPEN);
+  t2wOpen->initSize();
+  t2wOpen->evalYMat();
+  t2wOpen->getModelBus1()->derivatives()->reset();
+  t2wOpen->getModelBus2()->derivatives()->reset();
+  t2wOpen->evalDerivatives(1.);
+
+  std::vector<int> openIndices1, openIndices2;
+  std::vector<char> openForced1, openForced2;
+  std::vector<double> openValues1, openValues2;
+  collectBusDerivatives(t2wOpen->getModelBus1(), openIndices1, openForced1, openValues1);
+  collectBusDerivatives(t2wOpen->getModelBus2(), openIndices2, openForced2, openValues2);
+
+  ASSERT_EQ(closedIndices1, openIndices1);
+  ASSERT_EQ(closedIndices2, openIndices2);
+
+  // The comparison is not vacuous: the two states really do carry different
+  // Jacobian values. Every OPEN entry is exact zero, which is precisely what
+  // addTerm would drop and addTermForced keeps, while the CLOSED entries are
+  // not all zero.
+  bool closedHasNonZero = false;
+  for (unsigned int i = 0; i < closedValues1.size(); ++i) {
+    if (!doubleIsZero(closedValues1[i]))
+      closedHasNonZero = true;
+    ASSERT_DOUBLE_EQUALS_DYNAWO(openValues1[i], 0.);
+  }
+  for (unsigned int i = 0; i < closedValues2.size(); ++i) {
+    if (!doubleIsZero(closedValues2[i]))
+      closedHasNonZero = true;
+    ASSERT_DOUBLE_EQUALS_DYNAWO(openValues2[i], 0.);
+  }
+  ASSERT_TRUE(closedHasNonZero);
+
+  // Every entry is a branch contribution, so every one must be forced; an
+  // unforced entry would be dropped by addTerm once the trip zeroes it.
+  for (unsigned int i = 0; i < closedForced1.size(); ++i) {
+    ASSERT_TRUE(closedForced1[i]);
+    ASSERT_TRUE(openForced1[i]);
+  }
+  for (unsigned int i = 0; i < closedForced2.size(); ++i) {
+    ASSERT_TRUE(closedForced2[i]);
+    ASSERT_TRUE(openForced2[i]);
+  }
 }
 
 }  // namespace DYN

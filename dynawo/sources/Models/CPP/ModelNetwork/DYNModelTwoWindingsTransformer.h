@@ -349,6 +349,29 @@ class ModelTwoWindingsTransformer : public ModelQuadripole {
   NetworkComponent::StateChange_t evalState(double time) override;
 
   /**
+   * @copydoc NetworkComponent::hasPatternInvariantTopologyChange()
+   *
+   * True in every configuration. A trip changes this transformer's
+   * contributions to its buses' derivative accumulators, to zero for OPEN
+   * and to the equivalent shunt seen through the open far end for CLOSED_1
+   * and CLOSED_2 (see ir1_dUr1()), without adding or removing an index, so
+   * with superset sparsity the Jacobian pattern is unchanged.
+   *
+   * Unlike ModelLine this needs no guard. A transformer owns no equations
+   * (initSize() leaves sizeY_ and sizeF_ at zero and evalJt is empty), it
+   * has no dynamic-bus or dynamic-model variant, and knownBus_ is fixed at
+   * construction, so evalDerivatives emits the same index set in every
+   * connection state and marks every entry forced.
+   *
+   * A trip reported this way is an algebraic event carrying a Jacobian value update rather
+   * than a structural one, so the solver's algebraic-restoration threshold governs whether
+   * the algebraic state is restored at the trip instant.
+   */
+  bool hasPatternInvariantTopologyChange() const override {
+    return true;
+  }
+
+  /**
    * @brief init size
    */
   void initSize() override;
