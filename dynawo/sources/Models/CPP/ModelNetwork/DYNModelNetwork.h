@@ -23,11 +23,14 @@
 #ifndef MODELS_CPP_MODELNETWORK_DYNMODELNETWORK_H_
 #define MODELS_CPP_MODELNETWORK_DYNMODELNETWORK_H_
 
+#include <cstddef>
+
 #include <boost/shared_ptr.hpp>
 #include <boost/core/noncopyable.hpp>
 
 #include "DYNModelCPP.h"
 #include "DYNSubModelFactory.h"
+#include "DYNParallelEvaluation.h"
 
 namespace DYN {
 class ModelBusContainer;
@@ -297,6 +300,39 @@ class ModelNetwork : public ModelCPP, private boost::noncopyable {
   }
 
   /**
+   * @brief get the configured thread count for model evaluation
+   * @return the configured thread count
+   */
+  inline unsigned getEvaluationThreads() const {
+    return evaluationThreads_;
+  }
+
+  /**
+   * @brief set the thread count for model evaluation
+   *
+   * Exposed for unit tests; production code sets this via the
+   * "networkEvaluationThreads" parameter.
+   *
+   * @param evaluationThreads thread count, 1 meaning serial
+   */
+  inline void setEvaluationThreads(const unsigned evaluationThreads) {
+    evaluationThreads_ = evaluationThreads;
+  }
+
+  /**
+   * @brief thread count to actually use for a region of a given size
+   *
+   * A parallel region over a handful of tasks costs more in fork and join than
+   * it saves, so small networks stay serial whatever the parameter says.
+   *
+   * @param nbTasks number of iterations the region will run
+   * @return the configured thread count, or 1 when the region is too small
+   */
+  inline unsigned effectiveThreads(const std::size_t nbTasks) const {
+    return (evaluationThreads_ > 1 && nbTasks >= parallelEvaluationMinTasks) ? evaluationThreads_ : 1;
+  }
+
+  /**
    * @copydoc ModelCPP::initParams()
    */
   void initParams() override;
@@ -430,6 +466,7 @@ class ModelNetwork : public ModelCPP, private boost::noncopyable {
   bool withNodeBreakerTopology_;  ///< whether at least one voltageLevel has node breaker topology view
   bool deactivateZeroCrossingFunctions_;  ///< whether we use root functions
   bool patternInvariantTopology_;  ///< invariant branch sparsity + topology-event downgrade; param "patternInvariantTopology", default false
+  unsigned evaluationThreads_;  ///< thread count for model evaluation; param "networkEvaluationThreads", default 1
 
   std::unique_ptr<ModelBusContainer> busContainer_;  ///< all network buses
   std::vector<std::shared_ptr<ModelVoltageLevel> > vLevelComponents_;  ///< all voltage level components

@@ -134,7 +134,8 @@ isInit_(false) ,
 isInitModel_(false),
 withNodeBreakerTopology_(false),
 deactivateZeroCrossingFunctions_(false),
-patternInvariantTopology_(false) {
+patternInvariantTopology_(false),
+evaluationThreads_(1) {
   busContainer_.reset(new ModelBusContainer());
 }
 
@@ -1268,6 +1269,7 @@ ModelNetwork::defineParameters(vector<ParameterModeler>& parameters) {
   parameters.push_back(ParameterModeler("startingPointMode", VAR_TYPE_STRING, EXTERNAL_PARAMETER));
   parameters.push_back(ParameterModeler("deactivate_zero_crossing_functions", VAR_TYPE_BOOL, EXTERNAL_PARAMETER));
   parameters.push_back(ParameterModeler("patternInvariantTopology", VAR_TYPE_BOOL, EXTERNAL_PARAMETER));
+  parameters.push_back(ParameterModeler("networkEvaluationThreads", VAR_TYPE_INT, EXTERNAL_PARAMETER));
 
   for (const auto& component : getComponents()) {
     component->defineNonGenericParameters(parameters);
@@ -1342,6 +1344,12 @@ ModelNetwork::setSubModelParameters() {
   patternInvariantTopology_ = false;
   if (patternInvariantTopology.hasValue())
     patternInvariantTopology_ = patternInvariantTopology.getValue<bool>();
+  const auto& networkEvaluationThreads = findParameter("networkEvaluationThreads", false);
+  evaluationThreads_ = 1;
+  if (networkEvaluationThreads.hasValue()) {
+    const int requested = networkEvaluationThreads.getValue<int>();
+    evaluationThreads_ = (requested > 0) ? static_cast<unsigned>(requested) : 1;
+  }
   for (const auto& component : getComponents())
     component->setSubModelParameters(parametersDynamic_);
 }
