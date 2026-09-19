@@ -16,6 +16,7 @@
 #ifndef MODELS_CPP_MODELNETWORK_DYNMODELBUSCONTAINER_H_
 #define MODELS_CPP_MODELNETWORK_DYNMODELBUSCONTAINER_H_
 
+#include <cstddef>
 #include <vector>
 #include <boost/shared_ptr.hpp>
 #include "DYNEnumUtils.h"
@@ -107,9 +108,18 @@ class ModelBusContainer {
 
   /**
    * @brief reset resetNodeInjections and resetCurrentUStatus
+   *
+   * @param nbThreads thread count for the reset, 1 meaning serial
    */
-  void resetInjections();
+  void resetInjections(unsigned nbThreads);
 
+  /**
+   * @brief number of buses held by this container
+   * @return the number of buses
+   */
+  inline std::size_t getNbBuses() const {
+    return models_.size();
+  }
 
  private:
   std::vector<std::shared_ptr<ModelBus> > models_;  ///< model bus

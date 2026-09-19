@@ -988,7 +988,7 @@ ModelNetwork::evalF(double /*t*/, const propertyF_t type) {
 
   if (type != DIFFERENTIAL_EQ) {
     // compute nodal current injections (convention: > 0 if the current goes out of the node)
-    busContainer_->resetInjections();
+    busContainer_->resetInjections(effectiveThreads(busContainer_->getNbBuses()));
 
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
     Timer* timer2 = new Timer("ModelNetwork::evalF_evalNodeInjection");
