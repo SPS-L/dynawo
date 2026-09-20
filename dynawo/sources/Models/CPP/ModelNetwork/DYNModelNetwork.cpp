@@ -24,6 +24,7 @@
 #include <iostream>
 #include <cmath>
 #include <iomanip>
+#include <stdexcept>
 
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
@@ -794,6 +795,7 @@ ModelNetwork::initializeStaticData() {
   for (const auto& component : getComponents()) {
     component->init(yNum);
   }
+  checkComponentLayout();
 }
 
 void
@@ -980,11 +982,37 @@ ModelNetwork::initSubBuffers() {
   }
 }
 
+namespace {
+bool leadsWithVoltageLevels(const std::vector<std::shared_ptr<NetworkComponent> >& components,
+                            const std::vector<std::shared_ptr<ModelVoltageLevel> >& vLevels) {
+  if (components.size() < vLevels.size())
+    return false;
+  for (std::size_t i = 0; i < vLevels.size(); ++i) {
+    if (components[i].get() != vLevels[i].get())
+      return false;
+  }
+  return true;
+}
+}  // namespace
+
+void
+ModelNetwork::checkComponentLayout() const {
+  if (!leadsWithVoltageLevels(components_, vLevelComponents_))
+    throw std::runtime_error("ModelNetwork: voltage levels are not the leading entries of components_");
+  if (!leadsWithVoltageLevels(initComponents_, vLevelInitComponents_))
+    throw std::runtime_error("ModelNetwork: voltage levels are not the leading entries of initComponents_");
+}
+
 void
 ModelNetwork::evalF(double /*t*/, const propertyF_t type) {
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer timer("ModelNetwork::evalF");
 #endif
+
+  const std::vector<std::shared_ptr<ModelVoltageLevel> >& vLevels = getVoltageLevels();
+  const std::vector<std::shared_ptr<NetworkComponent> >& components = getComponents();
+  const int nbVLevels = static_cast<int>(vLevels.size());
+  const int nbComponents = static_cast<int>(components.size());
 
   if (type != DIFFERENTIAL_EQ) {
     // compute nodal current injections (convention: > 0 if the current goes out of the node)
@@ -993,8 +1021,20 @@ ModelNetwork::evalF(double /*t*/, const propertyF_t type) {
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
     Timer* timer2 = new Timer("ModelNetwork::evalF_evalNodeInjection");
 #endif
-    for (const auto& component : getComponents())
-      component->evalNodeInjection();
+    // A voltage level's members connect only to buses of that voltage level, so
+    // two voltage levels never accumulate into the same bus and running them
+    // concurrently leaves each bus's summation order untouched.
+    parallelFor(nbVLevels, effectiveThreads(vLevels.size()), [&vLevels](const int i) {
+      vLevels[i]->evalNodeInjection();
+    });
+
+    // Branches accumulate into buses of two different voltage levels, so they
+    // stay serial. Parallelising them would reorder a floating point sum and
+    // the curves would no longer be bit-identical, which is the one gate the
+    // regression harness cannot replace with a tolerance. They are the trailing
+    // entries of the component vector; checkComponentLayout enforces that.
+    for (int i = nbVLevels; i < nbComponents; ++i)
+      components[i]->evalNodeInjection();
 
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
     delete timer2;
@@ -1005,8 +1045,12 @@ ModelNetwork::evalF(double /*t*/, const propertyF_t type) {
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer* timer3 = new Timer("ModelNetwork::evalF_evalF");
 #endif
-  for (const auto& component : getComponents())
-    component->evalF(type);
+  // Each component writes into its own contiguous slice of fLocal_, fixed once
+  // by initBuffers, so this region has no shared destination and no ordering
+  // question.
+  parallelFor(nbComponents, effectiveThreads(components.size()), [&components, type](const int i) {
+    components[i]->evalF(type);
+  });
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   delete timer3;
 #endif

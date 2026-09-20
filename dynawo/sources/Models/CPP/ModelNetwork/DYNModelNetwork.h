@@ -458,6 +458,16 @@ class ModelNetwork : public ModelCPP, private boost::noncopyable {
   */
   void printInternalParameters(std::ofstream& fstream) const override;
 
+  /**
+   * @brief check that the voltage levels lead the component vector
+   *
+   * evalF parallelises the voltage levels and leaves the branches serial, which
+   * is only correct if the two groups are contiguous and in this order. The
+   * layout comes from initializeFromData rather than from a declared
+   * contract, so it is checked once instead of assumed.
+   */
+  void checkComponentLayout() const;
+
  private:
   double* calculatedVarBuffer_;  ///< calculated variable buffer
 
