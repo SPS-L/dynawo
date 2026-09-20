@@ -114,10 +114,6 @@ target_link_libraries(dynawo_ModelerCommon
     ${CMAKE_DL_LIBS}
   )
 
-if(DYNAWO_USE_OPENMP)
-  target_link_libraries(dynawo_ModelerCommon PRIVATE OpenMP::OpenMP_CXX)
-endif()
-
 set_target_properties(dynawo_ModelerCommon PROPERTIES VERSION ${MODELER_VERSION_STRING}
                                                     SOVERSION ${MODELER_VERSION_MAJOR})
 
