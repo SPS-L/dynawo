@@ -23,6 +23,7 @@
 #include <map>
 #include <fstream>
 #include <algorithm>
+#include <exception>
 
 #include "TLTimeline.h"
 #include "CRVCurve.h"
@@ -420,18 +421,144 @@ ModelMulti::evalG(const double t, vector<state_g>& g) {
   std::copy(gLocal_.begin(), gLocal_.end(), g.begin());
 }
 
+namespace {
+
+/// Number of submodels below which the parallel two-pass Jacobian assembly
+/// costs more in fork/join overhead than it saves. Mirrors
+/// DYN::parallelEvaluationMinTasks (DYNParallelEvaluation.h, under
+/// Models/CPP/ModelNetwork): kept as a separate constant, rather than
+/// including that header, because Modeler/Common does not take a
+/// dependency on the Models tree.
+const std::size_t kJacobianAssemblyMinTasks = 256;
+
+/**
+ * @brief run body(i) for i in [0, n), in parallel when asked and available
+ *
+ * Local copy of DYN::parallelFor's contract (DYNParallelEvaluation.h, under
+ * Models/CPP/ModelNetwork), kept local for the same reason as
+ * kJacobianAssemblyMinTasks above. An exception leaving an OpenMP
+ * structured block is undefined behaviour, so every iteration catches, the
+ * first exception is kept, and it is rethrown once the loop has finished.
+ *
+ * The loop is index based because the tree compiles as C++11 and a pragma
+ * on a range based for needs OpenMP 5.0.
+ *
+ * @param n number of iterations
+ * @param nbThreads thread count; 1 means run serially
+ * @param body callable invoked as body(i)
+ */
+template <typename Body>
+void jacobianAssemblyParallelFor(const int n, const unsigned nbThreads, Body body) {
+  std::exception_ptr firstError;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static, 1) num_threads(nbThreads) if (nbThreads > 1)
+#else
+  (void) nbThreads;
+#endif
+  for (int i = 0; i < n; ++i) {
+    try {
+      body(i);
+    } catch (...) {
+#ifdef _OPENMP
+#pragma omp critical(DYNModelMultiJacobianAssemblyError)
+#endif
+      {
+        if (!firstError)
+          firstError = std::current_exception();
+      }
+    }
+  }
+  if (firstError)
+    std::rethrow_exception(firstError);
+}
+
+}  // namespace
+
 void
 ModelMulti::evalJt(const double t, const double cj, SparseMatrix& jt) {
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer timer("ModelMulti::evalJt");
 #endif
-  int rowOffset = 0;
-  for (const auto& subModel : subModels_) {
-    subModel->evalJtSub(t, cj, rowOffset, jt);
-    if (!jt.withoutNan() || !jt.withoutInf()) {
-      throw DYNError(Error::MODELER, SparseMatrixWithNanInf, subModel->modelType(), subModel->name());
+  const std::size_t nbSubModels = subModels_.size();
+
+  // Row offsets are known ahead of time: each submodel owns sizeY() rows,
+  // contiguous and in submodel order, exactly as the pre-existing serial
+  // fill threaded rowOffset through by reference.
+  std::vector<int> rowOffsets(nbSubModels);
+  {
+    int rowOffset = 0;
+    for (std::size_t i = 0; i < nbSubModels; ++i) {
+      rowOffsets[i] = rowOffset;
+      rowOffset += subModels_[i]->sizeY();
     }
   }
+
+  // The thread count is the network model's own "networkEvaluationThreads"
+  // parameter, so the one existing knob controls model evaluation and
+  // Jacobian assembly alike; ModelMulti has no such parameter of its own.
+  // Absent a network submodel (e.g. a unit test built without one), stay
+  // serial.
+  unsigned jacobianAssemblyThreads = 1;
+  const auto& networkSubModel = findSubModelByName("NETWORK");
+  if (networkSubModel) {
+    const auto& threadsParam = networkSubModel->findParameter("networkEvaluationThreads", false);
+    if (threadsParam.hasValue()) {
+      const int requested = threadsParam.getValue<int>();
+      if (requested > 0)
+        jacobianAssemblyThreads = static_cast<unsigned>(requested);
+    }
+  }
+  const unsigned nbThreads = (jacobianAssemblyThreads > 1 && nbSubModels >= kJacobianAssemblyMinTasks) ?
+      jacobianAssemblyThreads : 1;
+
+  // Pass A: each submodel fills its own local, independent partial matrix,
+  // at its own (already known) row offset but with its own column
+  // numbering starting at 0. No two submodels touch the same destination,
+  // so this can run in parallel. The column bound sizeY() is always
+  // sufficient (a submodel never fills more columns than it has Y
+  // variables, though it may fill fewer, when some of them are external
+  // and get their column from the connector container instead), proven on
+  // the full corpus by the step 1 diagnostic.
+  std::vector<SparseMatrix> partials(nbSubModels);
+  // A plain std::vector<bool> packs several elements per word, so
+  // concurrent writes to different indices could still race on the same
+  // word; std::vector<char> gives every submodel its own byte instead.
+  std::vector<char> nanInf(nbSubModels, 0);
+  jacobianAssemblyParallelFor(static_cast<int>(nbSubModels), nbThreads,
+      [this, t, cj, &rowOffsets, &partials, &nanInf](const int i) {
+    SparseMatrix& partial = partials[i];
+    partial.initPartial(sizeY_, static_cast<int>(subModels_[i]->sizeY()));
+    int localRowOffset = rowOffsets[i];
+    subModels_[i]->evalJtSub(t, cj, localRowOffset, partial);
+    if (!partial.withoutNan() || !partial.withoutInf())
+      nanInf[i] = 1;
+  });
+
+  // Attribution stays serial and in submodel order, so the error names the
+  // first offending submodel in the pre-existing order rather than
+  // whichever thread happened to notice first.
+  for (std::size_t i = 0; i < nbSubModels; ++i) {
+    if (nanInf[i])
+      throw DYNError(Error::MODELER, SparseMatrixWithNanInf, subModels_[i]->modelType(), subModels_[i]->name());
+  }
+
+  // Pass B: prefix-sum each partial's actual column and term counts, then
+  // copy each partial into jt at its own offset. Once jt's storage is
+  // preallocated, every copy is independent and this too can run in
+  // parallel.
+  std::vector<int> colOffsets(nbSubModels + 1, 0);
+  std::vector<int> nnzOffsets(nbSubModels + 1, 0);
+  for (std::size_t i = 0; i < nbSubModels; ++i) {
+    colOffsets[i + 1] = colOffsets[i] + partials[i].filledColumns();
+    nnzOffsets[i + 1] = nnzOffsets[i] + partials[i].filledTermCount();
+  }
+  jt.reserveTermCapacity(nnzOffsets[nbSubModels]);
+
+  jacobianAssemblyParallelFor(static_cast<int>(nbSubModels), nbThreads,
+      [&jt, &partials, &colOffsets, &nnzOffsets](const int i) {
+    jt.appendPartial(partials[i], colOffsets[i], nnzOffsets[i]);
+  });
+  jt.finalizeAppend(colOffsets[nbSubModels], nnzOffsets[nbSubModels]);
 
   connectorContainer_->evalJtConnector(jt);
 

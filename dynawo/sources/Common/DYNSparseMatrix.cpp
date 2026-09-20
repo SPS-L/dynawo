@@ -26,6 +26,7 @@
 #include <fstream>
 #include <cassert>
 #include <cmath>
+#include <algorithm>
 
 #include <boost/filesystem.hpp>
 
@@ -109,6 +110,70 @@ SparseMatrix::addTermForced(const int row, const double val) {
   if (std::isinf(val)) {  // if val is INFINITY
     withoutInf_ = false;
   }
+}
+
+void
+SparseMatrix::initPartial(const int nbRow, const int nbCol) {
+  free();
+
+  if (nbRow == 0) return;
+  nbRow_ = nbRow;
+  nbCol_ = nbCol;
+  // A partial matrix fills one submodel's own share of a Jacobian, typically
+  // far smaller than a full one, so the initial term capacity is sized to
+  // the column count rather than to MATRIX_BLOCK_LENGTH: that fixed block
+  // would otherwise be allocated, and mostly wasted, once per submodel,
+  // possibly thousands of times over. increaseReserve() still grows it, in
+  // the usual fixed-size blocks, for a submodel that needs more.
+  currentMaxTerm_ = std::max(nbCol_, 1);
+  Ap_.resize(nbCol_ + 1);
+  Ap_[0] = 0;
+  Ai_.resize(currentMaxTerm_);
+  Ax_.resize(currentMaxTerm_);
+
+  iAp_ = 0;
+  iAi_ = 0;
+  iAx_ = 0;
+  nbTerm_ = 0;
+
+  withoutNan_ = true;
+  withoutInf_ = true;
+}
+
+void
+SparseMatrix::reserveTermCapacity(const int nbTerm) {
+  if (nbTerm > currentMaxTerm_) {
+    currentMaxTerm_ = nbTerm;
+    Ai_.resize(currentMaxTerm_);
+    Ax_.resize(currentMaxTerm_);
+  }
+}
+
+void
+SparseMatrix::appendPartial(const SparseMatrix& src, const int colOffset, const int nnzOffset) {
+  const int nbColSrc = src.iAp_;
+  assert(colOffset + nbColSrc <= nbCol_);
+  for (int j = 1; j <= nbColSrc; ++j) {
+    Ap_[colOffset + j] = nnzOffset + src.Ap_[j];
+  }
+
+  const int nbTermSrc = src.nbTerm_;
+  assert(nnzOffset + nbTermSrc <= currentMaxTerm_);
+  if (nbTermSrc > 0) {
+    std::copy(src.Ai_.begin(), src.Ai_.begin() + nbTermSrc, Ai_.begin() + nnzOffset);
+    std::copy(src.Ax_.begin(), src.Ax_.begin() + nbTermSrc, Ax_.begin() + nnzOffset);
+  }
+}
+
+void
+SparseMatrix::finalizeAppend(const int totalCols, const int totalNnz) {
+  assert(totalCols <= nbCol_);
+  iAp_ = totalCols;
+  iAi_ = totalNnz;
+  iAx_ = totalNnz;
+  nbTerm_ = totalNnz;
+  if (totalNnz > currentMaxTerm_)
+    currentMaxTerm_ = totalNnz;
 }
 
 void
