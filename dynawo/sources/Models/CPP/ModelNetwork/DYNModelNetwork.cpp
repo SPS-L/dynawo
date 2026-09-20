@@ -1046,8 +1046,13 @@ ModelNetwork::evalF(double /*t*/, const propertyF_t type) {
   Timer* timer3 = new Timer("ModelNetwork::evalF_evalF");
 #endif
   // Each component writes into its own contiguous slice of fLocal_, fixed once
-  // by initBuffers, so this region has no shared destination and no ordering
-  // question.
+  // by initBuffers, so the residual itself has no shared destination between
+  // tasks. One exception: ModelLoad::evalF reads its bus's voltage through
+  // ModelBusInjected::getCurrentU, a lazy memoiser that writes U_, UPu_,
+  // U2Pu_ and currentUStatus_ on that bus. This is safe because a load is
+  // always a member of the same ModelVoltageLevel as its bus, so both are
+  // reached only through that voltage level's single entry in the component
+  // vector: the memo write happens inside one task, never shared across two.
   parallelFor(nbComponents, effectiveThreads(components.size()), [&components, type](const int i) {
     components[i]->evalF(type);
   });
