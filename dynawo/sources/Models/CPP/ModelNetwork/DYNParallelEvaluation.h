@@ -39,21 +39,22 @@ static const std::size_t parallelEvaluationMinTasks = 256;
  * The loop is index based because the tree compiles as C++11 and a pragma on
  * a range based for needs OpenMP 5.0.
  *
- * The schedule is static with a chunk size of 1, i.e. round robin over the
- * index range, rather than the default static schedule's contiguous blocks.
- * Both callers hand this function an index range where the heavy tasks are
- * grouped at the front: the voltage levels lead the component vector and the
- * branches trail it, and within the full component vector the voltage levels
- * are again the heavy entries. A contiguous-block static schedule would then
- * hand the first few threads nothing but voltage levels and the rest nothing
- * but light branches, an imbalance that grows with thread count rather than
- * with actual load. Round robin spreads that structural gradient evenly
- * across threads at compile-time scheduling cost, with no runtime work queue,
- * so a fixed chunk size is preferred over `schedule(dynamic)` here: the
- * imbalance is positional and known ahead of time, not a runtime variation
- * that would need dynamic load stealing to catch. This choice cannot affect
- * bit-identity: which thread executes which index never changes what any
- * index writes or how many index-local values get summed elsewhere.
+ * The schedule is `runtime`, i.e. chosen at run time from the OMP_SCHEDULE
+ * environment variable rather than fixed in the pragma. Both callers hand
+ * this function an index range where the heavy tasks are grouped at the
+ * front: the voltage levels lead the component vector and the branches
+ * trail it, and within the full component vector the voltage levels are
+ * again the heavy entries. A contiguous-block static schedule hands the
+ * first few threads nothing but voltage levels and the rest nothing but
+ * light branches, an imbalance that grows with thread count rather than with
+ * actual load; a round-robin schedule spreads that structural gradient
+ * evenly but scatters each thread's indices and can cost cache locality.
+ * Which of those trade-offs wins on this benchmark is an empirical question,
+ * not one to settle by argument, so the choice is deferred to OMP_SCHEDULE
+ * and picked from measurement; see reports/parallel_evaluation_2026-09-20/
+ * for the comparison. This choice cannot affect bit-identity: which thread
+ * executes which index never changes what any index writes or how many
+ * index-local values get summed elsewhere.
  *
  * @param n number of iterations
  * @param nbThreads thread count; 1 means run serially
@@ -63,7 +64,7 @@ template <typename Body>
 void parallelFor(const int n, const unsigned nbThreads, Body body) {
   std::exception_ptr firstError;
 #ifdef _OPENMP
-#pragma omp parallel for schedule(static, 1) num_threads(nbThreads) if (nbThreads > 1)
+#pragma omp parallel for schedule(runtime) num_threads(nbThreads) if (nbThreads > 1)
 #else
   (void) nbThreads;
 #endif
