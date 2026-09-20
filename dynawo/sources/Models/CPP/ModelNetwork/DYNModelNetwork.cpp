@@ -1021,18 +1021,15 @@ ModelNetwork::evalF(double /*t*/, const propertyF_t type) {
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
     Timer* timer2 = new Timer("ModelNetwork::evalF_evalNodeInjection");
 #endif
-    // A voltage level's members connect only to buses of that voltage level, so
-    // two voltage levels never accumulate into the same bus and running them
-    // concurrently leaves each bus's summation order untouched.
+    // A voltage level's members connect only to buses of that voltage level,
+    // so two voltage levels never accumulate into the same bus.
     parallelFor(nbVLevels, effectiveThreads(vLevels.size()), [&vLevels](const int i) {
       vLevels[i]->evalNodeInjection();
     });
 
-    // Branches accumulate into buses of two different voltage levels, so they
-    // stay serial. Parallelising them would reorder a floating point sum and
-    // the curves would no longer be bit-identical, which is the one gate the
-    // regression harness cannot replace with a tolerance. They are the trailing
-    // entries of the component vector; checkComponentLayout enforces that.
+    // Branches connect buses across voltage levels, so they are evaluated
+    // serially, after the voltage levels. They are the trailing entries of
+    // the component vector; checkComponentLayout enforces that layout.
     for (int i = nbVLevels; i < nbComponents; ++i)
       components[i]->evalNodeInjection();
 
@@ -1045,14 +1042,12 @@ ModelNetwork::evalF(double /*t*/, const propertyF_t type) {
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer* timer3 = new Timer("ModelNetwork::evalF_evalF");
 #endif
-  // Each component writes into its own contiguous slice of fLocal_, fixed once
-  // by initBuffers, so the residual itself has no shared destination between
-  // tasks. One exception: ModelLoad::evalF reads its bus's voltage through
-  // ModelBusInjected::getCurrentU, a lazy memoiser that writes U_, UPu_,
-  // U2Pu_ and currentUStatus_ on that bus. This is safe because a load is
-  // always a member of the same ModelVoltageLevel as its bus, so both are
-  // reached only through that voltage level's single entry in the component
-  // vector: the memo write happens inside one task, never shared across two.
+  // Each component writes into its own contiguous slice of fLocal_, so
+  // components have no shared destination between tasks. The exception is
+  // ModelLoad::evalF, which reaches ModelBusInjected::getCurrentU, a lazy
+  // memoiser that writes U_, UPu_, U2Pu_ and currentUStatus_ on its bus; a
+  // load and its bus are always members of the same voltage level, so that
+  // write happens inside a single task.
   parallelFor(nbComponents, effectiveThreads(components.size()), [&components, type](const int i) {
     components[i]->evalF(type);
   });

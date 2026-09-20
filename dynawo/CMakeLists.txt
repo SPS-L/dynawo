@@ -292,9 +292,8 @@ else()
   message(STATUS "HDF5 export disabled (DYNAWO_ACTIVATE_HDF5_EXPORT=false)")
 endif()
 
-# OpenMP (optional, controlled by DYNAWO_USE_OPENMP). Off by default: with the
-# option off every pragma is removed by the preprocessor, so the binaries are
-# byte-for-byte what they were and OpenMP is not a new mandatory dependency.
+# OpenMP (optional, controlled by DYNAWO_USE_OPENMP, default OFF). When OFF,
+# the OpenMP pragmas compile out and OpenMP is not required.
 option(DYNAWO_USE_OPENMP "Enable OpenMP parallel model evaluation" OFF)
 if(DYNAWO_USE_OPENMP)
   find_package(OpenMP REQUIRED COMPONENTS CXX)

@@ -320,13 +320,14 @@ class ModelNetwork : public ModelCPP, private boost::noncopyable {
   }
 
   /**
-   * @brief thread count to actually use for a region of a given size
+   * @brief thread count to use for a region of a given size
    *
-   * A parallel region over a handful of tasks costs more in fork and join than
-   * it saves, so small networks stay serial whatever the parameter says.
+   * Returns 1 (serial) when the configured thread count is 1 or nbTasks is
+   * below parallelEvaluationMinTasks; otherwise returns the configured
+   * thread count.
    *
    * @param nbTasks number of iterations the region will run
-   * @return the configured thread count, or 1 when the region is too small
+   * @return the thread count to use for this region
    */
   inline unsigned effectiveThreads(const std::size_t nbTasks) const {
     return (evaluationThreads_ > 1 && nbTasks >= parallelEvaluationMinTasks) ? evaluationThreads_ : 1;
@@ -461,10 +462,9 @@ class ModelNetwork : public ModelCPP, private boost::noncopyable {
   /**
    * @brief check that the voltage levels lead the component vector
    *
-   * evalF parallelises the voltage levels and leaves the branches serial, which
-   * is only correct if the two groups are contiguous and in this order. The
-   * layout comes from initializeFromData rather than from a declared
-   * contract, so it is checked once instead of assumed.
+   * evalF parallelises the voltage levels and evaluates the branches
+   * serially afterwards, which requires the two groups to be contiguous and
+   * in this order.
    */
   void checkComponentLayout() const;
 
