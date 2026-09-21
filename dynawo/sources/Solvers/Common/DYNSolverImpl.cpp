@@ -534,6 +534,8 @@ void Solver::Impl::setSolverCommonParameters() {
       minimumModeChangeTypeForAlgebraicRestoration_ = ALGEBRAIC_MODE;
     else if (value == "ALGEBRAIC_J_UPDATE")
       minimumModeChangeTypeForAlgebraicRestoration_ = ALGEBRAIC_J_UPDATE_MODE;
+    else if (value == "ALGEBRAIC_J_VALUES")
+      minimumModeChangeTypeForAlgebraicRestoration_ = ALGEBRAIC_J_VALUES_MODE;
     else
       Trace::warn() << DYNLog(IncoherentParamMinimumModeChangeType, value) << Trace::endline;
   }
@@ -544,6 +546,8 @@ void Solver::Impl::setSolverCommonParameters() {
       minimumModeChangeTypeForAlgebraicRestorationInit_ = ALGEBRAIC_MODE;
     else if (value == "ALGEBRAIC_J_UPDATE")
       minimumModeChangeTypeForAlgebraicRestorationInit_ = ALGEBRAIC_J_UPDATE_MODE;
+    else if (value == "ALGEBRAIC_J_VALUES")
+      minimumModeChangeTypeForAlgebraicRestorationInit_ = ALGEBRAIC_J_VALUES_MODE;
     else
       Trace::warn() << DYNLog(IncoherentParamMinimumModeChangeType, value) << Trace::endline;
   }

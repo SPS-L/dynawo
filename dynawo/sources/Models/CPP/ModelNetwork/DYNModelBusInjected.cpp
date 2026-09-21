@@ -596,6 +596,12 @@ ModelBusInjected::evalCalculatedVarI(unsigned numCalculatedVar) const {
   return output;
 }
 
+bool
+ModelBusInjected::useForcedTerms() const {
+  return network_->getPatternInvariantTopology()
+      && !network_->isInitModel() && !network_->getIsInitProcess();
+}
+
 void
 ModelBusInjected::evalJt(const double /*cj*/, const int rowOffset, SparseMatrix& jt) {
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
@@ -611,14 +617,25 @@ ModelBusInjected::evalJt(const double /*cj*/, const int rowOffset, SparseMatrix&
     jt.changeCol();
     jt.changeCol();
   } else {
+    // Superset sparsity: with patternInvariantTopology, only the accumulated
+    // bus derivative entries a branch contributes are forced to survive as
+    // structural zeros; every other component's zero-valued entries continue
+    // to be dropped. Initialization is excluded for the same reason as in
+    // ModelSwitch::evalJt.
+    const bool forced = useForcedTerms();
+
     // Column for the real part of the node current
     // ----------------------------------
     // Switching column
     jt.changeCol();
     const auto& irDerivativesValues = derivatives_->getValues(IR_DERIVATIVE);
     const auto& irDerivativesIndices = derivatives_->getIndices(IR_DERIVATIVE);
+    const auto& irDerivativesForced = derivatives_->getForced(IR_DERIVATIVE);
     for (unsigned int i = 0 ; i < irDerivativesIndices.size(); ++i) {
-      jt.addTerm(irDerivativesIndices[i] + rowOffset, irDerivativesValues[i]);
+      if (forced && irDerivativesForced[i])
+        jt.addTermForced(irDerivativesIndices[i] + rowOffset, irDerivativesValues[i]);
+      else
+        jt.addTerm(irDerivativesIndices[i] + rowOffset, irDerivativesValues[i]);
     }
 
     // Column for the imaginary part of the node current
@@ -627,8 +644,12 @@ ModelBusInjected::evalJt(const double /*cj*/, const int rowOffset, SparseMatrix&
     jt.changeCol();
     const auto& iiDerivativesValues = derivatives_->getValues(II_DERIVATIVE);
     const auto& iiDerivativesIndices = derivatives_->getIndices(II_DERIVATIVE);
+    const auto& iiDerivativesForced = derivatives_->getForced(II_DERIVATIVE);
     for (unsigned int i = 0 ; i < iiDerivativesIndices.size(); ++i) {
-      jt.addTerm(iiDerivativesIndices[i] + rowOffset, iiDerivativesValues[i]);
+      if (forced && iiDerivativesForced[i])
+        jt.addTermForced(iiDerivativesIndices[i] + rowOffset, iiDerivativesValues[i]);
+      else
+        jt.addTerm(iiDerivativesIndices[i] + rowOffset, iiDerivativesValues[i]);
     }
   }
 }

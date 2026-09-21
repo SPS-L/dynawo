@@ -292,6 +292,16 @@ else()
   message(STATUS "HDF5 export disabled (DYNAWO_ACTIVATE_HDF5_EXPORT=false)")
 endif()
 
+# OpenMP (optional, controlled by DYNAWO_USE_OPENMP, default OFF). When OFF,
+# the OpenMP pragmas compile out and OpenMP is not required.
+option(DYNAWO_USE_OPENMP "Enable OpenMP parallel model evaluation" OFF)
+if(DYNAWO_USE_OPENMP)
+  find_package(OpenMP REQUIRED COMPONENTS CXX)
+  message(STATUS "OpenMP found: ${OpenMP_CXX_VERSION}, parallel model evaluation enabled")
+else()
+  message(STATUS "OpenMP disabled (DYNAWO_USE_OPENMP=OFF)")
+endif()
+
 # Interactive mode interfaces
 find_package(ZMQ)
 if(ZMQ_FOUND)

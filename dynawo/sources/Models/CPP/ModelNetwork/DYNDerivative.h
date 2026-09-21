@@ -54,8 +54,9 @@ class Derivatives {
    * @brief add value
    * @param numVar number of variable
    * @param value value
+   * @param forced whether this contribution must survive as a structural zero
    */
-  void addValue(int numVar, double value);
+  void addValue(int numVar, double value, bool forced = false);
 
   /**
    * @brief get values
@@ -74,6 +75,14 @@ class Derivatives {
   }
 
   /**
+   * @brief get forced flags
+   * @return whether each indexed entry must survive as a structural zero
+   */
+  inline const std::vector<char>& getForced() const {
+    return forced_;
+  }
+
+  /**
    * @brief state whether empty
    * @return @b empty
    */
@@ -84,6 +93,7 @@ class Derivatives {
  private:
   std::vector<double> values_;  ///< value of the derivative
   std::vector<int> indices_;  ///< num of the variable
+  std::vector<char> forced_;  ///< whether each entry must survive as a structural zero
 };
 
 /**
@@ -102,8 +112,9 @@ class BusDerivatives {
    * @param type derivative type
    * @param numVar number of variable
    * @param value number of value
+   * @param forced whether this contribution must survive as a structural zero
    */
-  void addDerivative(typeDerivative_t type, int numVar, double value);
+  void addDerivative(typeDerivative_t type, int numVar, double value, bool forced = false);
 
   /**
    * @brief get values
@@ -118,6 +129,13 @@ class BusDerivatives {
    * @return vector of variables' indices
    */
   const std::vector<int>& getIndices(typeDerivative_t type) const;
+
+  /**
+   * @brief get forced flags
+   * @param type type of derivatives
+   * @return vector of whether each indexed entry must survive as a structural zero
+   */
+  const std::vector<char>& getForced(typeDerivative_t type) const;
 
   /**
    * @brief state whether empty

@@ -586,31 +586,35 @@ ModelLine::evalDerivatives(const double cj) {
   }
 
   if (!dynBus1_) {
+    // Branch contribution: forced so it survives as a structural zero under
+    // patternInvariantTopology, since a state change on this line can zero it.
     auto & irDerivatives1 = modelBus1_->derivatives()->getDerivatives(IR_DERIVATIVE);
-    irDerivatives1.addValue(ur1YNumGlobal(), ir1_dUr1_);
-    irDerivatives1.addValue(ui1YNumGlobal(), ir1_dUi1_);
-    irDerivatives1.addValue(ur2YNumGlobal(), ir1_dUr2_);
-    irDerivatives1.addValue(ui2YNumGlobal(), ir1_dUi2_);
+    irDerivatives1.addValue(ur1YNumGlobal(), ir1_dUr1_, true);
+    irDerivatives1.addValue(ui1YNumGlobal(), ir1_dUi1_, true);
+    irDerivatives1.addValue(ur2YNumGlobal(), ir1_dUr2_, true);
+    irDerivatives1.addValue(ui2YNumGlobal(), ir1_dUi2_, true);
 
     auto & iiDerivatives1 = modelBus1_->derivatives()->getDerivatives(II_DERIVATIVE);
-    iiDerivatives1.addValue(ur1YNumGlobal(), ii1_dUr1_);
-    iiDerivatives1.addValue(ui1YNumGlobal(), ii1_dUi1_);
-    iiDerivatives1.addValue(ur2YNumGlobal(), ii1_dUr2_);
-    iiDerivatives1.addValue(ui2YNumGlobal(), ii1_dUi2_);
+    iiDerivatives1.addValue(ur1YNumGlobal(), ii1_dUr1_, true);
+    iiDerivatives1.addValue(ui1YNumGlobal(), ii1_dUi1_, true);
+    iiDerivatives1.addValue(ur2YNumGlobal(), ii1_dUr2_, true);
+    iiDerivatives1.addValue(ui2YNumGlobal(), ii1_dUi2_, true);
   }
 
   if (!dynBus2_) {
+    // Branch contribution: forced so it survives as a structural zero under
+    // patternInvariantTopology, since a state change on this line can zero it.
     auto & irDerivatives2 = modelBus2_->derivatives()->getDerivatives(IR_DERIVATIVE);
-    irDerivatives2.addValue(ur1YNumGlobal(), ir2_dUr1_);
-    irDerivatives2.addValue(ui1YNumGlobal(), ir2_dUi1_);
-    irDerivatives2.addValue(ur2YNumGlobal(), ir2_dUr2_);
-    irDerivatives2.addValue(ui2YNumGlobal(), ir2_dUi2_);
+    irDerivatives2.addValue(ur1YNumGlobal(), ir2_dUr1_, true);
+    irDerivatives2.addValue(ui1YNumGlobal(), ir2_dUi1_, true);
+    irDerivatives2.addValue(ur2YNumGlobal(), ir2_dUr2_, true);
+    irDerivatives2.addValue(ui2YNumGlobal(), ir2_dUi2_, true);
 
     auto & iiDerivatives2 = modelBus2_->derivatives()->getDerivatives(II_DERIVATIVE);
-    iiDerivatives2.addValue(ur1YNumGlobal(), ii2_dUr1_);
-    iiDerivatives2.addValue(ui1YNumGlobal(), ii2_dUi1_);
-    iiDerivatives2.addValue(ur2YNumGlobal(), ii2_dUr2_);
-    iiDerivatives2.addValue(ui2YNumGlobal(), ii2_dUi2_);
+    iiDerivatives2.addValue(ur1YNumGlobal(), ii2_dUr1_, true);
+    iiDerivatives2.addValue(ui1YNumGlobal(), ii2_dUi1_, true);
+    iiDerivatives2.addValue(ur2YNumGlobal(), ii2_dUr2_, true);
+    iiDerivatives2.addValue(ui2YNumGlobal(), ii2_dUi2_, true);
   }
 }
 

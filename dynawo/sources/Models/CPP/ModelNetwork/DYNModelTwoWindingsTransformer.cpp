@@ -949,43 +949,48 @@ ModelTwoWindingsTransformer::evalDerivatives(const double /*cj*/) {
       auto& derivatives1 = modelBus1_->derivatives();
       auto& derivatives2 = modelBus2_->derivatives();
 
-      derivatives1->addDerivative(IR_DERIVATIVE, ur1YNum, ir1_dUr1_);
-      derivatives1->addDerivative(IR_DERIVATIVE, ui1YNum, ir1_dUi1_);
-      derivatives1->addDerivative(II_DERIVATIVE, ur1YNum, ii1_dUr1_);
-      derivatives1->addDerivative(II_DERIVATIVE, ui1YNum, ii1_dUi1_);
-      derivatives1->addDerivative(IR_DERIVATIVE, ur2YNum, ir1_dUr2_);
-      derivatives1->addDerivative(IR_DERIVATIVE, ui2YNum, ir1_dUi2_);
-      derivatives1->addDerivative(II_DERIVATIVE, ur2YNum, ii1_dUr2_);
-      derivatives1->addDerivative(II_DERIVATIVE, ui2YNum, ii1_dUi2_);
+      // Branch contribution: forced so it survives as a structural zero under
+      // patternInvariantTopology, since a state change on this transformer can
+      // zero it.
+      derivatives1->addDerivative(IR_DERIVATIVE, ur1YNum, ir1_dUr1_, true);
+      derivatives1->addDerivative(IR_DERIVATIVE, ui1YNum, ir1_dUi1_, true);
+      derivatives1->addDerivative(II_DERIVATIVE, ur1YNum, ii1_dUr1_, true);
+      derivatives1->addDerivative(II_DERIVATIVE, ui1YNum, ii1_dUi1_, true);
+      derivatives1->addDerivative(IR_DERIVATIVE, ur2YNum, ir1_dUr2_, true);
+      derivatives1->addDerivative(IR_DERIVATIVE, ui2YNum, ir1_dUi2_, true);
+      derivatives1->addDerivative(II_DERIVATIVE, ur2YNum, ii1_dUr2_, true);
+      derivatives1->addDerivative(II_DERIVATIVE, ui2YNum, ii1_dUi2_, true);
 
-      derivatives2->addDerivative(IR_DERIVATIVE, ur2YNum, ir2_dUr2_);
-      derivatives2->addDerivative(IR_DERIVATIVE, ui2YNum, ir2_dUi2_);
-      derivatives2->addDerivative(II_DERIVATIVE, ur2YNum, ii2_dUr2_);
-      derivatives2->addDerivative(II_DERIVATIVE, ui2YNum, ii2_dUi2_);
-      derivatives2->addDerivative(IR_DERIVATIVE, ur1YNum, ir2_dUr1_);
-      derivatives2->addDerivative(IR_DERIVATIVE, ui1YNum, ir2_dUi1_);
-      derivatives2->addDerivative(II_DERIVATIVE, ur1YNum, ii2_dUr1_);
-      derivatives2->addDerivative(II_DERIVATIVE, ui1YNum, ii2_dUi1_);
+      derivatives2->addDerivative(IR_DERIVATIVE, ur2YNum, ir2_dUr2_, true);
+      derivatives2->addDerivative(IR_DERIVATIVE, ui2YNum, ir2_dUi2_, true);
+      derivatives2->addDerivative(II_DERIVATIVE, ur2YNum, ii2_dUr2_, true);
+      derivatives2->addDerivative(II_DERIVATIVE, ui2YNum, ii2_dUi2_, true);
+      derivatives2->addDerivative(IR_DERIVATIVE, ur1YNum, ir2_dUr1_, true);
+      derivatives2->addDerivative(IR_DERIVATIVE, ui1YNum, ir2_dUi1_, true);
+      derivatives2->addDerivative(II_DERIVATIVE, ur1YNum, ii2_dUr1_, true);
+      derivatives2->addDerivative(II_DERIVATIVE, ui1YNum, ii2_dUi1_, true);
       break;
     }
     case BUS1: {
       const int ur1YNum = modelBus1_->urYNum();
       const int ui1YNum = modelBus1_->uiYNum();
       auto& derivatives1 = modelBus1_->derivatives();
-      derivatives1->addDerivative(IR_DERIVATIVE, ur1YNum, ir1_dUr1_);
-      derivatives1->addDerivative(IR_DERIVATIVE, ui1YNum, ir1_dUi1_);
-      derivatives1->addDerivative(II_DERIVATIVE, ur1YNum, ii1_dUr1_);
-      derivatives1->addDerivative(II_DERIVATIVE, ui1YNum, ii1_dUi1_);
+      // Branch contribution: forced, as in the BUS1_BUS2 case above.
+      derivatives1->addDerivative(IR_DERIVATIVE, ur1YNum, ir1_dUr1_, true);
+      derivatives1->addDerivative(IR_DERIVATIVE, ui1YNum, ir1_dUi1_, true);
+      derivatives1->addDerivative(II_DERIVATIVE, ur1YNum, ii1_dUr1_, true);
+      derivatives1->addDerivative(II_DERIVATIVE, ui1YNum, ii1_dUi1_, true);
       break;
     }
     case BUS2: {
       const int ur2YNum = modelBus2_->urYNum();
       const int ui2YNum = modelBus2_->uiYNum();
       auto& derivatives2 = modelBus2_->derivatives();
-      derivatives2->addDerivative(IR_DERIVATIVE, ur2YNum, ir2_dUr2_);
-      derivatives2->addDerivative(IR_DERIVATIVE, ui2YNum, ir2_dUi2_);
-      derivatives2->addDerivative(II_DERIVATIVE, ur2YNum, ii2_dUr2_);
-      derivatives2->addDerivative(II_DERIVATIVE, ui2YNum, ii2_dUi2_);
+      // Branch contribution: forced, as in the BUS1_BUS2 case above.
+      derivatives2->addDerivative(IR_DERIVATIVE, ur2YNum, ir2_dUr2_, true);
+      derivatives2->addDerivative(IR_DERIVATIVE, ui2YNum, ir2_dUi2_, true);
+      derivatives2->addDerivative(II_DERIVATIVE, ur2YNum, ii2_dUr2_, true);
+      derivatives2->addDerivative(II_DERIVATIVE, ui2YNum, ii2_dUi2_, true);
       break;
     }
   }

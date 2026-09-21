@@ -102,6 +102,29 @@ class ModelLine : public ModelQuadripole {
   void printInternalParameters(std::ofstream& fstream) const override;
 
   /**
+   * @copydoc NetworkComponent::hasPatternInvariantTopologyChange()
+   *
+   * True only for the plain static line model on two ordinary buses
+   * (dynBus1_ == dynBus2_ == dynLineModel_ == false). For that
+   * configuration a trip changes this line's contributions to its buses'
+   * derivative accumulators, to zero for OPEN, but to the equivalent shunt
+   * seen through the open far end for CLOSED_1 and CLOSED_2 (see
+   * ir1_dUr1()), without adding or removing an index, so with superset
+   * sparsity the Jacobian pattern is unchanged. A dynamic bus side or the
+   * dynamic line model emits some terms through plain addTerm rather than
+   * addTermForced, and some of those terms are exact zero outside CLOSED,
+   * so a state change there drops columns and must force a Jacobian
+   * rebuild.
+   *
+   * A trip reported this way is an algebraic event carrying a Jacobian value update rather
+   * than a structural one, so the solver's algebraic-restoration threshold governs whether
+   * the algebraic state is restored at the trip instant.
+   */
+  bool hasPatternInvariantTopologyChange() const override {
+    return !dynBus1_ && !dynBus2_ && !dynLineModel_;
+  }
+
+  /**
    * @brief set CurrentLimits Desactivate
    * @param newVal CurrentLimits Desactivate
    */

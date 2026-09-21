@@ -64,6 +64,10 @@ target_link_libraries(${MODEL_NAME}
     dynawo_SolverKINSubModel
   )
 
+if(DYNAWO_USE_OPENMP)
+  target_link_libraries(${MODEL_NAME} PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
 if(BUILD_TESTS OR BUILD_TESTS_COVERAGE)
   add_subdirectory(test)
 endif()

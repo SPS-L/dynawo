@@ -24,6 +24,7 @@
 #include <iostream>
 #include <cmath>
 #include <iomanip>
+#include <stdexcept>
 
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
@@ -133,7 +134,9 @@ calculatedVarBuffer_(NULL),
 isInit_(false) ,
 isInitModel_(false),
 withNodeBreakerTopology_(false),
-deactivateZeroCrossingFunctions_(false) {
+deactivateZeroCrossingFunctions_(false),
+patternInvariantTopology_(false),
+evaluationThreads_(1) {
   busContainer_.reset(new ModelBusContainer());
 }
 
@@ -792,6 +795,7 @@ ModelNetwork::initializeStaticData() {
   for (const auto& component : getComponents()) {
     component->init(yNum);
   }
+  checkComponentLayout();
 }
 
 void
@@ -978,21 +982,56 @@ ModelNetwork::initSubBuffers() {
   }
 }
 
+namespace {
+bool leadsWithVoltageLevels(const std::vector<std::shared_ptr<NetworkComponent> >& components,
+                            const std::vector<std::shared_ptr<ModelVoltageLevel> >& vLevels) {
+  if (components.size() < vLevels.size())
+    return false;
+  for (std::size_t i = 0; i < vLevels.size(); ++i) {
+    if (components[i].get() != vLevels[i].get())
+      return false;
+  }
+  return true;
+}
+}  // namespace
+
+void
+ModelNetwork::checkComponentLayout() const {
+  if (!leadsWithVoltageLevels(components_, vLevelComponents_))
+    throw std::runtime_error("ModelNetwork: voltage levels are not the leading entries of components_");
+  if (!leadsWithVoltageLevels(initComponents_, vLevelInitComponents_))
+    throw std::runtime_error("ModelNetwork: voltage levels are not the leading entries of initComponents_");
+}
+
 void
 ModelNetwork::evalF(double /*t*/, const propertyF_t type) {
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer timer("ModelNetwork::evalF");
 #endif
 
+  const std::vector<std::shared_ptr<ModelVoltageLevel> >& vLevels = getVoltageLevels();
+  const std::vector<std::shared_ptr<NetworkComponent> >& components = getComponents();
+  const int nbVLevels = static_cast<int>(vLevels.size());
+  const int nbComponents = static_cast<int>(components.size());
+
   if (type != DIFFERENTIAL_EQ) {
     // compute nodal current injections (convention: > 0 if the current goes out of the node)
-    busContainer_->resetInjections();
+    busContainer_->resetInjections(effectiveThreads(busContainer_->getNbBuses()));
 
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
     Timer* timer2 = new Timer("ModelNetwork::evalF_evalNodeInjection");
 #endif
-    for (const auto& component : getComponents())
-      component->evalNodeInjection();
+    // A voltage level's members connect only to buses of that voltage level,
+    // so two voltage levels never accumulate into the same bus.
+    parallelFor(nbVLevels, effectiveThreads(vLevels.size()), [&vLevels](const int i) {
+      vLevels[i]->evalNodeInjection();
+    });
+
+    // Branches connect buses across voltage levels, so they are evaluated
+    // serially, after the voltage levels. They are the trailing entries of
+    // the component vector; checkComponentLayout enforces that layout.
+    for (int i = nbVLevels; i < nbComponents; ++i)
+      components[i]->evalNodeInjection();
 
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
     delete timer2;
@@ -1003,8 +1042,15 @@ ModelNetwork::evalF(double /*t*/, const propertyF_t type) {
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   Timer* timer3 = new Timer("ModelNetwork::evalF_evalF");
 #endif
-  for (const auto& component : getComponents())
-    component->evalF(type);
+  // Each component writes into its own contiguous slice of fLocal_, so
+  // components have no shared destination between tasks. The exception is
+  // ModelLoad::evalF, which reaches ModelBusInjected::getCurrentU, a lazy
+  // memoiser that writes U_, UPu_, U2Pu_ and currentUStatus_ on its bus; a
+  // load and its bus are always members of the same voltage level, so that
+  // write happens inside a single task.
+  parallelFor(nbComponents, effectiveThreads(components.size()), [&components, type](const int i) {
+    components[i]->evalF(type);
+  });
 #if defined(_DEBUG_) || defined(PRINT_TIMERS)
   delete timer3;
 #endif
@@ -1056,14 +1102,28 @@ ModelNetwork::evalMode(const double t) {
    *     1. State or topological change on the network (given by the evalState method)
    *     2. Short-circuit on a bus (given by the evalNodeFault method)
    */
-  bool topoChange = false;
+  bool topoChangeStructural = false;
+  bool topoChangePatternInvariant = false;
   bool stateChange = false;
   modeChangeType_t modeChangeType = NO_MODE;
 
   for (const auto& component : getComponents()) {
     switch (component->evalState(t)) {
     case NetworkComponent::TOPO_CHANGE:
-      topoChange = true;
+      // Voltage-level-internal events (switches, buses, injection connection
+      // changes) keep an invariant Jacobian pattern with superset sparsity.
+      // A line trip between two ordinary buses on the plain static line
+      // model qualifies for the same reason, and so does a two-winding
+      // transformer trip in any configuration. Other structural component
+      // types, such as lines with a dynamic bus side or the dynamic line
+      // model, dangling lines, HVDC links, three-winding transformers and
+      // bridge quadripoles, are not covered by
+      // hasPatternInvariantTopologyChange() and need a J update.
+      if (patternInvariantTopology_ && component->hasPatternInvariantTopologyChange()) {
+        topoChangePatternInvariant = true;
+      } else {
+        topoChangeStructural = true;
+      }
       break;
     case NetworkComponent::STATE_CHANGE:
       stateChange = true;
@@ -1074,8 +1134,12 @@ ModelNetwork::evalMode(const double t) {
   }
 
   // recalculate admittance matrix and reevaluate connectivity
-  if (topoChange) {
+  if (topoChangeStructural) {
     modeChangeType = ALGEBRAIC_J_UPDATE_MODE;
+  } else if (topoChangePatternInvariant) {
+    // The Jacobian's values move with the switch state; its pattern does not, because the
+    // superset sparsity holds it fixed. The solver needs new values, not a new analysis.
+    modeChangeType = ALGEBRAIC_J_VALUES_MODE;
   } else if (stateChange) {
     modeChangeType = ALGEBRAIC_MODE;
   }
@@ -1248,6 +1312,8 @@ ModelNetwork::defineParameters(vector<ParameterModeler>& parameters) {
   ModelHvdcLink::defineParameters(parameters);
   parameters.push_back(ParameterModeler("startingPointMode", VAR_TYPE_STRING, EXTERNAL_PARAMETER));
   parameters.push_back(ParameterModeler("deactivate_zero_crossing_functions", VAR_TYPE_BOOL, EXTERNAL_PARAMETER));
+  parameters.push_back(ParameterModeler("patternInvariantTopology", VAR_TYPE_BOOL, EXTERNAL_PARAMETER));
+  parameters.push_back(ParameterModeler("networkEvaluationThreads", VAR_TYPE_INT, EXTERNAL_PARAMETER));
 
   for (const auto& component : getComponents()) {
     component->defineNonGenericParameters(parameters);
@@ -1318,6 +1384,16 @@ ModelNetwork::setSubModelParameters() {
   deactivateZeroCrossingFunctions_ = false;
   if (deactivateZeroCrossingFunctions.hasValue())
     deactivateZeroCrossingFunctions_ = deactivateZeroCrossingFunctions.getValue<bool>();
+  const auto& patternInvariantTopology = findParameter("patternInvariantTopology", false);
+  patternInvariantTopology_ = false;
+  if (patternInvariantTopology.hasValue())
+    patternInvariantTopology_ = patternInvariantTopology.getValue<bool>();
+  const auto& networkEvaluationThreads = findParameter("networkEvaluationThreads", false);
+  evaluationThreads_ = 1;
+  if (networkEvaluationThreads.hasValue()) {
+    const int requested = networkEvaluationThreads.getValue<int>();
+    evaluationThreads_ = (requested > 0) ? static_cast<unsigned>(requested) : 1;
+  }
   for (const auto& component : getComponents())
     component->setSubModelParameters(parametersDynamic_);
 }

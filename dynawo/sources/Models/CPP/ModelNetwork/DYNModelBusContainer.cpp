@@ -18,6 +18,7 @@
 #include "DYNModelSubNetwork.hpp"
 #include "DYNTrace.h"
 #include "DYNEnumUtils.h"
+#include "DYNParallelEvaluation.h"
 
 
 namespace DYN {
@@ -44,11 +45,14 @@ ModelBusContainer::resetNodeInjections() {
 }
 
 void
-ModelBusContainer::resetInjections() {
-  for (auto& bus : models_) {
-    bus->resetNodeInjection();
-    bus->resetCurrentUStatus();
-  }
+ModelBusContainer::resetInjections(const unsigned nbThreads) {
+  // Pure writes into one bus each, so there is no accumulation and no ordering
+  // question: this region is safe to run in any order.
+  const int nbBuses = static_cast<int>(models_.size());
+  parallelFor(nbBuses, nbThreads, [this](const int i) {
+    models_[i]->resetNodeInjection();
+    models_[i]->resetCurrentUStatus();
+  });
 }
 
 void

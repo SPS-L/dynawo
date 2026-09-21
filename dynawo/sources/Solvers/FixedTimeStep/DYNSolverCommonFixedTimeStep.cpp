@@ -398,10 +398,15 @@ SolverCommonFixedTimeStep::increaseStep() {
 }
 
 void SolverCommonFixedTimeStep::handleRoot(bool& redoStep) {
-  if (model_->getModeChangeType() == ALGEBRAIC_J_UPDATE_MODE) {
+  const modeChangeType_t modeChangeType = model_->getModeChangeType();
+  if (modeChangeType == ALGEBRAIC_J_UPDATE_MODE) {
     factorizationForced_ = true;
   } else {
-    factorizationForced_ = false;
+    // ALGEBRAIC_J_VALUES_MODE moved the operating point while leaving the sparsity pattern
+    // fixed, so the next step must not start on the pre-event Jacobian. The factorization it
+    // forces is numeric only: the symbolic analysis is kept, because the pattern comparison in
+    // SolverCommon::propagateMatrixStructureChangeToKINSOL finds no change.
+    factorizationForced_ = (modeChangeType == ALGEBRAIC_J_VALUES_MODE);
     increaseStep();
   }
   redoStep = false;
@@ -422,15 +427,17 @@ void SolverCommonFixedTimeStep::updateTimeStep(double& tNxt) {
 }
 
 bool SolverCommonFixedTimeStep::setupNewAlgRestoration(modeChangeType_t modeChangeType) {
-  if (modeChangeType == ALGEBRAIC_MODE) {
-    solverKINAlgRestoration_->setupNewAlgebraicRestoration(fnormtolAlg_, initialaddtolAlg_, scsteptolAlg_, mxnewtstepAlg_, msbsetAlg_, mxiterAlg_,
-                                                           printflAlg_);
+  if (modeChangeType == ALGEBRAIC_MODE || modeChangeType == ALGEBRAIC_J_VALUES_MODE) {
+    solverKINAlgRestoration_->setupNewAlgebraicRestoration(fnormtolAlg_, initialaddtolAlg_, scsteptolAlg_, mxnewtstepAlg_, msbsetAlg_, mxiterAlg_, printflAlg_);
     setDifferentialVariablesIndices();
 
     if (hasPrediction())
       getSolverKINYPrim().setupNewAlgebraicRestoration(fnormtolAlg_, initialaddtolAlg_, scsteptolAlg_, mxnewtstepAlg_, msbsetAlg_, mxiterAlg_, printflAlg_);
 
-    return false;  // no J factorization
+    // ALGEBRAIC_J_VALUES_MODE needs a fresh factorization for the restoration solve: the state
+    // moved the Jacobian's values, only its pattern is fixed. It is numeric only, the symbolic
+    // analysis being retained because the pattern comparison finds no change.
+    return modeChangeType == ALGEBRAIC_J_VALUES_MODE;
   } else if (modeChangeType == ALGEBRAIC_J_UPDATE_MODE) {
     solverKINAlgRestoration_->setupNewAlgebraicRestoration(fnormtolAlgJ_, initialaddtolAlgJ_, scsteptolAlgJ_, mxnewtstepAlgJ_, msbsetAlgJ_, mxiterAlgJ_,
                                                            printflAlgJ_);

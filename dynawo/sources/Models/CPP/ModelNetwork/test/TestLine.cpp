@@ -41,7 +41,8 @@ using boost::shared_ptr;
 
 namespace DYN {
 static std::pair<std::unique_ptr<ModelLine>, std::shared_ptr<ModelVoltageLevel> >  // need to return the voltage level so that it is not destroyed
-createModelLine(bool open, bool initModel, bool closed1 = true, bool closed2 = true) {
+createModelLine(bool open, bool initModel, bool closed1 = true, bool closed2 = true,
+                bool hasDynamicBus1 = false, bool hasDynamicBus2 = false) {
   powsybl::iidm::Network networkIIDM("test", "test");
 
   powsybl::iidm::Substation& s = networkIIDM.newSubstation()
@@ -113,6 +114,11 @@ createModelLine(bool open, bool initModel, bool closed1 = true, bool closed2 = t
   std::shared_ptr<BusInterfaceIIDM> bus2ItfIIDM = std::make_shared<BusInterfaceIIDM>(iidmBus2);
   dlItfIIDM->setBusInterface1(bus1ItfIIDM);
   dlItfIIDM->setBusInterface2(bus2ItfIIDM);
+  // hasConnectionSide{1,2} models a line terminal wired to a dynamic bus,
+  // distinct from closed1/closed2 which model the terminal's connection
+  // state; both are set before ModelLine's constructor reads them.
+  dlItfIIDM->hasConnectionSide1(hasDynamicBus1);
+  dlItfIIDM->hasConnectionSide2(hasDynamicBus2);
 
   powsybl::iidm::CurrentLimits& currentLimits1 = lIIDM.getCurrentLimits1();
   if (!std::isnan(currentLimits1.getPermanentLimit())) {
@@ -1372,5 +1378,40 @@ TEST(ModelsModelNetwork, ModelNetworkLineJt) {
   ASSERT_EQ(smjInit.nbElem(), 0);
 }
 
+TEST(ModelsModelNetwork, ModelNetworkLineHasPatternInvariantTopologyChange) {
+  // A line trip leaves the bus Jacobian pattern fixed under superset
+  // sparsity, so it is downgradable; the base class default is false.
+  const std::unique_ptr<ModelLine> line = createModelLine(false, false).first;
+  ASSERT_TRUE(line->hasPatternInvariantTopologyChange());
+}
+
+TEST(ModelsModelNetwork, ModelNetworkLineHasPatternInvariantTopologyChangeDynamicBus1) {
+  // With a dynamic bus on side 1, evalJt's ir1_dUr2_/ir1_dUi2_ cross-bus
+  // terms are exact zero outside CLOSED and go through plain addTerm, so a
+  // CLOSED to open transition really does drop columns; not downgradable.
+  const std::unique_ptr<ModelLine> line = createModelLine(false, false, true, true, true, false).first;
+  ASSERT_FALSE(line->hasPatternInvariantTopologyChange());
+}
+
+TEST(ModelsModelNetwork, ModelNetworkLineHasPatternInvariantTopologyChangeDynamicBus2) {
+  // Same reasoning as side 1, mirrored onto side 2's dynBus2_ branch.
+  const std::unique_ptr<ModelLine> line = createModelLine(false, false, true, true, false, true).first;
+  ASSERT_FALSE(line->hasPatternInvariantTopologyChange());
+}
+
+TEST(ModelsModelNetwork, ModelNetworkLineHasPatternInvariantTopologyChangeDynamicLineModel) {
+  // With the dynamic line model, evalJt emits 1 column per branch equation
+  // outside CLOSED against 2 when CLOSED, and evalDerivatives returns
+  // early outside CLOSED so the bus accumulator never even receives the
+  // indices; not downgradable.
+  const std::unique_ptr<ModelLine> line = createModelLine(false, false).first;
+  std::vector<ParameterModeler> parameters;
+  line->defineParameters(parameters);
+  std::unordered_map<std::string, ParameterModeler> parametersModels;
+  parameters[1].setValue<bool>(true, PAR);
+  parametersModels.insert(std::make_pair(parameters[1].getName(), parameters[1]));
+  line->setSubModelParameters(parametersModels);
+  ASSERT_FALSE(line->hasPatternInvariantTopologyChange());
+}
 
 }  // namespace DYN

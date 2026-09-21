@@ -13,6 +13,7 @@ set(MODULE_NAME MODELS_MODELNETWORK_unittest)
 set(MODULE_SOURCES
     TestIIDMInitializationFlow.cpp
     TestDerivatives.cpp
+    TestParallelEvaluation.cpp
     TestBus.cpp
     TestSwitch.cpp
     TestDanglingLine.cpp

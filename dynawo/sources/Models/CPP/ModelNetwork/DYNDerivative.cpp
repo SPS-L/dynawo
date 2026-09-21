@@ -28,24 +28,28 @@ namespace DYN {
 Derivatives::Derivatives() {
   values_.reserve(50);
   indices_.reserve(50);
+  forced_.reserve(50);
 }
 
 void
 Derivatives::reset() {
-  for (auto& value : values_) {
-    value = 0.;
+  for (unsigned int i = 0; i < values_.size(); ++i) {
+    values_[i] = 0.;
+    forced_[i] = 0;
   }
 }
 
 void
-Derivatives::addValue(const int numVar, const double value) {
+Derivatives::addValue(const int numVar, const double value, const bool forced) {
   auto it = std::find(indices_.begin(), indices_.end(), numVar);
   if (it == indices_.end()) {
     indices_.push_back(numVar);
     values_.push_back(value);
+    forced_.push_back(forced);
   } else {
     auto index = it - indices_.begin();
     values_[index] += value;
+    forced_[index] = forced_[index] || forced;
   }
 }
 
@@ -56,13 +60,13 @@ BusDerivatives::reset() {
 }
 
 void
-BusDerivatives::addDerivative(typeDerivative_t type, const int numVar, const double value) {
+BusDerivatives::addDerivative(typeDerivative_t type, const int numVar, const double value, const bool forced) {
   switch (type) {
     case IR_DERIVATIVE:
-      irDerivatives_.addValue(numVar, value);
+      irDerivatives_.addValue(numVar, value, forced);
       break;
     case II_DERIVATIVE:
-      iiDerivatives_.addValue(numVar, value);
+      iiDerivatives_.addValue(numVar, value, forced);
       break;
     default:
       throw DYNError(Error::MODELER, InvalidDerivativeType, type);
@@ -84,6 +88,15 @@ BusDerivatives::getIndices(typeDerivative_t type) const {
     return irDerivatives_.getIndices();
   else if (type == II_DERIVATIVE)
     return iiDerivatives_.getIndices();
+  throw DYNError(Error::MODELER, InvalidDerivativeType, type);
+}
+
+const std::vector<char>&
+BusDerivatives::getForced(typeDerivative_t type) const {
+  if (type == IR_DERIVATIVE)
+    return irDerivatives_.getForced();
+  else if (type == II_DERIVATIVE)
+    return iiDerivatives_.getForced();
   throw DYNError(Error::MODELER, InvalidDerivativeType, type);
 }
 

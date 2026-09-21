@@ -35,6 +35,8 @@ modeChangeType2Str(const modeChangeType_t modeChangeType) {
       return "Differential mode change";
     case ALGEBRAIC_MODE:
       return "Algebraic mode change";
+    case ALGEBRAIC_J_VALUES_MODE:
+      return "Algebraic mode (with J value update) change";
     case ALGEBRAIC_J_UPDATE_MODE:
       return "Algebraic mode (with J recalculation) change";
     default:

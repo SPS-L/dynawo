@@ -23,11 +23,14 @@
 #ifndef MODELS_CPP_MODELNETWORK_DYNMODELNETWORK_H_
 #define MODELS_CPP_MODELNETWORK_DYNMODELNETWORK_H_
 
+#include <cstddef>
+
 #include <boost/shared_ptr.hpp>
 #include <boost/core/noncopyable.hpp>
 
 #include "DYNModelCPP.h"
 #include "DYNSubModelFactory.h"
+#include "DYNParallelEvaluation.h"
 
 namespace DYN {
 class ModelBusContainer;
@@ -278,6 +281,59 @@ class ModelNetwork : public ModelCPP, private boost::noncopyable {
   }
 
   /**
+   * @brief get whether the pattern-invariant topology optimization is enabled
+   * @return whether the pattern-invariant topology optimization is enabled
+   */
+  inline bool getPatternInvariantTopology() const {
+    return patternInvariantTopology_;
+  }
+
+  /**
+   * @brief set whether the pattern-invariant topology optimization is enabled
+   *
+   * Exposed for unit tests; production code sets this via the "patternInvariantTopology" parameter.
+   *
+   * @param patternInvariantTopology whether the pattern-invariant topology optimization is enabled
+   */
+  inline void setPatternInvariantTopology(const bool patternInvariantTopology) {
+    patternInvariantTopology_ = patternInvariantTopology;
+  }
+
+  /**
+   * @brief get the configured thread count for model evaluation
+   * @return the configured thread count
+   */
+  inline unsigned getEvaluationThreads() const {
+    return evaluationThreads_;
+  }
+
+  /**
+   * @brief set the thread count for model evaluation
+   *
+   * Exposed for unit tests; production code sets this via the
+   * "networkEvaluationThreads" parameter.
+   *
+   * @param evaluationThreads thread count, 1 meaning serial
+   */
+  inline void setEvaluationThreads(const unsigned evaluationThreads) {
+    evaluationThreads_ = evaluationThreads;
+  }
+
+  /**
+   * @brief thread count to use for a region of a given size
+   *
+   * Returns 1 (serial) when the configured thread count is 1 or nbTasks is
+   * below parallelEvaluationMinTasks; otherwise returns the configured
+   * thread count.
+   *
+   * @param nbTasks number of iterations the region will run
+   * @return the thread count to use for this region
+   */
+  inline unsigned effectiveThreads(const std::size_t nbTasks) const {
+    return (evaluationThreads_ > 1 && nbTasks >= parallelEvaluationMinTasks) ? evaluationThreads_ : 1;
+  }
+
+  /**
    * @copydoc ModelCPP::initParams()
    */
   void initParams() override;
@@ -403,6 +459,15 @@ class ModelNetwork : public ModelCPP, private boost::noncopyable {
   */
   void printInternalParameters(std::ofstream& fstream) const override;
 
+  /**
+   * @brief check that the voltage levels lead the component vector
+   *
+   * evalF parallelises the voltage levels and evaluates the branches
+   * serially afterwards, which requires the two groups to be contiguous and
+   * in this order.
+   */
+  void checkComponentLayout() const;
+
  private:
   double* calculatedVarBuffer_;  ///< calculated variable buffer
 
@@ -410,6 +475,8 @@ class ModelNetwork : public ModelCPP, private boost::noncopyable {
   bool isInitModel_;  ///< whether the current model used is the init one
   bool withNodeBreakerTopology_;  ///< whether at least one voltageLevel has node breaker topology view
   bool deactivateZeroCrossingFunctions_;  ///< whether we use root functions
+  bool patternInvariantTopology_;  ///< invariant branch sparsity + topology-event downgrade; param "patternInvariantTopology", default false
+  unsigned evaluationThreads_;  ///< thread count for model evaluation; param "networkEvaluationThreads", default 1
 
   std::unique_ptr<ModelBusContainer> busContainer_;  ///< all network buses
   std::vector<std::shared_ptr<ModelVoltageLevel> > vLevelComponents_;  ///< all voltage level components
