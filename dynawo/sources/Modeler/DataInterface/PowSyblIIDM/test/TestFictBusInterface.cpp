@@ -16,6 +16,7 @@
 
 #include "gtest_dynawo.h"
 #include "DYNCommon.h"
+#include <string>
 
 
 namespace DYN {

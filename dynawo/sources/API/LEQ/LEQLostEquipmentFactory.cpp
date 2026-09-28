@@ -20,6 +20,8 @@
 
 #include "LEQLostEquipmentFactory.h"
 #include "LEQLostEquipment.h"
+#include <memory>
+#include <string>
 
 
 namespace lostEquipments {

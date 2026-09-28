@@ -28,6 +28,7 @@
 #include "DYNTrace.h"
 #include "DYNSolverCommon.h"
 #include "DYNFileSystemUtils.h"
+#include <string>
 
 namespace DYN {
 

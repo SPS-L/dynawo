@@ -31,6 +31,8 @@
 #include "CRVCurve.h"
 #include "CRVPoint.h"
 #include "CRVXmlExporter.h"
+#include <memory>
+#include <string>
 
 using std::fstream;
 using std::ostream;

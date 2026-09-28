@@ -30,6 +30,8 @@
 #include <iostream>
 #include <sstream>
 #include <atomic>
+#include <memory>
+#include <string>
 
 namespace DYN {
 

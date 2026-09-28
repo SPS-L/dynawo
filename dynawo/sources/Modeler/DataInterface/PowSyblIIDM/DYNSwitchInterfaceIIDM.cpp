@@ -20,6 +20,8 @@
 #include <powsybl/iidm/Switch.hpp>
 #include "DYNSwitchInterfaceIIDM.h"
 #include "DYNModelConstants.h"
+#include <memory>
+#include <string>
 
 using std::shared_ptr;
 

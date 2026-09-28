@@ -29,6 +29,8 @@
 #include "DYNIIDMExtensions.hpp"
 
 #include <boost/noncopyable.hpp>
+#include <memory>
+#include <string>
 
 namespace DYN {
 

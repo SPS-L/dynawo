@@ -19,6 +19,8 @@
 
 #include "gtest_dynawo.h"
 #include "JOBSimulationEntry.h"
+#include <algorithm>
+#include <limits>
 
 namespace job {
 

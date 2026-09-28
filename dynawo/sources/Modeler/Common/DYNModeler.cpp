@@ -52,6 +52,7 @@
 #include "DYNElement.h"
 #include "DYNDataInterface.h"
 #include "DYNExecUtils.h"
+#include <memory>
 
 using std::string;
 using std::map;

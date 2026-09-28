@@ -22,6 +22,7 @@
 #include "JOBAppenderEntry.h"
 
 #include "DYNClone.hpp"
+#include <memory>
 
 namespace job {
 

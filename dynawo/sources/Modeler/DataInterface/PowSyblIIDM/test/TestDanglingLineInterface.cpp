@@ -26,6 +26,9 @@
 #include <powsybl/iidm/Substation.hpp>
 
 #include "gtest_dynawo.h"
+#include <memory>
+#include <limits>
+#include <string>
 
 namespace powsybl {
 namespace iidm {

@@ -25,6 +25,8 @@
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
 #include "DYNNetworkComponent.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 class ModelBus;

@@ -20,6 +20,7 @@
 #include "DYNMacrosMessage.h"
 
 #include "DYNDerivative.h"
+#include <algorithm>
 
 using std::map;
 

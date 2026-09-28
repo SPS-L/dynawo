@@ -22,6 +22,8 @@
 #define API_LEQ_LEQXMLEXPORTER_H_
 
 #include "LEQExporter.h"
+#include <memory>
+#include <string>
 
 namespace lostEquipments {
 

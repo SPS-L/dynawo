@@ -21,6 +21,7 @@
 #include "DYNCommon.h"
 #include "DYNSolverFactory.h"
 #include "DYNMacrosMessage.h"
+#include <string>
 
 using std::map;
 using std::string;

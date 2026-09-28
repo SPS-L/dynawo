@@ -22,6 +22,7 @@
 #include "DYNCommon.h"
 
 #include <limits>
+#include <string>
 
 namespace DYN {
 

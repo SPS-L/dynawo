@@ -12,6 +12,8 @@
 //
 
 #include "PARParametersSetFactory.h"
+#include <memory>
+#include <string>
 
 namespace parameters {
 

@@ -24,6 +24,7 @@
 #include "DYNCommon.h"
 #include "DYNTerminate.h"
 #include "DYNMessage.hpp"
+#include <string>
 
 namespace DYN {
 

@@ -16,6 +16,7 @@
  * @brief Unit tests for API_PAR
  */
 
+#include <array>
 #include <vector>
 #include <map>
 
@@ -28,6 +29,8 @@
 #include "PARParametersSet.h"
 #include "PARParametersSetFactory.h"
 #include "PARMacroParSet.h"
+#include <memory>
+#include <string>
 
 using std::string;
 using std::vector;

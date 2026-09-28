@@ -21,6 +21,7 @@
 #include "DYNZmqOutputChannel.h"
 #include "DYNMacrosMessage.h"
 #include "DYNTrace.h"
+#include <string>
 
 namespace DYN {
 

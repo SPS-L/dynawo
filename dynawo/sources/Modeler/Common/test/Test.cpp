@@ -46,6 +46,8 @@
 #include "DYNError.h"
 #include "DYNErrorQueue.h"
 #include "DYNStaticRefInterface.h"
+#include <memory>
+#include <string>
 
 using boost::shared_ptr;
 using boost::dynamic_pointer_cast;

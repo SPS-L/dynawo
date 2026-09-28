@@ -32,6 +32,7 @@
 #include "JOBTimetableEntry.h"
 
 #include <string>
+#include <memory>
 
 namespace job {
 

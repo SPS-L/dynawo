@@ -21,6 +21,7 @@
 #define API_TL_TLCSVEXPORTER_H_
 
 #include "TLExporter.h"
+#include <string>
 
 namespace timeline {
 

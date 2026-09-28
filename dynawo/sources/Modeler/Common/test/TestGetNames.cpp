@@ -25,6 +25,7 @@
 
 #include <boost/make_shared.hpp>
 #include <vector>
+#include <string>
 
 namespace DYN {
 

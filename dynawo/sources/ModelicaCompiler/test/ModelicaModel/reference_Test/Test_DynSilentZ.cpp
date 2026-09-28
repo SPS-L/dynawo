@@ -13,6 +13,7 @@
 #include "TestSilentZ_Dyn.h"
 #include "TestSilentZ_Dyn_definition.h"
 #include "TestSilentZ_Dyn_literal.h"
+#include <memory>
 
 
 namespace DYN {

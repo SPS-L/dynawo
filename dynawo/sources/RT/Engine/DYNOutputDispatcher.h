@@ -31,6 +31,7 @@
 #include "CRVCurvesCollection.h"
 #include "TLTimeline.h"
 #include "CSTRConstraintsCollection.h"
+#include <string>
 
 
 

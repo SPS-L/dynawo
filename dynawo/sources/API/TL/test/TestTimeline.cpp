@@ -23,6 +23,7 @@
 #include "TLTimeline.h"
 #include "TLTimelineFactory.h"
 #include "TLEvent.h"
+#include <string>
 
 using boost::shared_ptr;
 using DYN::doubleEquals;

@@ -19,6 +19,7 @@
 
 #include "gtest_dynawo.h"
 #include "JOBStreamEntry.h"
+#include <memory>
 
 namespace job {
 

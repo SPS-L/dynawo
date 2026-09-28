@@ -13,6 +13,8 @@
 
 #include "DYDWhiteBoxModelCommon.h"
 #include "DYNMacrosMessage.h"
+#include <memory>
+#include <string>
 
 using std::string;
 using std::map;

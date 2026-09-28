@@ -35,6 +35,8 @@
 #include "DYNMessageTimeline.h"
 #include "DYNStaticVarCompensatorInterface.h"
 #include "DYNModelVoltageLevel.h"
+#include <memory>
+#include <string>
 
 using boost::shared_ptr;
 using std::vector;

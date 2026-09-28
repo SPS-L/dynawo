@@ -21,6 +21,8 @@
 #include "DYNDelay.h"
 #include "DYNDelayManager.h"
 #include "gtest_dynawo.h"
+#include <algorithm>
+#include <string>
 
 TEST(CommonTest, testDelayClass) {
   double time = 1;

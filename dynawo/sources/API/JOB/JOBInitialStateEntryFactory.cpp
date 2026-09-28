@@ -13,6 +13,7 @@
 
 #include "JOBInitialStateEntryFactory.h"
 #include "JOBInitialStateEntry.h"
+#include <memory>
 
 namespace job {
 

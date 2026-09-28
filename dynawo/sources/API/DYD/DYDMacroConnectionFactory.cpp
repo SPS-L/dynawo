@@ -20,6 +20,8 @@
 #include "DYDMacroConnectionFactory.h"
 
 #include "DYDMacroConnection.h"
+#include <memory>
+#include <string>
 
 using std::string;
 

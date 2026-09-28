@@ -3,6 +3,7 @@
 #include "DYNSubModel.h"
 #include "GeneratorPQ_Dyn.h"
 #include "GeneratorPQ_Init.h"
+#include <string>
 
 extern "C" DYN::SubModelFactory* getFactory() {
   return (new DYN::ModelGeneratorPQFactory());

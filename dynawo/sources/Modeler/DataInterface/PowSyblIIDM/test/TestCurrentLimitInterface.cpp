@@ -14,6 +14,8 @@
 #include "DYNCurrentLimitInterfaceIIDM.h"
 
 #include "gtest_dynawo.h"
+#include <limits>
+#include <cmath>
 
 
 namespace DYN {

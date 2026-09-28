@@ -44,6 +44,8 @@
 #include "PARParameterFactory.h"
 #include "TLTimelineFactory.h"
 #include "DYNTrace.h"
+#include <memory>
+#include <string>
 
 INIT_XML_DYNAWO;
 

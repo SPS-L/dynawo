@@ -19,6 +19,8 @@
 
 #include "PARParameterFactory.h"
 #include "PARParameter.h"
+#include <memory>
+#include <string>
 
 using std::string;
 

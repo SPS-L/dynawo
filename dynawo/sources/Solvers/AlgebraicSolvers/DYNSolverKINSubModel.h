@@ -35,6 +35,7 @@
 #endif  // __clang__
 #include "DYNSolverKINCommon.h"
 #include "PARParametersSet.h"
+#include <memory>
 
 namespace DYN {
 class SubModel;

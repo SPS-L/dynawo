@@ -23,6 +23,7 @@
 #include "DYDUnitDynamicModel.h"
 
 #include <memory>
+#include <string>
 
 namespace dynamicdata {
 

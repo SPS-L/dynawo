@@ -22,6 +22,8 @@
 #define API_CSTR_CSTRJSONEXPORTER_H_
 
 #include "CSTRExporter.h"
+#include <memory>
+#include <string>
 
 namespace constraints {
 

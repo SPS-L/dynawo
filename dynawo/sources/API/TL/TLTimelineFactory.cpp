@@ -20,6 +20,8 @@
 
 #include "TLTimelineFactory.h"
 #include "TLTimeline.h"
+#include <memory>
+#include <string>
 
 using std::string;
 

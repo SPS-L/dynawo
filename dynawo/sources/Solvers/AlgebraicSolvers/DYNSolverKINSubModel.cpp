@@ -31,6 +31,7 @@
 #include "DYNMacrosMessage.h"
 #include "DYNSparseMatrix.h"
 #include "DYNTimer.h"
+#include <memory>
 
 namespace DYN {
 

@@ -23,6 +23,7 @@
 #include <vector>
 #include "CSTRConstraintSource.h"
 #include "DYNEnumUtils.h"
+#include <string>
 
 namespace DYN {
 using constraints::ConstraintData;

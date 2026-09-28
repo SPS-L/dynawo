@@ -19,6 +19,7 @@
  */
 
 #include "DYNModelUpdatable.h"
+#include <string>
 
 namespace DYN {
 ModelUpdatable::ModelUpdatable(const std::string& modelType):

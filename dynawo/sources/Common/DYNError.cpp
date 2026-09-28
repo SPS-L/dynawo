@@ -24,6 +24,7 @@
 #include "DYNCommon.h"
 #include "DYNFileSystemUtils.h"
 #include "DYNError.h"
+#include <string>
 
 namespace DYN {
 

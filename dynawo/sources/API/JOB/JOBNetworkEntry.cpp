@@ -18,6 +18,7 @@
  */
 
 #include "JOBNetworkEntry.h"
+#include <string>
 
 namespace job {
 

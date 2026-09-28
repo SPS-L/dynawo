@@ -24,6 +24,8 @@
 #include "DYNVariableNative.h"
 #include "DYNVariable.h"
 #include "DYNExecUtils.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 

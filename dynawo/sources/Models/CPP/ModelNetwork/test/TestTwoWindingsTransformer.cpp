@@ -41,6 +41,10 @@
 
 #include "make_unique.hpp"
 #include "gtest_dynawo.h"
+#include <memory>
+#include <limits>
+#include <cmath>
+#include <string>
 
 using boost::shared_ptr;
 

@@ -23,6 +23,8 @@
 #include "DYNVoltageLevelInterface.h"
 #include "DYNGraph.h"
 #include "DYNCalculatedBusInterfaceIIDM.h"
+#include <memory>
+#include <string>
 
 
 namespace DYN {

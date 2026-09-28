@@ -20,6 +20,8 @@
 #include "DYDMacroStaticReferenceFactory.h"
 
 #include "DYDMacroStaticReference.h"
+#include <memory>
+#include <string>
 
 using std::string;
 

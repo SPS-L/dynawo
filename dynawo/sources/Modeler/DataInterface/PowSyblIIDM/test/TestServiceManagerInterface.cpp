@@ -59,6 +59,7 @@
 #include <powsybl/iidm/VscConverterStationAdder.hpp>
 #include <powsybl/iidm/TwoWindingsTransformer.hpp>
 #include <powsybl/iidm/TwoWindingsTransformerAdder.hpp>
+#include <memory>
 
 using powsybl::iidm::Bus;
 using powsybl::iidm::DanglingLine;

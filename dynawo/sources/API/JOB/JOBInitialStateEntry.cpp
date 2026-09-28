@@ -18,6 +18,7 @@
  */
 
 #include "JOBInitialStateEntry.h"
+#include <string>
 
 namespace job {
 

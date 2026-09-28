@@ -25,6 +25,7 @@
 #include "JOBOutputsEntry.h"
 
 #include "DYNClone.hpp"
+#include <memory>
 
 namespace job {
 

@@ -18,6 +18,7 @@
  */
 
 #include "DYDMacroConnect.h"
+#include <string>
 using std::string;
 
 namespace dynamicdata {

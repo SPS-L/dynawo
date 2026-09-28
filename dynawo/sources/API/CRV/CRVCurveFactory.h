@@ -22,6 +22,7 @@
 #define API_CRV_CRVCURVEFACTORY_H_
 
 #include "CRVCurve.h"
+#include <memory>
 
 namespace curves {
 

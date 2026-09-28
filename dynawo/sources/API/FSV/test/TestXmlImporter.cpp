@@ -20,6 +20,7 @@
 #include "FSVFinalStateValuesCollectionFactory.h"
 #include "FSVXmlImporter.h"
 #include "gtest_dynawo.h"
+#include <memory>
 
 INIT_XML_DYNAWO;
 

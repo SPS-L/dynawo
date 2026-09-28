@@ -32,6 +32,7 @@
 #include <powsybl/iidm/TwoWindingsTransformerAdder.hpp>
 
 #include "gtest_dynawo.h"
+#include <string>
 
 namespace powsybl {
 

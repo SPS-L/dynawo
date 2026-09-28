@@ -24,6 +24,7 @@
 #include <functional>
 
 #include "DYNRTInputCommon.h"
+#include <string>
 
 namespace DYN {
 

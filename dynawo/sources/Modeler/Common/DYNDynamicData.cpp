@@ -53,6 +53,7 @@
 #include "DYDMacroConnection.h"
 #include "DYDMacroConnect.h"
 #include "DYDMacroConnector.h"
+#include <string>
 
 using std::vector;
 using std::string;

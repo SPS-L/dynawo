@@ -49,6 +49,8 @@
 #include "DYDModelTemplate.h"
 #include "DYDModelicaModel.h"
 #include "DYDDynamicModelsCollection.h"
+#include <memory>
+#include <string>
 
 
 namespace lambda = boost::phoenix;

@@ -15,6 +15,8 @@
 #define MODELER_DATAINTERFACE_DYNCONVERTERINTERFACE_H_
 
 #include "DYNComponentInterface.hpp"
+#include <memory>
+#include <string>
 
 namespace DYN {
 class BusInterface;

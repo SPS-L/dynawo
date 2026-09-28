@@ -25,6 +25,7 @@
 
 #include <xml/sax/parser/ComposableDocumentHandler.h>
 #include <xml/sax/parser/ComposableElementHandler.h>
+#include <memory>
 
 
 namespace curves {

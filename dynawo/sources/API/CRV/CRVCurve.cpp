@@ -26,6 +26,8 @@
 #include <iostream>
 #include <sstream>
 #include <limits>
+#include <memory>
+#include <string>
 
 using std::string;
 

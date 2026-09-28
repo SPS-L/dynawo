@@ -23,6 +23,8 @@
 #define MODELER_DATAINTERFACE_DYNSTATICVARCOMPENSATORINTERFACE_H_
 
 #include "DYNComponentInterface.hpp"
+#include <memory>
+#include <string>
 
 namespace DYN {
 class BusInterface;

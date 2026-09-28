@@ -19,6 +19,7 @@
 
 #include "EXTVARVariablesCollectionFactory.h"
 #include "EXTVARVariablesCollection.h"
+#include <memory>
 
 
 namespace externalVariables {

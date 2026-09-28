@@ -17,6 +17,7 @@
  */
 
 #include "JOBStreamEntry.h"
+#include <string>
 
 namespace job {
 

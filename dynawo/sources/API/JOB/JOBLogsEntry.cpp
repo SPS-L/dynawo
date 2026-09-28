@@ -20,6 +20,7 @@
 #include "JOBLogsEntry.h"
 
 #include "DYNClone.hpp"
+#include <memory>
 
 namespace job {
 

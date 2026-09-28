@@ -22,6 +22,7 @@
 #include "CRVCurve.h"
 
 #include "make_unique.hpp"
+#include <memory>
 
 
 namespace curves {

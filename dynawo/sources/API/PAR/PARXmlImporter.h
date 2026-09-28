@@ -21,6 +21,8 @@
 #define API_PAR_PARXMLIMPORTER_H_
 
 #include "PARImporter.h"
+#include <memory>
+#include <string>
 
 namespace parameters {
 

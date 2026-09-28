@@ -27,6 +27,8 @@
 #include "CRTCriteria.h"
 #include "CRTCriteriaCollectionFactory.h"
 #include "CRTCriteriaCollection.h"
+#include <memory>
+#include <limits>
 
 using DYN::doubleEquals;
 namespace criteria {

@@ -19,6 +19,8 @@
 #include <boost/archive/binary_oarchive.hpp>
 
 #include "DYNModelQuadripole.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 class ModelBus;

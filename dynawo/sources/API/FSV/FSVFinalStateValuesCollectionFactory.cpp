@@ -21,6 +21,8 @@
 #include "FSVFinalStateValuesCollectionFactory.h"
 
 #include "FSVFinalStateValuesCollection.h"
+#include <memory>
+#include <string>
 
 using std::string;
 

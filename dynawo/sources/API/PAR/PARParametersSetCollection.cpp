@@ -22,6 +22,8 @@
 #include "PARParametersSet.h"
 #include "PARParametersSetCollection.h"
 #include "PARMacroParameterSet.h"
+#include <memory>
+#include <string>
 
 using std::map;
 using std::string;

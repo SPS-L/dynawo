@@ -27,6 +27,7 @@
 
 #include "DYNBitMask.h"
 #include "DYNEnumUtils.h"
+#include <memory>
 
 namespace parameters {
 class ParametersSet;

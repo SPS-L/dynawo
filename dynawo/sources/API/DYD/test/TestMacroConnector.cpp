@@ -21,6 +21,8 @@
 
 #include "DYDMacroConnectorFactory.h"
 #include "DYDMacroConnector.h"
+#include <memory>
+#include <string>
 
 namespace dynamicdata {
 

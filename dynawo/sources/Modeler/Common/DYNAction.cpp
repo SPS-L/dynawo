@@ -19,6 +19,7 @@
  */
 
 #include "DYNAction.h"
+#include <string>
 
 namespace DYN {
 

@@ -26,6 +26,8 @@
 #include "DYNInjectorInterfaceIIDM.h"
 #include "DYNCurrentLimitInterface.h"
 #include <powsybl/iidm/DanglingLine.hpp>
+#include <memory>
+#include <string>
 
 namespace DYN {
 

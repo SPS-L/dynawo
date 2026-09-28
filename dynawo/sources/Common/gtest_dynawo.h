@@ -28,6 +28,7 @@
 #include <gtest/gtest.h>
 #include "gmock/gmock.h"
 #include "DYNError.h"
+#include <string>
 
 /**
  * @brief return the string name associated to the type of the error

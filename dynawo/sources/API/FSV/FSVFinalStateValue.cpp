@@ -18,6 +18,8 @@
  *
  */
 #include "FSVFinalStateValue.h"
+#include <limits>
+#include <string>
 
 using std::string;
 

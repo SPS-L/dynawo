@@ -12,6 +12,7 @@
 //
 
 #include "JOBChannelEntry.h"
+#include <string>
 
 namespace job {
 

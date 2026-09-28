@@ -27,6 +27,8 @@
 #include "EXTVARVariablesCollection.h"
 #include "EXTVARXmlExporter.h"
 #include "EXTVARVariable.h"
+#include <memory>
+#include <string>
 
 using std::fstream;
 using std::ostream;

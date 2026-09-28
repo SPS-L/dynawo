@@ -31,6 +31,7 @@
 #include "DYNElement.h"
 #include "DYNVariableNative.h"
 #include "DYNVariableNativeFactory.h"
+#include <string>
 
 using std::string;
 using std::vector;

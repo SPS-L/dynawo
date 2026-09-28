@@ -21,6 +21,7 @@
 #include "DYDConnector.h"
 
 #include <memory>
+#include <string>
 
 
 using std::string;

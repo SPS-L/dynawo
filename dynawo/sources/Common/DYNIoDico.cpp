@@ -32,6 +32,8 @@
 #include "DYNFileSystemUtils.h"
 #include "DYNMacrosMessage.h"
 #include "make_unique.hpp"
+#include <memory>
+#include <string>
 using std::string;
 using std::ifstream;
 using std::vector;

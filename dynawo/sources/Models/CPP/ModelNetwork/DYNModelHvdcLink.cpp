@@ -37,6 +37,9 @@
 #include "DYNVscConverterInterface.h"
 #include "DYNLccConverterInterface.h"
 #include "DYNModelVoltageLevel.h"
+#include <memory>
+#include <cmath>
+#include <string>
 
 using boost::shared_ptr;
 using std::vector;

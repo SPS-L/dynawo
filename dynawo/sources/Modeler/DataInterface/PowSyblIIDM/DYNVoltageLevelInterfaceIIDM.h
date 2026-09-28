@@ -30,6 +30,8 @@
 
 #include <unordered_map>
 #include <boost/optional.hpp>
+#include <memory>
+#include <string>
 
 namespace DYN {
 

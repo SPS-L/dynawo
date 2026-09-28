@@ -28,6 +28,8 @@
 
 #include "DYNSolverFactory.h"
 #include "DYNSolverImpl.h"
+#include <memory>
+#include <string>
 
 namespace parameters {
 class ParametersSet;

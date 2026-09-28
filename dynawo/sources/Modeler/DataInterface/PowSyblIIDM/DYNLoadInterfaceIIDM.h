@@ -29,6 +29,7 @@
 #include <powsybl/iidm/Load.hpp>
 
 #include <string>
+#include <memory>
 
 namespace DYN {
 

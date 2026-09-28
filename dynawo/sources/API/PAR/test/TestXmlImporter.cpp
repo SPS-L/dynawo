@@ -20,6 +20,7 @@
 
 #include "PARXmlImporter.h"
 #include "PARParametersSetCollection.h"
+#include <memory>
 
 
 INIT_XML_DYNAWO;

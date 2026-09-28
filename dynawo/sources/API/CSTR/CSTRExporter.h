@@ -24,6 +24,7 @@
 #include "CSTRConstraintsCollection.h"
 
 #include <string>
+#include <memory>
 
 namespace constraints {
 

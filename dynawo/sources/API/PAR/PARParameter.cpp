@@ -20,6 +20,7 @@
 #include "PARParameter.h"
 
 #include "DYNMacrosMessage.h"
+#include <string>
 
 using std::string;
 

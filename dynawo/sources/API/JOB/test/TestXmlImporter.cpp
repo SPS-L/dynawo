@@ -39,6 +39,8 @@
 #include "JOBAppenderEntry.h"
 #include "JOBModelsDirEntry.h"
 #include "JOBFinalStateValuesEntry.h"
+#include <memory>
+#include <algorithm>
 
 INIT_XML_DYNAWO;
 

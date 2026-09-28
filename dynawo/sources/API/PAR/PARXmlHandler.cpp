@@ -39,6 +39,8 @@
 #include "PARMacroParameterSet.h"
 #include "PARMacroParameterSet.h"
 #include "DYNMacrosMessage.h"
+#include <memory>
+#include <string>
 
 
 using std::string;

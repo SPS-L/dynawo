@@ -14,6 +14,8 @@
 #include "JOBChannelsEntry.h"
 
 #include "DYNClone.hpp"
+#include <memory>
+#include <string>
 
 namespace job {
 

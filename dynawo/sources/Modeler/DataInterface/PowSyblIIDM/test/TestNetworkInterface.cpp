@@ -36,6 +36,7 @@
 #include <powsybl/iidm/HvdcLineAdder.hpp>
 #include <powsybl/iidm/LccConverterStation.hpp>
 #include <powsybl/iidm/LccConverterStationAdder.hpp>
+#include <memory>
 
 
 namespace DYN {

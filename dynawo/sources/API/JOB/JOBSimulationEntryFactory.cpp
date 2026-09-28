@@ -13,6 +13,7 @@
 
 #include "JOBSimulationEntryFactory.h"
 #include "JOBSimulationEntry.h"
+#include <memory>
 
 namespace job {
 

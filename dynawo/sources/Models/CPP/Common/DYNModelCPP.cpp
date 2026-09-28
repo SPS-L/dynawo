@@ -27,6 +27,8 @@
 #include "DYNTrace.h"
 #include "DYNMacrosMessage.h"
 #include "DYNVariableNative.h"
+#include <algorithm>
+#include <string>
 
 using std::string;
 using std::stringstream;

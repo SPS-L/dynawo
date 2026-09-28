@@ -23,6 +23,8 @@
 #include "DYNComponentInterface.hpp"
 
 #include "DYNCurrentLimitInterface.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 class BusInterface;

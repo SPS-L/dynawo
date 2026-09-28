@@ -30,6 +30,9 @@
 
 #include "make_unique.hpp"
 #include "gtest_dynawo.h"
+#include <memory>
+#include <limits>
+#include <string>
 
 namespace powsybl {
 namespace iidm {

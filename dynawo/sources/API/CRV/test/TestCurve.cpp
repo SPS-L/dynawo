@@ -22,6 +22,7 @@
 #include "CRVCurveFactory.h"
 #include "CRVCurve.h"
 #include "CRVPoint.h"
+#include <memory>
 
 namespace curves {
 

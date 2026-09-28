@@ -23,6 +23,10 @@
 #include "DYNGeneratorInterfaceIIDM.h"
 
 #include <powsybl/iidm/MinMaxReactiveLimits.hpp>
+#include <memory>
+#include <algorithm>
+#include <cmath>
+#include <string>
 
 using std::string;
 using std::vector;

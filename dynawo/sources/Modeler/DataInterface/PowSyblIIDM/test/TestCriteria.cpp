@@ -52,6 +52,10 @@
 #include <powsybl/iidm/Generator.hpp>
 #include <powsybl/iidm/GeneratorAdder.hpp>
 #include <powsybl/iidm/TwoWindingsTransformerAdder.hpp>
+#include <memory>
+#include <limits>
+#include <cmath>
+#include <string>
 
 using boost::shared_ptr;
 using criteria::CriteriaFactory;

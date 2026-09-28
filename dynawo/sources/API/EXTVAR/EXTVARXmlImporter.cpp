@@ -27,6 +27,8 @@
 #include "EXTVARXmlHandler.h"
 #include "EXTVARXmlImporter.h"
 #include "DYNExecUtils.h"
+#include <memory>
+#include <string>
 
 using std::string;
 using std::vector;

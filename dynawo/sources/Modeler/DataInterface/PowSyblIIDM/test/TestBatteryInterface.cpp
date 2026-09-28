@@ -30,6 +30,9 @@
 #include <powsybl/iidm/ExtensionProviders.hpp>
 
 #include "gtest_dynawo.h"
+#include <memory>
+#include <limits>
+#include <string>
 
 namespace DYN {
 

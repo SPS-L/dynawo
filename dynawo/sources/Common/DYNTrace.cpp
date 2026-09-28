@@ -48,6 +48,7 @@
 #include "DYNTrace.h"
 #include "config.h"
 #include "gitversion.h"
+#include <string>
 
 using std::string;
 using std::vector;

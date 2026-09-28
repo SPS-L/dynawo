@@ -22,6 +22,8 @@
 #include "CRVCurvesCollection.h"
 
 #include "make_unique.hpp"
+#include <memory>
+#include <string>
 
 using std::string;
 

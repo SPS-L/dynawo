@@ -28,6 +28,8 @@
 #include <boost/archive/binary_oarchive.hpp>
 #include "DYNNetworkComponent.h"
 #include "DYNStaticVarCompensatorInterface.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 class ModelBus;

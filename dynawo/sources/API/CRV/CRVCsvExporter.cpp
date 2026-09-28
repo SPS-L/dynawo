@@ -28,6 +28,8 @@
 #include "CRVCurve.h"
 #include "CRVPoint.h"
 #include "CRVCsvExporter.h"
+#include <memory>
+#include <string>
 
 using std::fstream;
 using std::string;

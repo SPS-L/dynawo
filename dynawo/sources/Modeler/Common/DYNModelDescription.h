@@ -27,6 +27,7 @@
 #include "DYDModel.h"
 #include "PARParametersSet.h"
 #include "PARParametersSetFactory.h"
+#include <memory>
 
 
 namespace DYN {

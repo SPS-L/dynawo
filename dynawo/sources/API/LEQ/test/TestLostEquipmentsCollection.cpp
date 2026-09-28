@@ -22,6 +22,7 @@
 #include "LEQLostEquipmentsCollectionFactory.h"
 #include "LEQLostEquipmentsCollection.h"
 #include "LEQXmlExporter.h"
+#include <memory>
 
 namespace lostEquipments {
 

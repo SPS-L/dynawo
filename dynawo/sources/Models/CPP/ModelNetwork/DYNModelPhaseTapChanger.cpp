@@ -25,6 +25,7 @@
 
 #include "DYNModelConstants.h"
 #include "DYNModelNetwork.h"
+#include <string>
 
 using std::stringstream;
 

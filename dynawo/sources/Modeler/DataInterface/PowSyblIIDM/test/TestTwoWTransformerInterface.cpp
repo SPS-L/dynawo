@@ -30,6 +30,8 @@
 #include "DYNPhaseTapChangerInterfaceIIDM.h"
 #include "DYNRatioTapChangerInterfaceIIDM.h"
 #include "DYNVoltageLevelInterfaceIIDM.h"
+#include <memory>
+#include <string>
 
 namespace powsybl {
 namespace iidm {

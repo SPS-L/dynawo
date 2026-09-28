@@ -18,6 +18,7 @@
  */
 
 #include "JOBSolverEntry.h"
+#include <string>
 
 namespace job {
 

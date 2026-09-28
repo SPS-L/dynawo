@@ -18,6 +18,7 @@
  */
 
 #include "JOBAppenderEntry.h"
+#include <string>
 
 namespace job {
 

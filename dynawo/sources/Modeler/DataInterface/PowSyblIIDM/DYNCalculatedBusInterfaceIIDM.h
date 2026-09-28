@@ -23,6 +23,7 @@
 #include <boost/shared_ptr.hpp>
 #include <set>
 #include <ostream>
+#include <string>
 
 namespace DYN {
 

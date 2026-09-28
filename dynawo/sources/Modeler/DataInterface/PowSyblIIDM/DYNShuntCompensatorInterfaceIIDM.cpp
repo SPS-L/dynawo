@@ -24,6 +24,8 @@
 #include <powsybl/iidm/ShuntCompensatorNonLinearModel.hpp>
 
 #include "DYNShuntCompensatorInterfaceIIDM.h"
+#include <memory>
+#include <string>
 
 using std::string;
 

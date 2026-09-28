@@ -24,6 +24,7 @@
 #include "DYNCommon.h"
 #include "TLCsvExporter.h"
 #include "TLTimeline.h"
+#include <string>
 
 using std::fstream;
 using std::ostream;

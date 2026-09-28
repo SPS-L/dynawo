@@ -23,6 +23,7 @@
 #include "DYNCommonConstants.h"
 #include "DYNStateVariable.h"
 #include "DYNTrace.h"
+#include <string>
 using boost::shared_ptr;
 using std::string;
 

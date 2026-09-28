@@ -18,6 +18,7 @@
  */
 
 #include "DYDBlackBoxModel.h"
+#include <string>
 
 using std::string;
 

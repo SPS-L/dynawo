@@ -18,6 +18,7 @@
  */
 
 #include "DYDMacroConnection.h"
+#include <string>
 
 using std::string;
 

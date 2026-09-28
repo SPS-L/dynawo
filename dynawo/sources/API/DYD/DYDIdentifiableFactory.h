@@ -23,6 +23,7 @@
 #include "DYDIdentifiable.h"
 
 #include <memory>
+#include <string>
 
 namespace dynamicdata {
 

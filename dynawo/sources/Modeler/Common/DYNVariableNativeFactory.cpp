@@ -19,6 +19,7 @@
 #include <boost/make_shared.hpp>
 #include "DYNVariableNativeFactory.h"
 #include "DYNVariableNative.h"
+#include <string>
 
 using std::string;
 using boost::shared_ptr;

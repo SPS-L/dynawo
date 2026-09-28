@@ -23,6 +23,7 @@
 #include "DYNVariableAliasFactory.h"
 #include "DYNVariableAlias.h"
 #include "DYNVariableNative.h"
+#include <string>
 
 using std::string;
 using boost::shared_ptr;

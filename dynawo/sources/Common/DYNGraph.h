@@ -32,6 +32,7 @@
 #include <boost/graph/iteration_macros.hpp>
 #include <boost/graph/properties.hpp>
 #include <boost/graph/connected_components.hpp>
+#include <string>
 
 
 // definitions of typedef alias to hide boost types

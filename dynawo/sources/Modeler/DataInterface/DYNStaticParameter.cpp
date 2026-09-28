@@ -19,6 +19,7 @@
  */
 #include "DYNStaticParameter.h"
 #include "DYNMacrosMessage.h"
+#include <string>
 
 using std::string;
 

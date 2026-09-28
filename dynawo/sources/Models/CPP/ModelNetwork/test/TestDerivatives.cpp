@@ -12,6 +12,7 @@
 //
 #include "gtest_dynawo.h"
 #include "DYNDerivative.h"
+#include <algorithm>
 
 namespace DYN {
 

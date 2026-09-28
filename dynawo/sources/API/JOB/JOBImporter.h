@@ -24,6 +24,7 @@
 #include "JOBJobsCollection.h"
 
 #include <memory>
+#include <string>
 
 namespace job {
 

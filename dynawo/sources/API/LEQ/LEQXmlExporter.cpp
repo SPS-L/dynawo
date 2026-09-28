@@ -27,6 +27,8 @@
 #include "LEQXmlExporter.h"
 #include "LEQLostEquipmentsCollection.h"
 #include "LEQLostEquipment.h"
+#include <memory>
+#include <string>
 
 using std::fstream;
 using std::ostream;

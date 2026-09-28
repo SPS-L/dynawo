@@ -27,6 +27,9 @@
 #include <sstream>
 #include <set>
 #include <unordered_map>
+#include <memory>
+#include <algorithm>
+#include <string>
 
 using std::map;
 using std::string;

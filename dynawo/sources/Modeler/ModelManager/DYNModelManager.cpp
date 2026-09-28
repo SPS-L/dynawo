@@ -41,6 +41,9 @@
 #include "DYNSparseMatrix.h"
 #include "DYNTimer.h"
 #include "DYNTrace.h"
+#include <memory>
+#include <algorithm>
+#include <string>
 
 using std::ifstream;
 using std::map;

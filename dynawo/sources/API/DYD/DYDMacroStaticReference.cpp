@@ -22,6 +22,8 @@
 #include "DYDStaticRef.h"
 #include "DYDStaticRefFactory.h"
 #include "DYNMacrosMessage.h"
+#include <memory>
+#include <string>
 
 using std::map;
 using std::string;

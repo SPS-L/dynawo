@@ -15,6 +15,7 @@
 #include "CRTCriteria.h"
 
 #include "make_unique.hpp"
+#include <memory>
 
 
 namespace criteria {

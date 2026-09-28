@@ -20,6 +20,7 @@
 #include "DYNMacrosMessage.h"
 
 #include "DYNVariableMultiple.h"
+#include <string>
 
 using std::string;
 

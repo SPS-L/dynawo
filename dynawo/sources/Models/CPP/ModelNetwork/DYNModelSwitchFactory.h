@@ -21,6 +21,7 @@
 #define MODELS_CPP_MODELNETWORK_DYNMODELSWITCHFACTORY_H_
 
 #include "DYNModelSwitch.h"
+#include <memory>
 
 namespace DYN {
 

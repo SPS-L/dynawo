@@ -28,6 +28,8 @@
 #include "DYNIIDMExtensions.hpp"
 
 #include <powsybl/iidm/ThreeWindingsTransformer.hpp>
+#include <memory>
+#include <string>
 
 
 namespace DYN {

@@ -61,6 +61,8 @@
 #include "MANDATORYPARAMXmlExporter.h"
 
 #include "DYNCommon.h"
+#include <algorithm>
+#include <string>
 
 using std::map;
 using std::string;

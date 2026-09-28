@@ -23,6 +23,7 @@
 #include "DYDMacroStaticReference.h"
 
 #include <memory>
+#include <string>
 
 namespace dynamicdata {
 

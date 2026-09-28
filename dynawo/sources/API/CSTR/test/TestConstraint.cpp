@@ -21,6 +21,7 @@
 
 #include "CSTRConstraintFactory.h"
 #include "CSTRConstraint.h"
+#include <memory>
 
 namespace constraints {
 

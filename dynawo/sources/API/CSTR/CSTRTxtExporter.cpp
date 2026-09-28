@@ -26,6 +26,8 @@
 #include "CSTRTxtExporter.h"
 #include "CSTRConstraintsCollection.h"
 #include "CSTRConstraint.h"
+#include <memory>
+#include <string>
 
 using std::fstream;
 using std::ostream;

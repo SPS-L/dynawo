@@ -18,6 +18,7 @@
  */
 
 #include "JOBModelsDirEntry.h"
+#include <string>
 
 namespace job {
 

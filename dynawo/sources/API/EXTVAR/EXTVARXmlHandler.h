@@ -24,6 +24,8 @@
 #include <xml/sax/parser/ComposableElementHandler.h>
 
 #include "EXTVARVariablesCollection.h"
+#include <memory>
+#include <string>
 
 namespace externalVariables {
 

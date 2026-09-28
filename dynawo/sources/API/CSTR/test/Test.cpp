@@ -25,6 +25,7 @@
 #include "CSTRXmlExporter.h"
 #include "CSTRTxtExporter.h"
 #include "DYNEnumUtils.h"
+#include <memory>
 
 
 namespace constraints {

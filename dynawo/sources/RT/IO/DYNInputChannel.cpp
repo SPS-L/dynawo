@@ -21,6 +21,7 @@
 #include "DYNInputChannel.h"
 
 #include "DYNRTInputCommon.h"
+#include <string>
 
 namespace DYN {
 

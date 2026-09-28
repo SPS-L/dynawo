@@ -49,6 +49,8 @@
 #include <powsybl/iidm/HvdcLineAdder.hpp>
 #include <powsybl/iidm/VscConverterStationAdder.hpp>
 #include <powsybl/iidm/TopologyKind.hpp>
+#include <memory>
+#include <string>
 
 using boost::shared_ptr;
 

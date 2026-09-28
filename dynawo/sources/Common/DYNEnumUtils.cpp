@@ -21,6 +21,7 @@
 #include "DYNMacrosMessage.h"
 
 #include "DYNEnumUtils.h"
+#include <string>
 
 using std::string;
 

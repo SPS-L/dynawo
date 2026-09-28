@@ -28,6 +28,7 @@
 #include <powsybl/iidm/VscConverterStation.hpp>
 
 #include <string>
+#include <memory>
 
 using std::shared_ptr;
 

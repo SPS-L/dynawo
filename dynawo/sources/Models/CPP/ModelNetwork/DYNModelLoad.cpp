@@ -37,6 +37,8 @@
 #include "DYNModelConstants.h"
 #include "DYNModelNetwork.h"
 #include "DYNModelVoltageLevel.h"
+#include <memory>
+#include <string>
 
 using std::map;
 using std::string;

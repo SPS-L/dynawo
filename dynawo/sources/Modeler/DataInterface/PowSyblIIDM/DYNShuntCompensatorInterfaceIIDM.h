@@ -25,6 +25,8 @@
 #include "DYNShuntCompensatorInterface.h"
 #include "DYNInjectorInterfaceIIDM.h"
 #include <powsybl/iidm/ShuntCompensator.hpp>
+#include <memory>
+#include <string>
 
 namespace DYN {
 

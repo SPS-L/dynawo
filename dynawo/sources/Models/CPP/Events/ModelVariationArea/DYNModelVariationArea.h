@@ -22,6 +22,7 @@
 
 #include "DYNModelCPP.h"
 #include "DYNSubModelFactory.h"
+#include <string>
 
 namespace DYN {
 

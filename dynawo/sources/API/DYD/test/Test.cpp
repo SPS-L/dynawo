@@ -29,6 +29,7 @@
 #include "DYNMacrosMessage.h"
 
 #include "TestUtil.h"
+#include <string>
 
 INIT_XML_DYNAWO;
 

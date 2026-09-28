@@ -22,6 +22,7 @@
 #include "LEQLostEquipmentsCollection.h"
 
 #include "make_unique.hpp"
+#include <memory>
 
 
 namespace lostEquipments {

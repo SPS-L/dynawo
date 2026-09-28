@@ -22,6 +22,7 @@
 #include "DYNCommon.h"
 #include "TLTxtExporter.h"
 #include "TLTimeline.h"
+#include <string>
 
 using std::fstream;
 using std::ostream;

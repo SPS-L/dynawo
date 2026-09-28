@@ -20,6 +20,7 @@
 #include "gtest_dynawo.h"
 
 #include "EXTVARXmlImporter.h"
+#include <string>
 
 namespace externalVariables {
 

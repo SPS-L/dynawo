@@ -30,6 +30,9 @@
 #include "PARParametersSetCollection.h"
 #include "PARXmlExporter.h"
 #include "PARReference.h"
+#include <memory>
+#include <algorithm>
+#include <string>
 
 using std::fstream;
 using std::string;

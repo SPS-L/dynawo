@@ -22,6 +22,8 @@
 #define API_CRT_CRTXMLIMPORTER_H_
 
 #include "CRTImporter.h"
+#include <memory>
+#include <string>
 
 namespace criteria {
 

@@ -19,6 +19,7 @@
 
 #include "gtest_dynawo.h"
 #include "DYNParameter.h"
+#include <string>
 
 namespace DYN {
 

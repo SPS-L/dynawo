@@ -31,6 +31,8 @@
 #include "DYNVscConverterInterfaceIIDM.h"
 
 #include <string>
+#include <memory>
+#include <limits>
 
 using std::dynamic_pointer_cast;
 using std::shared_ptr;

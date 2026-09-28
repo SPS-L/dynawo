@@ -24,6 +24,7 @@
 
 #include <map>
 #include <set>
+#include <string>
 #include <vector>
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>

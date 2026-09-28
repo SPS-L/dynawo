@@ -29,6 +29,9 @@
 #include "DYNStateVariable.h"
 #include "DYNVoltageLevelInterface.h"
 #include "DYNTrace.h"
+#include <memory>
+#include <cmath>
+#include <string>
 #include "DYNBusInterface.h"
 
 namespace DYN {

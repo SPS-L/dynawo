@@ -22,6 +22,7 @@
 #define API_FSV_FSVCSVEXPORTER_H_
 
 #include "FSVExporter.h"
+#include <string>
 
 namespace finalStateValues {
 

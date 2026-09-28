@@ -26,6 +26,7 @@
 #include <boost/shared_ptr.hpp>
 #include "DYNEnumUtils.h"
 #include "DYNVariable.h"
+#include <string>
 
 namespace DYN {
 class SparseMatrix;

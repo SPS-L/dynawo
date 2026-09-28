@@ -20,6 +20,7 @@
 #include <unordered_set>
 #include <string>
 #include <vector>
+#include <memory>
 
 namespace criteria {
 

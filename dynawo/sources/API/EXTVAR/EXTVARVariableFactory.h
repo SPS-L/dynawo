@@ -23,6 +23,7 @@
 #include "EXTVARVariable.h"
 
 #include <memory>
+#include <string>
 
 
 namespace externalVariables {

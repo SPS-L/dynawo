@@ -28,6 +28,7 @@
 #include <sundials/sundials_nvector.h>
 #include <sundials/sundials_matrix.h>
 #include "DYNSolverKINCommon.h"
+#include <memory>
 
 namespace DYN {
 class Model;

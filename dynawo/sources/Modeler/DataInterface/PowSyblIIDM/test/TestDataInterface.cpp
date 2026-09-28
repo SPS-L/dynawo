@@ -79,6 +79,10 @@
 #include <powsybl/iidm/extensions/iidm/ActivePowerControlAdder.hpp>
 
 #include <thread>
+#include <memory>
+#include <algorithm>
+#include <cmath>
+#include <string>
 
 using boost::shared_ptr;
 

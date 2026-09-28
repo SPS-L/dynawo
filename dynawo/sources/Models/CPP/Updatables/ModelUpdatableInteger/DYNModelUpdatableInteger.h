@@ -24,6 +24,7 @@
 #include "DYNModelCPP.h"
 #include "DYNModelUpdatable.h"
 #include "DYNSubModelFactory.h"
+#include <string>
 
 namespace DYN {
 class DataInterface;

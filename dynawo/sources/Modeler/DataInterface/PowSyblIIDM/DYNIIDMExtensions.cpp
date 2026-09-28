@@ -21,6 +21,7 @@
 #include "DYNExecUtils.h"
 #include "DYNFileSystemUtils.h"
 #include "DYNMacrosMessage.h"
+#include <string>
 
 namespace DYN {
 

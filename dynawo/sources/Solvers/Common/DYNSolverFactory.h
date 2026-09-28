@@ -26,6 +26,7 @@
 #include <boost/shared_ptr.hpp>
 #include <boost/dll.hpp>
 #include <boost/function.hpp>
+#include <string>
 
 namespace DYN {
 class Solver;

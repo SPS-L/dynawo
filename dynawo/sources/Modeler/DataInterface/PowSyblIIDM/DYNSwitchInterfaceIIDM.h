@@ -23,6 +23,8 @@
 #include <powsybl/iidm/Switch.hpp>
 
 #include "DYNSwitchInterface.h"
+#include <memory>
+#include <string>
 
 namespace DYN {
 

@@ -20,6 +20,7 @@
 #include "DYNParameterModeler.h"
 
 #include "DYNMacrosMessage.h"
+#include <string>
 
 using std::string;
 

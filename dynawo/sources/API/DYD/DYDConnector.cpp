@@ -20,6 +20,7 @@
 #include "DYDConnector.h"
 
 #include "DYDModel.h"
+#include <string>
 
 using std::string;
 

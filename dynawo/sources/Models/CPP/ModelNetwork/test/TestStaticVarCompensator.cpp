@@ -32,6 +32,8 @@
 #include "DYNVariable.h"
 
 #include "gtest_dynawo.h"
+#include <memory>
+#include <string>
 
 using boost::shared_ptr;
 

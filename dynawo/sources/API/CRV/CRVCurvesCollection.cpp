@@ -19,6 +19,8 @@
  */
 #include "CRVCurvesCollection.h"
 #include "CRVCurve.h"
+#include <memory>
+#include <string>
 
 using std::string;
 

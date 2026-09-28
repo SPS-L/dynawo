@@ -24,6 +24,8 @@
 #include "PARParameter.h"
 #include "PARParameterFactory.h"
 #include "PARMacroParSet.h"
+#include <memory>
+#include <string>
 
 using std::map;
 using std::set;

@@ -29,6 +29,8 @@
 #include "DYNInjectorInterfaceIIDM.h"
 #include "DYNStaticVarCompensatorInterfaceIIDMExtension.h"
 #include "DYNIIDMExtensions.hpp"
+#include <memory>
+#include <string>
 
 namespace DYN {
 

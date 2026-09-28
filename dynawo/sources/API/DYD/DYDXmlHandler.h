@@ -34,6 +34,8 @@
 
 #include <xml/sax/parser/ComposableDocumentHandler.h>
 #include <xml/sax/parser/ComposableElementHandler.h>
+#include <memory>
+#include <string>
 
 namespace parameters {
 class ParametersSetCollection;

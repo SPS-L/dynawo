@@ -23,6 +23,7 @@
 #include "DYDModelTemplateExpansion.h"
 
 #include <memory>
+#include <string>
 
 namespace dynamicdata {
 

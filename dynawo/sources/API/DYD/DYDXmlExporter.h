@@ -27,6 +27,8 @@
 #include "DYDModelTemplateExpansion.h"
 #include "DYDModelicaModel.h"
 #include "DYDUnitDynamicModel.h"
+#include <memory>
+#include <string>
 
 namespace xml {
 namespace sax {

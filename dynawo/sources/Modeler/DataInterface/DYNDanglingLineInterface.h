@@ -21,6 +21,8 @@
 #define MODELER_DATAINTERFACE_DYNDANGLINGLINEINTERFACE_H_
 
 #include "DYNComponentInterface.hpp"
+#include <memory>
+#include <string>
 
 namespace DYN {
 class BusInterface;

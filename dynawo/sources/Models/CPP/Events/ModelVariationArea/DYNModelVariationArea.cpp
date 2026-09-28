@@ -35,6 +35,7 @@
 #include "DYNCommon.h"
 #include "DYNVariableForModel.h"
 #include "DYNParameter.h"
+#include <string>
 
 using std::min;
 using std::vector;

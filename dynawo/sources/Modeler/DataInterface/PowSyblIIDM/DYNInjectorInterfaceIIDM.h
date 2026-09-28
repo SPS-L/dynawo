@@ -31,6 +31,9 @@
 #include <powsybl/iidm/Bus.hpp>
 #include <powsybl/iidm/Injection.hpp>
 #include <powsybl/iidm/VoltageLevel.hpp>
+#include <memory>
+#include <cmath>
+#include <string>
 
 namespace DYN {
 

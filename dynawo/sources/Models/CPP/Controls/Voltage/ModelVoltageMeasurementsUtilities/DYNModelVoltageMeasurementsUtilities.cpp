@@ -39,6 +39,8 @@
 #include "DYNTrace.h"
 #include "DYNVariableForModel.h"
 #include "DYNParameter.h"
+#include <algorithm>
+#include <string>
 
 using std::vector;
 using std::string;
