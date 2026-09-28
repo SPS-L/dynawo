@@ -48,6 +48,8 @@ bool patternCacheEnabled() {
   return enabled;
 }
 
+bool patternCacheSuppressed = false;
+
 // DYNAWO_PATTERN_CACHE_DROP=K: when an evaluation brings at most K positions outside the
 // union, those entries are dropped from the matrix handed to KLU instead of triggering a
 // re-analysis. The factorisation is then of a Jacobian missing those entries, which is a
@@ -234,7 +236,7 @@ SolverCommon::copySparseToKINSOL(const SparseMatrix& smj, SUNMatrix& JJ, const i
 
 void SolverCommon::propagateMatrixStructureChangeToKINSOL(const SparseMatrix& smj, SUNMatrix& JJ, const int& size, sunindextype** lastRowVals,
                                                           SUNLinearSolver& LS, bool log) {
-  if (patternCacheEnabled()) {
+  if (patternCacheEnabled() && !patternCacheSuppressed) {
     propagateWithUnionPattern(smj, JJ, size, LS, log);
     return;
   }
@@ -250,6 +252,11 @@ void SolverCommon::propagateMatrixStructureChangeToKINSOL(const SparseMatrix& sm
     if (log)
       Trace::debug() << DYNLog(MatrixStructureChange) << Trace::endline;
   }
+}
+
+void
+SolverCommon::setPatternCacheSuppressed(const bool suppressed) {
+  patternCacheSuppressed = suppressed;
 }
 
 void

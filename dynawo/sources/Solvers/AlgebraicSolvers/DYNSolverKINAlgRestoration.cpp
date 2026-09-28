@@ -332,7 +332,9 @@ SolverKINAlgRestoration::evalJ_KIN(N_Vector /*yy*/, N_Vector /*rr*/,
     checkJacobian(smjKin, model);
   }
 #endif
+  SolverCommon::setPatternCacheSuppressed(true);  // phase 0 experiment: the restoration keeps the standard path
   SolverCommon::propagateMatrixStructureChangeToKINSOL(smjKin, JJ, size, &solver->lastRowVals_, solver->linearSolver_, true);
+  SolverCommon::setPatternCacheSuppressed(false);
 
   return 0;
 }
@@ -354,7 +356,9 @@ SolverKINAlgRestoration::evalJPrim_KIN(N_Vector /*yy*/, N_Vector /*rr*/,
   const int size = static_cast<int>(solver->indexY_.size());
   smjKin.reserve(size);
   smj.erase(solver->ignoreY_, solver->ignoreF_, smjKin);
+  SolverCommon::setPatternCacheSuppressed(true);  // phase 0 experiment: the restoration keeps the standard path
   SolverCommon::propagateMatrixStructureChangeToKINSOL(smjKin, JJ, size, &solver->lastRowVals_, solver->linearSolver_, true);
+  SolverCommon::setPatternCacheSuppressed(false);
 
   return 0;
 }

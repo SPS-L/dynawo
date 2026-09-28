@@ -61,6 +61,13 @@ class SolverCommon {
                                                      sunindextype** lastRowVals, SUNLinearSolver& LS, bool log);
 
   /**
+   * @brief phase 0 experiment: suppress the union-pattern cache for the next propagation calls
+   * (the algebraic restoration keeps the standard path, its matrices change wholesale at events)
+   * @param suppressed true to bypass the cache
+   */
+  static void setPatternCacheSuppressed(bool suppressed);
+
+  /**
    * @brief Print the largest residuals errors
    *
    * @param fErr vector containing a pair with the residual function value and the global index of the residual function
