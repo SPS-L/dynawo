@@ -40,6 +40,36 @@
 #include "DYNTrace.h"
 #include "DYNModel.h"
 
+#include <cstdio>
+#include <cstdlib>
+
+namespace {
+
+// Phase 0 experiment 3 (throwaway). DYNAWO_SKIP_RESTORATION bypasses the algebraic
+// restoration in reinit(); DYNAWO_RESTART_STEP sets the step taken after a mode change
+// that would have restored, and DYNAWO_RESTART_GROWTH the factor by which the step
+// grows per accepted step until it reaches hMax again. All three are inert when unset.
+bool restorationBypassEnabled() {
+  static const bool enabled = (std::getenv("DYNAWO_SKIP_RESTORATION") != NULL);
+  return enabled;
+}
+
+double restartStep() {
+  static const double value = (std::getenv("DYNAWO_RESTART_STEP") != NULL) ? std::atof(std::getenv("DYNAWO_RESTART_STEP")) : 0.;
+  return value;
+}
+
+double restartGrowth() {
+  static const double value = (std::getenv("DYNAWO_RESTART_GROWTH") != NULL) ? std::atof(std::getenv("DYNAWO_RESTART_GROWTH")) : 0.;
+  return value;
+}
+
+bool restartActive = false;
+long restartsTaken = 0;
+long restorationsBypassed = 0;
+
+}  // namespace
+
 using boost::shared_ptr;
 using std::endl;
 using std::max;
@@ -391,8 +421,13 @@ void SolverCommonFixedTimeStep::handleConvergence(bool& redoStep) {
 
 void
 SolverCommonFixedTimeStep::increaseStep() {
-  if (doubleNotEquals(h_, hMax_))
+  if (restartActive && restartGrowth() > 0.) {
+    hNew_ = min(h_ * restartGrowth(), hMax_);
+    if (doubleEquals(hNew_, hMax_))
+      restartActive = false;
+  } else if (doubleNotEquals(h_, hMax_)) {
     hNew_ = min(h_ / kReduceStep_, hMax_);
+  }
   // Limitation to end up the simulation at tEnd
   hNew_ = min(hNew_, tEnd_ - (tSolve_ + h_));
 }
@@ -408,6 +443,14 @@ void SolverCommonFixedTimeStep::handleRoot(bool& redoStep) {
     // SolverCommon::propagateMatrixStructureChangeToKINSOL finds no change.
     factorizationForced_ = (modeChangeType == ALGEBRAIC_J_VALUES_MODE);
     increaseStep();
+  }
+  if (restartStep() > 0. && modeChangeType >= minimumModeChangeTypeForAlgebraicRestoration_) {
+    hNew_ = max(min(restartStep(), hMax_), hMin_);
+    restartActive = true;
+    ++restartsTaken;
+    if (restartsTaken == 1)
+      std::fprintf(stderr, "DYNAWO_RESTART_STEP: active, step %g, growth %g\n", restartStep(), restartGrowth());
+    std::fprintf(stderr, "DYNAWO_RESTART_STEP: restart %ld at t = %g\n", restartsTaken, tSolve_ + h_);
   }
   redoStep = false;
 }
@@ -463,6 +506,15 @@ SolverCommonFixedTimeStep::reinit() {
 
   if (modeChangeType < minimumModeChangeTypeForAlgebraicRestoration_)
     return;
+
+  if (restorationBypassEnabled()) {
+    ++restorationsBypassed;
+    if (restorationsBypassed == 1)
+      std::fprintf(stderr, "DYNAWO_SKIP_RESTORATION: active\n");
+    std::fprintf(stderr, "DYNAWO_SKIP_RESTORATION: bypassed restoration %ld at t = %g, mode %d\n",
+                 restorationsBypassed, tSolve_, static_cast<int>(modeChangeType));
+    return;
+  }
 
   const bool evaluateOnlyMode = optimizeReinitAlgebraicResidualsEvaluations_;
   skipAlgebraicResidualsEvaluation_ = false;

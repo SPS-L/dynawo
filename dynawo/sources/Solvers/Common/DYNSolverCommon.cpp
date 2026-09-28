@@ -28,6 +28,147 @@
 #include "DYNSparseMatrix.h"
 #include "DYNTrace.h"
 
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <map>
+#include <utility>
+#include <vector>
+
+namespace {
+
+// Phase 0 experiment 1 (throwaway): a union-pattern cache in front of KLU.
+// Enabled by the environment variable DYNAWO_PATTERN_CACHE. The pattern handed to
+// KLU is the union of every pattern seen since the last symbolic analysis, with
+// explicit zeros where the current evaluation dropped an entry, so that
+// klu_refactor applies whenever no position outside the union appears.
+bool patternCacheEnabled() {
+  static const bool enabled = (std::getenv("DYNAWO_PATTERN_CACHE") != NULL);
+  return enabled;
+}
+
+struct UnionPattern {
+  int size;
+  std::vector<sunindextype> Ap;  // size + 1 column pointers of the union
+  std::vector<sunindextype> Ai;  // row indices of the union, sorted within a column
+  long evaluations;
+  long reanalyses;
+  UnionPattern() : size(0), evaluations(0), reanalyses(0) {}
+};
+
+std::map<SUNLinearSolver, UnionPattern>& unionPatterns() {
+  static std::map<SUNLinearSolver, UnionPattern> patterns;
+  return patterns;
+}
+
+typedef std::pair<sunindextype, double> Entry;
+
+void propagateWithUnionPattern(const DYN::SparseMatrix& smj, SUNMatrix& JJ, const int& size, SUNLinearSolver& LS, bool log) {
+  UnionPattern& up = unionPatterns()[LS];
+  ++up.evaluations;
+  const bool first = (up.size != size);
+  if (first) {
+    up.size = size;
+    up.Ap.assign(size + 1, 0);
+    up.Ai.clear();
+  }
+
+  // 1. The current pattern, sorted by row within each column.
+  std::vector<Entry> cur;
+  cur.reserve(smj.nbElem());
+  std::vector<sunindextype> curAp(size + 1);
+  bool duplicates = false;
+  for (int j = 0; j < size; ++j) {
+    curAp[j] = static_cast<sunindextype>(cur.size());
+    for (unsigned k = smj.Ap_[j]; k < smj.Ap_[j + 1]; ++k)
+      cur.push_back(Entry(static_cast<sunindextype>(smj.Ai_[k]), smj.Ax_[k]));
+    std::sort(cur.begin() + curAp[j], cur.end());
+    for (size_t k = curAp[j] + 1; k < cur.size(); ++k)
+      if (cur[k].first == cur[k - 1].first) duplicates = true;
+  }
+  curAp[size] = static_cast<sunindextype>(cur.size());
+  if (duplicates) {
+    static bool warned = false;
+    if (!warned) {
+      std::fprintf(stderr, "DYNAWO_PATTERN_CACHE: duplicate row indices within a column; first value kept\n");
+      warned = true;
+    }
+  }
+
+  // 2. Merge the current pattern into the union; any new position changes the structure.
+  std::vector<sunindextype> mergedAp(size + 1);
+  std::vector<sunindextype> mergedAi;
+  mergedAi.reserve(up.Ai.size() + cur.size());
+  bool changed = first;
+  for (int j = 0; j < size; ++j) {
+    mergedAp[j] = static_cast<sunindextype>(mergedAi.size());
+    sunindextype a = up.Ap[j];
+    const sunindextype aEnd = up.Ap[j + 1];
+    sunindextype c = curAp[j];
+    const sunindextype cEnd = curAp[j + 1];
+    while (a < aEnd || c < cEnd) {
+      if (c >= cEnd || (a < aEnd && up.Ai[a] < cur[c].first)) {
+        mergedAi.push_back(up.Ai[a]);
+        ++a;
+      } else if (a >= aEnd || cur[c].first < up.Ai[a]) {
+        mergedAi.push_back(cur[c].first);
+        ++c;
+        changed = true;
+        while (c < cEnd && cur[c].first == mergedAi.back()) ++c;  // skip duplicates
+      } else {
+        mergedAi.push_back(up.Ai[a]);
+        ++a;
+        ++c;
+        while (c < cEnd && cur[c].first == mergedAi.back()) ++c;  // skip duplicates
+      }
+    }
+  }
+  mergedAp[size] = static_cast<sunindextype>(mergedAi.size());
+  if (changed) {
+    up.Ap.swap(mergedAp);
+    up.Ai.swap(mergedAi);
+  }
+
+  // 3. Scatter the current values into the union layout, explicit zeros elsewhere.
+  const sunindextype unnz = up.Ap[size];
+  if (SM_NNZ_S(JJ) < unnz) {
+    free(SM_INDEXPTRS_S(JJ));
+    free(SM_INDEXVALS_S(JJ));
+    free(SM_DATA_S(JJ));
+    SM_INDEXPTRS_S(JJ) = reinterpret_cast<sunindextype*> (malloc((size + 1) * sizeof (sunindextype)));
+    SM_INDEXVALS_S(JJ) = reinterpret_cast<sunindextype*> (malloc(unnz * sizeof (sunindextype)));
+    SM_DATA_S(JJ) = reinterpret_cast<realtype*> (malloc(unnz * sizeof (realtype)));
+  }
+  SM_NNZ_S(JJ) = unnz;
+  for (int j = 0; j <= size; ++j)
+    SM_INDEXPTRS_S(JJ)[j] = up.Ap[j];
+  for (sunindextype k = 0; k < unnz; ++k) {
+    SM_INDEXVALS_S(JJ)[k] = up.Ai[k];
+    SM_DATA_S(JJ)[k] = 0.;
+  }
+  for (int j = 0; j < size; ++j) {
+    sunindextype a = up.Ap[j];
+    const sunindextype aEnd = up.Ap[j + 1];
+    for (sunindextype c = curAp[j]; c < curAp[j + 1]; ++c) {
+      while (a < aEnd && up.Ai[a] < cur[c].first) ++a;
+      if (a < aEnd && up.Ai[a] == cur[c].first) {
+        SM_DATA_S(JJ)[a] = cur[c].second;  // duplicates: last value wins, warned above
+      }
+    }
+  }
+
+  if (changed) {
+    ++up.reanalyses;
+    SUNLinSol_KLUReInit(LS, JJ, unnz, 2);  // reinit symbolic factorisation on the union pattern
+    std::fprintf(stderr, "DYNAWO_PATTERN_CACHE: reanalysis %ld at evaluation %ld, union nnz %ld, current nnz %d, solver %p\n",
+                 up.reanalyses, up.evaluations, static_cast<long>(unnz), smj.nbElem(), static_cast<void*>(LS));
+    if (log)
+      DYN::Trace::debug() << DYNLog(MatrixStructureChange) << DYN::Trace::endline;
+  }
+}
+
+}  // namespace
+
 namespace DYN {
 
 bool
@@ -68,6 +209,10 @@ SolverCommon::copySparseToKINSOL(const SparseMatrix& smj, SUNMatrix& JJ, const i
 
 void SolverCommon::propagateMatrixStructureChangeToKINSOL(const SparseMatrix& smj, SUNMatrix& JJ, const int& size, sunindextype** lastRowVals,
                                                           SUNLinearSolver& LS, bool log) {
+  if (patternCacheEnabled()) {
+    propagateWithUnionPattern(smj, JJ, size, LS, log);
+    return;
+  }
   bool matrixStructChange = copySparseToKINSOL(smj, JJ, size, *lastRowVals);
 
   if (matrixStructChange) {
