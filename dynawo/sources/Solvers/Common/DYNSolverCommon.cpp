@@ -29,6 +29,7 @@
 #include "DYNTrace.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <map>
@@ -45,6 +46,15 @@ namespace {
 bool patternCacheEnabled() {
   static const bool enabled = (std::getenv("DYNAWO_PATTERN_CACHE") != NULL);
   return enabled;
+}
+
+// DYNAWO_PATTERN_CACHE_DROP=K: when an evaluation brings at most K positions outside the
+// union, those entries are dropped from the matrix handed to KLU instead of triggering a
+// re-analysis. The factorisation is then of a Jacobian missing those entries, which is a
+// quasi-Newton approximation; the residual is untouched. 0 disables.
+long patternCacheDropLimit() {
+  static const long limit = (std::getenv("DYNAWO_PATTERN_CACHE_DROP") != NULL) ? std::atol(std::getenv("DYNAWO_PATTERN_CACHE_DROP")) : 0;
+  return limit;
 }
 
 struct UnionPattern {
@@ -124,6 +134,12 @@ void propagateWithUnionPattern(const DYN::SparseMatrix& smj, SUNMatrix& JJ, cons
     }
   }
   mergedAp[size] = static_cast<sunindextype>(mergedAi.size());
+  const long newPositions = static_cast<long>(mergedAi.size()) - static_cast<long>(up.Ai.size());
+  bool dropped = false;
+  if (changed && !first && patternCacheDropLimit() > 0 && newPositions <= patternCacheDropLimit()) {
+    changed = false;  // keep the union and the analysis; the new entries are dropped below
+    dropped = true;
+  }
   if (changed) {
     up.Ap.swap(mergedAp);
     up.Ai.swap(mergedAi);
@@ -146,6 +162,8 @@ void propagateWithUnionPattern(const DYN::SparseMatrix& smj, SUNMatrix& JJ, cons
     SM_INDEXVALS_S(JJ)[k] = up.Ai[k];
     SM_DATA_S(JJ)[k] = 0.;
   }
+  long droppedCount = 0;
+  double droppedMax = 0.;
   for (int j = 0; j < size; ++j) {
     sunindextype a = up.Ap[j];
     const sunindextype aEnd = up.Ap[j + 1];
@@ -153,8 +171,15 @@ void propagateWithUnionPattern(const DYN::SparseMatrix& smj, SUNMatrix& JJ, cons
       while (a < aEnd && up.Ai[a] < cur[c].first) ++a;
       if (a < aEnd && up.Ai[a] == cur[c].first) {
         SM_DATA_S(JJ)[a] = cur[c].second;  // duplicates: last value wins, warned above
+      } else {
+        ++droppedCount;
+        if (std::fabs(cur[c].second) > droppedMax) droppedMax = std::fabs(cur[c].second);
       }
     }
+  }
+  if (dropped) {
+    std::fprintf(stderr, "DYNAWO_PATTERN_CACHE: dropped %ld new positions (max |value| %.3e) at evaluation %ld, union nnz %ld, current nnz %d, solver %p\n",
+                 droppedCount, droppedMax, up.evaluations, static_cast<long>(unnz), smj.nbElem(), static_cast<void*>(LS));
   }
 
   if (changed) {
