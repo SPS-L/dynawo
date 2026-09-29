@@ -68,6 +68,17 @@ bool restartActive = false;
 long restartsTaken = 0;
 long restorationsBypassed = 0;
 
+// DYNAWO_STEP_TRACE: one stderr line per accepted step with the Newton iterations, residual and
+// Jacobian evaluations the step consumed (deltas of KINSOL's cumulative counters), the step size,
+// the number of attempts and the mode the step ended with.
+bool stepTraceEnabled() {
+  static const bool enabled = (std::getenv("DYNAWO_STEP_TRACE") != NULL);
+  return enabled;
+}
+long traceNni = 0;
+long traceNre = 0;
+long traceNje = 0;
+
 }  // namespace
 
 using boost::shared_ptr;
@@ -267,6 +278,13 @@ void SolverCommonFixedTimeStep::solveStepCommon(double /*tAim*/, double& tNxt) {
   } while (redoStep);
   updateTimeStep(tNxt);
   ++stats_.nst_;
+  if (stepTraceEnabled() && solverKINEuler_) {
+    long nni = 0, nre = 0, nje = 0;
+    solverKINEuler_->updateStatistics(nni, nre, nje);
+    std::fprintf(stderr, "DYNAWO_STEP_TRACE: t=%.6g h=%g nni=%ld nre=%ld nje=%ld attempts=%d mode=%d\n",
+                 tNxt, h_, nni - traceNni, nre - traceNre, nje - traceNje, counter, static_cast<int>(model_->getModeChangeType()));
+    traceNni = nni; traceNre = nre; traceNje = nje;
+  }
 }
 
 void
