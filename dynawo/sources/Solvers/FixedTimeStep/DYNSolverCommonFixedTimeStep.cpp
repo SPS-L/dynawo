@@ -81,6 +81,7 @@ skipNextNR_(false),
 skipAlgebraicResidualsEvaluation_(false),
 optimizeAlgebraicResidualsEvaluations_(true),
 skipNRIfInitialGuessOK_(true),
+skipAlgebraicRestoration_(false),
 nbLastTimeSimulated_(0) {
   minimalAcceptableStep_ = 0.1;
 }
@@ -105,6 +106,7 @@ SolverCommonFixedTimeStep::defineSpecificParametersCommon() {
   parameters_.insert(make_pair("printfl", ParameterSolver("printfl", VAR_TYPE_INT, optional)));
   parameters_.insert(make_pair("optimizeAlgebraicResidualsEvaluations", ParameterSolver("optimizeAlgebraicResidualsEvaluations", VAR_TYPE_BOOL, optional)));
   parameters_.insert(make_pair("skipNRIfInitialGuessOK", ParameterSolver("skipNRIfInitialGuessOK", VAR_TYPE_BOOL, optional)));
+  parameters_.insert(make_pair("skipAlgebraicRestoration", ParameterSolver("skipAlgebraicRestoration", VAR_TYPE_BOOL, optional)));
 }
 
 void
@@ -141,6 +143,9 @@ SolverCommonFixedTimeStep::setSolverSpecificParametersCommon() {
   const ParameterSolver& skipNRIfInitialGuessOK = findParameter("skipNRIfInitialGuessOK");
   if (skipNRIfInitialGuessOK.hasValue())
     skipNRIfInitialGuessOK_ = skipNRIfInitialGuessOK.getValue<bool>();
+  const ParameterSolver& skipAlgebraicRestoration = findParameter("skipAlgebraicRestoration");
+  if (skipAlgebraicRestoration.hasValue())
+    skipAlgebraicRestoration_ = skipAlgebraicRestoration.getValue<bool>();
 }
 
 void
@@ -463,6 +468,16 @@ SolverCommonFixedTimeStep::reinit() {
 
   if (modeChangeType < minimumModeChangeTypeForAlgebraicRestoration_)
     return;
+
+  // With skipAlgebraicRestoration the mode change is left to the next time step, as one below the
+  // threshold is: that step starts from the pre-event values under the new discrete state and solves
+  // the whole system, algebraic equations included. For a mode that changes the Jacobian, handleRoot
+  // has already forced a new one for that step, so what is saved is the restoration's own solve and
+  // its Jacobian evaluations.
+  if (skipAlgebraicRestoration_) {
+    Trace::info() << DYNLog(SolverFixedTimeStepAlgebraicRestorationSkipped, tSolve_, modeChangeType2Str(modeChangeType)) << Trace::endline;
+    return;
+  }
 
   const bool evaluateOnlyMode = optimizeReinitAlgebraicResidualsEvaluations_;
   skipAlgebraicResidualsEvaluation_ = false;

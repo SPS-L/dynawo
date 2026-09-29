@@ -47,6 +47,7 @@
       <parameter name="scsteptolAlg" valueType="DOUBLE" cardinality="1"/>
       <parameter name="scsteptolAlgInit" valueType="DOUBLE" cardinality="1"/>
       <parameter name="scsteptolAlgJ" valueType="DOUBLE" cardinality="1"/>
+      <parameter name="skipAlgebraicRestoration" valueType="BOOL" cardinality="1"/>
       <parameter name="skipNRIfInitialGuessOK" valueType="BOOL" cardinality="1"/>
     </parameters>
   </elements>

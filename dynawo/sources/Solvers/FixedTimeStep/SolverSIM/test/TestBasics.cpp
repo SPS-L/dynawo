@@ -50,7 +50,8 @@ INIT_XML_DYNAWO;
 
 namespace DYN {
 
-static SolverFactory::SolverPtr initSolver(bool optimizeAlgebraicResidualsEvaluations, bool skipNR, bool enableSilentZ) {
+static SolverFactory::SolverPtr initSolver(bool optimizeAlgebraicResidualsEvaluations, bool skipNR, bool enableSilentZ,
+    bool skipAlgebraicRestoration = false) {
   // Solver
   SolverFactory::SolverPtr solver = SolverFactory::createSolverFromLib("../dynawo_SolverSIM" + std::string(sharedLibraryExtension()));
 
@@ -62,6 +63,7 @@ static SolverFactory::SolverPtr initSolver(bool optimizeAlgebraicResidualsEvalua
   params->addParameter(parameters::ParameterFactory::newParameter("optimizeAlgebraicResidualsEvaluations", optimizeAlgebraicResidualsEvaluations));
   params->addParameter(parameters::ParameterFactory::newParameter("skipNRIfInitialGuessOK", skipNR));
   params->addParameter(parameters::ParameterFactory::newParameter("enableSilentZ", enableSilentZ));
+  params->addParameter(parameters::ParameterFactory::newParameter("skipAlgebraicRestoration", skipAlgebraicRestoration));
   solver->setParameters(params);
 
   return solver;
@@ -135,8 +137,9 @@ static std::shared_ptr<Model> initModel(const double& tStart, Modeler modeler, b
 }
 
 static std::pair<SolverFactory::SolverPtr, std::shared_ptr<Model> > initSolverAndModel(std::string dydFileName, std::string iidmFileName,
- std::string parFileName, const double& tStart, const double& tStop, bool optimizeAlgebraicResidualsEvaluations = true, bool skipNR = true) {
-  SolverFactory::SolverPtr solver = initSolver(optimizeAlgebraicResidualsEvaluations, skipNR, true);
+ std::string parFileName, const double& tStart, const double& tStop, bool optimizeAlgebraicResidualsEvaluations = true, bool skipNR = true,
+ bool skipAlgebraicRestoration = false) {
+  SolverFactory::SolverPtr solver = initSolver(optimizeAlgebraicResidualsEvaluations, skipNR, true, skipAlgebraicRestoration);
 
   // DYD
   boost::shared_ptr<DynamicData> dyd(new DynamicData());
@@ -494,6 +497,52 @@ TEST(SimulationTest, testSolverSIMAlgebraicMode) {
       ASSERT_DOUBLE_EQUALS_DYNAWO(z[i], z0[i]);
     }
   }
+}
+
+TEST(SimulationTest, testSolverSIMSkipAlgebraicRestoration) {
+  // Same case as testSolverSIMAlgebraicMode: a bus opens at t = 2 and raises ALGEBRAIC_J_UPDATE_MODE,
+  // which reaches the default restoration threshold. With skipAlgebraicRestoration the restoration
+  // does not run, so reinit leaves the values of the event step unchanged, and the next time step
+  // solves the whole system from them.
+  const double tStart = 0.;
+  const double tStop = 3.;
+  std::pair<SolverFactory::SolverPtr, std::shared_ptr<Model> > p = initSolverAndModel("jobs/solverTestDelta.dyd",
+  "jobs/solverTestDelta.iidm", "jobs/solverTestDelta.par", tStart, tStop, true, true, true);
+  const SolverFactory::SolverPtr& solver = p.first;
+  std::shared_ptr<Model> model = p.second;
+
+  solver->calculateIC(tStop);
+  double tCurrent = tStart;
+
+  solver->solve(tStop, tCurrent);
+  ASSERT_EQ(solver->getState().noFlagSet(), true);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(tCurrent, 1.);
+
+  // The algebraic mode change at t = 2
+  solver->solve(tStop, tCurrent);
+  ASSERT_EQ(solver->getState().getFlags(ModeChange), true);
+  ASSERT_EQ(model->getModeChangeType(), ALGEBRAIC_J_UPDATE_MODE);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(tCurrent, 2.);
+  const std::vector<double> yEvent(solver->getCurrentY());
+  const std::vector<double> ypEvent(solver->getCurrentYP());
+  ASSERT_DOUBLE_EQUALS_DYNAWO(yEvent[2], 0.94766640118361411549);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(yEvent[3], -0.09225375878818535547);
+
+  // No restoration: every value is left as the event step computed it
+  solver->reinit();
+  const std::vector<double>& y = solver->getCurrentY();
+  const std::vector<double>& yp = solver->getCurrentYP();
+  ASSERT_DOUBLE_EQUALS_DYNAWO(tCurrent, 2.);
+  for (size_t i = 0; i < yEvent.size(); ++i) {
+    ASSERT_DOUBLE_EQUALS_DYNAWO(y[i], yEvent[i]);
+    ASSERT_DOUBLE_EQUALS_DYNAWO(yp[i], ypEvent[i]);
+  }
+
+  // The next time step reaches the post-event solution that the restoration would have given
+  solver->solve(tStop, tCurrent);
+  ASSERT_DOUBLE_EQUALS_DYNAWO(tCurrent, 3.);
+  ASSERT_NEAR(solver->getCurrentY()[2], 0.92684239292330972138, 1e-6);
+  ASSERT_NEAR(solver->getCurrentY()[3], -0.12083482860045165197, 1e-6);
 }
 
 TEST(SimulationTest, testSolverSkipNR) {
@@ -1001,6 +1050,7 @@ TEST(ParametersTest, testParameters) {
   params->addParameter(parameters::ParameterFactory::newParameter("optimizeReinitAlgebraicResidualsEvaluations", false));
   params->addParameter(parameters::ParameterFactory::newParameter("skipNRIfInitialGuessOK", false));
   params->addParameter(parameters::ParameterFactory::newParameter("minimumModeChangeTypeForAlgebraicRestoration", std::string("ALGEBRAIC_J_UPDATE")));
+  params->addParameter(parameters::ParameterFactory::newParameter("skipAlgebraicRestoration", false));
   params->addParameter(parameters::ParameterFactory::newParameter("order1Prediction", false));
   params->addParameter(parameters::ParameterFactory::newParameter("printResiduals", false));
   params->addParameter(parameters::ParameterFactory::newParameter("printUnstableRoot", false));
@@ -1008,7 +1058,7 @@ TEST(ParametersTest, testParameters) {
   params->addParameter(parameters::ParameterFactory::newParameter("multipleStrategiesForAlgebraicRestoration", false));
   ASSERT_NO_THROW(solver->setParametersFromPARFile(params));
   ASSERT_NO_THROW(solver->setSolverParameters());
-  ASSERT_EQ(solver->getParametersMap().size(), 45);
+  ASSERT_EQ(solver->getParametersMap().size(), 46);
 }
 
 TEST(ParametersTest, testParametersInit) {
@@ -1059,7 +1109,7 @@ TEST(ParametersTest, testParametersInit) {
   params->addParameter(parameters::ParameterFactory::newParameter("multipleStrategiesForAlgebraicRestoration", false));
   ASSERT_NO_THROW(solver->setParametersFromPARFile(params));
   ASSERT_NO_THROW(solver->setSolverParameters());
-  ASSERT_EQ(solver->getParametersMap().size(), 45);
+  ASSERT_EQ(solver->getParametersMap().size(), 46);
 }
 
 TEST(SimulationTest, testSolverSIMTestPredictionOrder1) {

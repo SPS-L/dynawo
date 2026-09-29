@@ -249,6 +249,7 @@ IncoherentParamAlgebraicRestorationReinitMode =    parameter AlgebraicRestoratio
 // --> DYNSolverFixedTimeStep
 SolverFixedTimeStepInitOK     =             initialization of %1% : ok
 SolverFixedTimeStepInitGuessOK =            initial guess of the algebraic solver is accurate, following %1% iterations will be skipped until the next mode change
+SolverFixedTimeStepAlgebraicRestorationSkipped = algebraic restoration skipped at t = %1% (%2%), the next time step starts from the pre-event values
 // --> DYNSolverKIN
 SolverKINUnknownError         =             unknown error during KINSOL Solve
 SolverKINResidualNorm         =             newton iteration %1% : ||F(y_%1%)*Weight||_Infinity = %2% and ||F(y_%1%)*Weight||_2 = %3%
