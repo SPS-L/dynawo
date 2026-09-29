@@ -68,16 +68,15 @@ bool restartActive = false;
 long restartsTaken = 0;
 long restorationsBypassed = 0;
 
-// DYNAWO_STEP_TRACE: one stderr line per accepted step with the Newton iterations, residual and
-// Jacobian evaluations the step consumed (deltas of KINSOL's cumulative counters), the step size,
-// the number of attempts and the mode the step ended with.
+// DYNAWO_STEP_TRACE: one stderr line per accepted step with the step size, the number of attempts,
+// the mode the step ended with, and KINSOL's counters after the last Newton call of the step. KINSOL
+// resets those counters at every call, so they describe that call alone: they omit a failed attempt
+// and are stale on a step that skipped the Newton solve. For per-step totals use the cumulative
+// statistics lines the simulation writes to dynawo.log after every solve.
 bool stepTraceEnabled() {
   static const bool enabled = (std::getenv("DYNAWO_STEP_TRACE") != NULL);
   return enabled;
 }
-long traceNni = 0;
-long traceNre = 0;
-long traceNje = 0;
 
 }  // namespace
 
@@ -282,8 +281,7 @@ void SolverCommonFixedTimeStep::solveStepCommon(double /*tAim*/, double& tNxt) {
     long nni = 0, nre = 0, nje = 0;
     solverKINEuler_->updateStatistics(nni, nre, nje);
     std::fprintf(stderr, "DYNAWO_STEP_TRACE: t=%.6g h=%g nni=%ld nre=%ld nje=%ld attempts=%d mode=%d\n",
-                 tNxt, h_, nni - traceNni, nre - traceNre, nje - traceNje, counter, static_cast<int>(model_->getModeChangeType()));
-    traceNni = nni; traceNre = nre; traceNje = nje;
+                 tNxt, h_, nni, nre, nje, counter, static_cast<int>(model_->getModeChangeType()));
   }
 }
 
