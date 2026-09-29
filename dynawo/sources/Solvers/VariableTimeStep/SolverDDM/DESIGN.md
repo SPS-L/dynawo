@@ -41,6 +41,8 @@ The second mechanism is the one that moved seconds under the budget, and it did 
 
 The build is not justified by the campaign. What the campaign leaves for the fixed-step solver is the bypass on the full set of operating points and on the four that fail inside the restoration, and a study of the post-event burst on the 4000 s scenario.
 
+Both were done on 2026-09-29, sections 7 and 8 of the same report. On all 61 operating points the bypass takes the 57 that complete from 309 to 239 seconds over budget, puts 13 of them fully in real time where none was, and makes none worse; the four failing points fail identically with and without the restoration, in the fixed-step solver's step-reduction cascade after a line trip, with no restoration run before the failure, so the restoration is not where they fail. On the 4000 s scenario the post-event burst is Newton work common to both arms, six to ten iterations and a fresh Jacobian on the steps after an event whether or not the state was restored, so no restoration policy bounds it, and the second mechanism above would not remove it either. The bypass's own cost there is one failed step per run, and it is not a convergence failure: the second step after one event fails inside the residual evaluation, on an iterate the model cannot evaluate, and a doubled iteration limit changes nothing. That is the hazard the small post-event step of section 7 exists to cover, and the fixed-step measurement of its price stands. The verdict on the build is unchanged.
+
 ## 2. The system as Dynawo presents it to a solver
 
 ### 2.1 Layout of the global vectors
